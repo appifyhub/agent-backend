@@ -63,7 +63,7 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
     def test_does_nothing_when_not_using_credits(self):
         tool = _make_configured_tool(self.payer_id, uses_credits = False)
 
-        self.service.validate_pre_flight(tool, "a" * 4000)
+        self.service.validate_pre_flight(tool, input_text = "a" * 4000)
 
         self.mock_di.user_crud.get.assert_not_called()
 
@@ -75,7 +75,7 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
-            self.service.validate_pre_flight(tool)
+            self.service.validate_pre_flight(tool, max_output_tokens = 0)
 
         self.mock_di.user_crud.get.assert_called_once_with(self.payer_id)
 

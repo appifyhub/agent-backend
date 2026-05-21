@@ -21,6 +21,9 @@ class ChatSettingsPayloadTest(unittest.TestCase):
             user_chat_config = UserChatConfigPayload(
                 use_about_me = True,
                 use_custom_prompt = True,
+                max_output_tokens = 2000,
+                max_chat_history_depth = 30,
+                max_iterations = 20,
             ),
         )
 
@@ -39,6 +42,9 @@ class ChatSettingsPayloadTest(unittest.TestCase):
             user_chat_config = UserChatConfigPayload(
                 use_about_me = False,
                 use_custom_prompt = True,
+                max_output_tokens = 2000,
+                max_chat_history_depth = 30,
+                max_iterations = 20,
             ),
         )
 

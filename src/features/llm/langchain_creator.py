@@ -19,14 +19,14 @@ from util.error_codes import UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError
 
 
-def create(configured_tool: ConfiguredTool) -> BaseChatModel:
+def create(configured_tool: ConfiguredTool, max_tokens: int) -> BaseChatModel:
     definition = configured_tool.definition
     purpose = configured_tool.purpose
 
     model_args = {
         "model": definition.id,
         "temperature": __normalize_temperature(purpose.temperature_percent, definition.provider),
-        "max_tokens": purpose.max_output_tokens,
+        "max_tokens": max_tokens,
         "timeout": __get_timeout(purpose, definition),
         "max_retries": config.web_retries,
         "api_key": configured_tool.token,

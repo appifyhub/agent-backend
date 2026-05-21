@@ -23,5 +23,8 @@ def domain_to_api(chat: ChatConfig, membership: ChatMembership, is_own: bool) ->
         user_chat_config = UserChatConfigResponse(
             use_about_me = membership.use_about_me,
             use_custom_prompt = membership.use_custom_prompt,
+            max_output_tokens = membership.max_output_tokens,
+            max_chat_history_depth = membership.max_chat_history_depth,
+            max_iterations = membership.max_iterations,
         ),
     )
