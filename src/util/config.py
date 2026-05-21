@@ -32,7 +32,7 @@ class Config(metaclass = Singleton):
     web_retry_delay_s: int
     web_timeout_s: int
     max_users: int
-    max_chatbot_iterations: int
+    default_max_output_tokens: int
     website_url: str
     parent_organization: str
     agent_bot_name: str
@@ -134,7 +134,7 @@ class Config(metaclass = Singleton):
         def_web_retry_delay_s: int = 1,
         def_web_timeout_s: int = 10,
         def_max_users: int = 100,
-        def_max_chatbot_iterations: int = 20,
+        def_default_max_output_tokens: int = 3500,
         def_website_url: str = "https://agent.appifyhub.com",
         def_parent_organization: str = "AppifyHub",
         def_agent_bot_name: str = "The Agent",
@@ -207,7 +207,7 @@ class Config(metaclass = Singleton):
         self.web_retry_delay_s = int(self.__env("WEB_RETRY_DELAY_S", lambda: str(def_web_retry_delay_s)))
         self.web_timeout_s = int(self.__env("WEB_TIMEOUT_S", lambda: str(def_web_timeout_s)))
         self.max_users = int(self.__env("MAX_USERS", lambda: str(def_max_users)))
-        self.max_chatbot_iterations = int(self.__env("MAX_CHATBOT_ITERATIONS", lambda: str(def_max_chatbot_iterations)))
+        self.default_max_output_tokens = int(self.__env("DEFAULT_MAX_OUTPUT_TOKENS", lambda: str(def_default_max_output_tokens)))
         self.website_url = self.__env("WEBSITE_URL", lambda: def_website_url)
         self.parent_organization = self.__env("PARENT_ORGANIZATION", lambda: def_parent_organization)
         self.agent_bot_name = self.__env("AGENT_BOT_NAME", lambda: def_agent_bot_name)

@@ -6,8 +6,6 @@ from util.config import config
 from util.error_codes import INSUFFICIENT_CREDITS, USER_NOT_FOUND
 from util.errors import NotFoundError, ValidationError
 
-DEFAULT_MAX_OUTPUT_TOKENS = 2000
-
 
 class SpendingService:
 
@@ -19,7 +17,7 @@ class SpendingService:
     def validate_pre_flight(
         self,
         configured_tool: ConfiguredTool,
-        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        max_output_tokens: int = config.default_max_output_tokens,
         input_text: str = "",
         search_tokens: int = 0,
         runtime_seconds: float = 0.0,

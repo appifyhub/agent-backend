@@ -52,7 +52,7 @@ class ChatMapperTest(unittest.TestCase):
         # user_chat_config block
         self.assertTrue(api.user_chat_config.use_about_me)
         self.assertFalse(api.user_chat_config.use_custom_prompt)
-        self.assertEqual(api.user_chat_config.max_output_tokens, 2000)
+        self.assertEqual(api.user_chat_config.max_output_tokens, 3500)
         self.assertEqual(api.user_chat_config.max_chat_history_depth, 30)
         self.assertEqual(api.user_chat_config.max_iterations, 20)
 
