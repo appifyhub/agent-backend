@@ -45,6 +45,9 @@ class ChatMembershipService:
                     is_admin = is_admin,
                     use_about_me = existing.use_about_me,
                     use_custom_prompt = existing.use_custom_prompt,
+                    max_output_tokens = existing.max_output_tokens,
+                    max_chat_history_depth = existing.max_chat_history_depth,
+                    max_iterations = existing.max_iterations,
                 ),
             )
         return existing
@@ -83,6 +86,9 @@ class ChatMembershipService:
                         is_admin = True,
                         use_about_me = existing.use_about_me,
                         use_custom_prompt = existing.use_custom_prompt,
+                        max_output_tokens = existing.max_output_tokens,
+                        max_chat_history_depth = existing.max_chat_history_depth,
+                        max_iterations = existing.max_iterations,
                     ),
                 )
 
@@ -95,6 +101,9 @@ class ChatMembershipService:
                         is_admin = False,
                         use_about_me = existing.use_about_me,
                         use_custom_prompt = existing.use_custom_prompt,
+                        max_output_tokens = existing.max_output_tokens,
+                        max_chat_history_depth = existing.max_chat_history_depth,
+                        max_iterations = existing.max_iterations,
                     ),
                 )
 

@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.13.3
+  version: 5.14.1
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -1249,6 +1249,21 @@ components:
           type: boolean
           nullable: false
           description: Whether to apply this user's custom prompt instructions in agent interactions for this chat
+        max_output_tokens:
+          type: integer
+          nullable: false
+          minimum: 1
+          description: Maximum number of output tokens the LLM may generate per response (before tool-type multiplier)
+        max_chat_history_depth:
+          type: integer
+          nullable: false
+          minimum: 1
+          description: Maximum number of past messages to include in the LLM context window
+        max_iterations:
+          type: integer
+          nullable: false
+          minimum: 1
+          description: Maximum number of agent reasoning/tool-call iterations per request
       required:
         - use_about_me
         - use_custom_prompt
@@ -1337,9 +1352,27 @@ components:
           type: boolean
           nullable: false
           description: Whether this user's custom prompt instructions are applied in agent interactions for this chat
+        max_output_tokens:
+          type: integer
+          nullable: false
+          minimum: 1
+          description: Maximum number of output tokens the LLM may generate per response (before tool-type multiplier)
+        max_chat_history_depth:
+          type: integer
+          nullable: false
+          minimum: 1
+          description: Maximum number of past messages included in the LLM context window
+        max_iterations:
+          type: integer
+          nullable: false
+          minimum: 1
+          description: Maximum number of agent reasoning/tool-call iterations per request
       required:
         - use_about_me
         - use_custom_prompt
+        - max_output_tokens
+        - max_chat_history_depth
+        - max_iterations
 
     SponsorshipPayload:
       type: object

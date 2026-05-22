@@ -3,7 +3,7 @@ import unittest
 from features.external_tools.external_tool import CostEstimate, ToolType
 
 
-class CostEstimateGetMinimumForTest(unittest.TestCase):
+class ExternalToolTest(unittest.TestCase):
 
     def test_returns_zero_for_empty_estimate(self):
         estimate = CostEstimate()
@@ -59,7 +59,9 @@ class CostEstimateGetMinimumForTest(unittest.TestCase):
         self.assertEqual(result, 5.0)
 
     def test_adds_input_image_costs_by_size(self):
-        estimate = CostEstimate(input_image_1k = 1, input_image_2k = 2, input_image_4k = 4, input_image_8k = 8, input_image_12k = 12)
+        estimate = CostEstimate(
+            input_image_1k = 1, input_image_2k = 2, input_image_4k = 4, input_image_8k = 8, input_image_12k = 12,
+        )
 
         result = estimate.get_minimum_for(input_image_sizes = ["1k", "4k", "12k"])
 
@@ -119,31 +121,6 @@ class CostEstimateGetMinimumForTest(unittest.TestCase):
         )
 
         self.assertAlmostEqual(result, 20.0, places = 3)
-
-
-class ToolTypePropertiesTest(unittest.TestCase):
-
-    def test_max_output_tokens_for_llm_types(self):
-        self.assertEqual(ToolType.chat.max_output_tokens, 2000)
-        self.assertEqual(ToolType.reasoning.max_output_tokens, 4000)
-        self.assertEqual(ToolType.copywriting.max_output_tokens, 4000)
-        self.assertEqual(ToolType.vision.max_output_tokens, 3000)
-        self.assertEqual(ToolType.search.max_output_tokens, 4000)
-
-    def test_max_output_tokens_zero_for_non_llm_types(self):
-        non_llm = [
-            ToolType.hearing,
-            ToolType.images_gen,
-            ToolType.images_edit,
-            ToolType.embedding,
-            ToolType.api_fiat_exchange,
-            ToolType.api_crypto_exchange,
-            ToolType.api_twitter,
-            ToolType.deprecated,
-        ]
-        for tool_type in non_llm:
-            with self.subTest(tool_type = tool_type):
-                self.assertEqual(tool_type.max_output_tokens, 0)
 
     def test_temperature_percent_for_llm_types(self):
         self.assertEqual(ToolType.chat.temperature_percent, 0.25)

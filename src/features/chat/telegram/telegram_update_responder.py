@@ -1,12 +1,6 @@
-from itertools import chain
-
 from fastapi import HTTPException
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 
-from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage
-from db.schema.chat_message_attachment import ChatMessageAttachment
-from db.schema.user import User
 from db.sql import get_detached_session
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
@@ -28,15 +22,6 @@ def respond_to_update(update: Update) -> bool:
     with get_detached_session() as db:
         di = DI(db)
 
-        def map_to_langchain(message) -> HumanMessage | AIMessage:
-            author_db = di.user_crud.get(message.author_id)
-            author = User.model_validate(author_db) if author_db else None
-            return di.domain_langchain_mapper.map_to_langchain(
-                author = author,
-                message = message,
-                chat_type = ChatConfigDB.ChatType.telegram,
-            )
-
         resolved_domain_data: TelegramDataResolver.Result | None = None
         try:
             # map to storage models for persistence
@@ -52,31 +37,11 @@ def respond_to_update(update: Update) -> bool:
             di.inject_invoker(resolved_domain_data.author)
             di.inject_invoker_chat(resolved_domain_data.chat)
 
-            # fetch latest messages to prepare a response
-            past_messages_db = di.chat_message_crud.get_latest_chat_messages(
-                chat_id = resolved_domain_data.chat.chat_id,
-                limit = config.chat_history_depth,
-            )
-            past_messages = [ChatMessage.model_validate(chat_message) for chat_message in past_messages_db]
-            # now we flat-map to get attachments: chat_message_attachment_dao.get_by_message(chat_id, message_id)
-            # but we only have a singular get by 1 message, so we need to fetch all attachments for each message
-            past_attachments_db = list(
-                chain.from_iterable(
-                    di.chat_message_attachment_crud.get_by_message(message.chat_id, message.message_id)
-                    for message in past_messages
-                ),
-            )
-            past_attachment_ids = [ChatMessageAttachment.model_validate(attachment).id for attachment in past_attachments_db]
-            # DB sorting is date descending
-            langchain_messages = [map_to_langchain(message) for message in past_messages][::-1]
-
             # process the update using LLM; get instead of require to allow the first message to be sent
             tool = di.tool_choice_resolver.get_tool(ChatAgent.TOOL_TYPE, default_tool_for(ChatAgent.TOOL_TYPE))
             chat_agent = di.chat_agent(
-                messages = list(langchain_messages),
-                raw_last_message = domain_update.message.text,  # excludes the resolver formatting
+                raw_last_message = domain_update.message.text,
                 last_message_id = domain_update.message.message_id,
-                attachment_ids = past_attachment_ids,
                 configured_tool = tool,
             )
             answer = chat_agent.execute()
@@ -93,7 +58,7 @@ def respond_to_update(update: Update) -> bool:
 
             agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
             log.t(f"Finished responding to updates. \n[{agent.full_name}]: {answer.content}")
-            log.i(f"Used {len(past_messages_db)} and sent {sent_messages} messages")
+            log.i(f"Sent {sent_messages} messages")
             return True
         except Exception as e:
             log.e(f"Failed to ingest: {update}", e)

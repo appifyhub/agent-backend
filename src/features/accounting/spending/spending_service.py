@@ -17,6 +17,7 @@ class SpendingService:
     def validate_pre_flight(
         self,
         configured_tool: ConfiguredTool,
+        max_output_tokens: int = config.default_max_output_tokens,
         input_text: str = "",
         search_tokens: int = 0,
         runtime_seconds: float = 0.0,
@@ -27,7 +28,7 @@ class SpendingService:
             return
         estimated_cost = configured_tool.definition.cost_estimate.get_minimum_for(
             input_text = input_text,
-            max_output_tokens = configured_tool.purpose.max_output_tokens,
+            max_output_tokens = max_output_tokens,
             search_tokens = search_tokens,
             runtime_seconds = runtime_seconds,
             input_image_sizes = input_image_sizes,

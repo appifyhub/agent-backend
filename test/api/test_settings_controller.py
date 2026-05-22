@@ -496,6 +496,9 @@ class SettingsControllerTest(unittest.TestCase):
             user_chat_config = UserChatConfigPayload(
                 use_about_me = False,
                 use_custom_prompt = True,
+                max_output_tokens = 500,
+                max_chat_history_depth = 5,
+                max_iterations = 3,
             ),
         )
 
@@ -506,6 +509,9 @@ class SettingsControllerTest(unittest.TestCase):
         saved = self.mock_di.chat_membership_service.save.call_args[0][0]
         self.assertFalse(saved.use_about_me)
         self.assertTrue(saved.use_custom_prompt)
+        self.assertEqual(saved.max_output_tokens, 500)
+        self.assertEqual(saved.max_chat_history_depth, 5)
+        self.assertEqual(saved.max_iterations, 3)
 
     def test_save_chat_settings_failure_non_admin_chat_config_rejected(self):
         self.mock_authorization_service.validate_chat_admin.side_effect = AuthorizationError(

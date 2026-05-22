@@ -89,20 +89,20 @@ class ToolType(str, Enum):
     deprecated = "deprecated"  # deprecated tool type, for API compatibility
 
     @property
-    def max_output_tokens(self) -> int:
+    def output_token_multiplier(self) -> float:
         match self:
             case ToolType.chat:
-                return 2000
+                return 1.0
             case ToolType.reasoning:
-                return 4000
+                return 2.0
             case ToolType.copywriting:
-                return 4000
+                return 2.0
             case ToolType.vision:
-                return 3000
+                return 1.5
             case ToolType.search:
-                return 4000
+                return 2.0
             case _:
-                return 0
+                return 0.0
 
     @property
     def temperature_percent(self) -> float:

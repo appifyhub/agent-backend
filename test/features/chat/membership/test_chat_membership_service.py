@@ -74,6 +74,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 is_admin = True,
                 use_about_me = False,
                 use_custom_prompt = True,
+                max_output_tokens = 1000,
+                max_chat_history_depth = 10,
+                max_iterations = 7,
             ),
         )
 
@@ -83,6 +86,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertEqual(result.max_output_tokens, 1000)
+        self.assertEqual(result.max_chat_history_depth, 10)
+        self.assertEqual(result.max_iterations, 7)
 
     # === get_all_for_user ===
 
@@ -116,6 +122,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
             is_admin = True,
             use_about_me = False,
             use_custom_prompt = True,
+            max_output_tokens = 500,
+            max_chat_history_depth = 5,
+            max_iterations = 3,
         )
 
         result = self.service.save(membership)
@@ -125,19 +134,40 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertEqual(result.max_output_tokens, 500)
+        self.assertEqual(result.max_chat_history_depth, 5)
+        self.assertEqual(result.max_iterations, 3)
 
     def test_save_upserts_existing_row(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(user_id = self.user.id, chat_id = self.chat.chat_id, is_admin = False),
+            ChatMembership(
+                user_id = self.user.id,
+                chat_id = self.chat.chat_id,
+                is_admin = False,
+                max_output_tokens = 500,
+                max_chat_history_depth = 5,
+                max_iterations = 3,
+            ),
         )
 
         result = self.service.save(
-            ChatMembership(user_id = self.user.id, chat_id = self.chat.chat_id, is_admin = True),
+            ChatMembership(
+                user_id = self.user.id,
+                chat_id = self.chat.chat_id,
+                is_admin = True,
+                max_output_tokens = 8000,
+                max_chat_history_depth = 50,
+                max_iterations = 10,
+            ),
         )
 
         self.assertTrue(result.is_admin)
+        self.assertEqual(result.max_output_tokens, 8000)
+        self.assertEqual(result.max_chat_history_depth, 50)
+        self.assertEqual(result.max_iterations, 10)
         fetched = self.service.get(self.user.id, self.chat.chat_id)
         self.assertTrue(fetched.is_admin)
+        self.assertEqual(fetched.max_output_tokens, 8000)
 
     # === sync ===
 
@@ -252,6 +282,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
+                max_output_tokens = 500,
+                max_chat_history_depth = 5,
+                max_iterations = 3,
             ),
         )
 
@@ -260,6 +293,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result[0].is_admin)
         self.assertFalse(result[0].use_about_me)
         self.assertFalse(result[0].use_custom_prompt)
+        self.assertEqual(result[0].max_output_tokens, 500)
+        self.assertEqual(result[0].max_chat_history_depth, 5)
+        self.assertEqual(result[0].max_iterations, 3)
 
     def test_refresh_chat_memberships_demotes_stale_admin(self):
         self.sql.chat_membership_repo().save(

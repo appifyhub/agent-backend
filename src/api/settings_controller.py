@@ -226,8 +226,12 @@ class SettingsController:
         self, user: User, chat_config: ChatConfig, payload: UserChatConfigPayload,
     ) -> None:
         log.t(
-            f"  Updating user_chat_config: use_about_me={payload.use_about_me}, "
-            f"use_custom_prompt={payload.use_custom_prompt}",
+            "  Updating user_chat_config: "
+            f"use_about_me={payload.use_about_me}, "
+            f"use_custom_prompt={payload.use_custom_prompt}, "
+            f"max_output_tokens={payload.max_output_tokens}, "
+            f"max_chat_history_depth={payload.max_chat_history_depth}, "
+            f"max_iterations={payload.max_iterations}",
         )
         membership = self.__di.chat_membership_service.sync(user, chat_config)
         self.__di.chat_membership_service.save(
@@ -237,6 +241,9 @@ class SettingsController:
                 is_admin = membership.is_admin,
                 use_about_me = payload.use_about_me,
                 use_custom_prompt = payload.use_custom_prompt,
+                max_output_tokens = payload.max_output_tokens,
+                max_chat_history_depth = payload.max_chat_history_depth,
+                max_iterations = payload.max_iterations,
             ),
         )
 

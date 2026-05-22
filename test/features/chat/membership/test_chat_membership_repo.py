@@ -48,6 +48,9 @@ class ChatMembershipRepoTest(unittest.TestCase):
             is_admin = False,
             use_about_me = True,
             use_custom_prompt = True,
+            max_output_tokens = 500,
+            max_chat_history_depth = 5,
+            max_iterations = 3,
         )
 
         result = self.repo.save(membership)
@@ -57,6 +60,9 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertFalse(result.is_admin)
         self.assertTrue(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertEqual(result.max_output_tokens, 500)
+        self.assertEqual(result.max_chat_history_depth, 5)
+        self.assertEqual(result.max_iterations, 3)
 
     def test_get_returns_saved_membership(self):
         membership = ChatMembership(
@@ -65,6 +71,9 @@ class ChatMembershipRepoTest(unittest.TestCase):
             is_admin = True,
             use_about_me = False,
             use_custom_prompt = True,
+            max_output_tokens = 1000,
+            max_chat_history_depth = 10,
+            max_iterations = 7,
         )
         self.repo.save(membership)
 
@@ -74,6 +83,9 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertEqual(result.max_output_tokens, 1000)
+        self.assertEqual(result.max_chat_history_depth, 10)
+        self.assertEqual(result.max_iterations, 7)
 
     def test_save_upserts_existing_membership(self):
         original = ChatMembership(
@@ -82,6 +94,9 @@ class ChatMembershipRepoTest(unittest.TestCase):
             is_admin = False,
             use_about_me = True,
             use_custom_prompt = True,
+            max_output_tokens = 500,
+            max_chat_history_depth = 5,
+            max_iterations = 3,
         )
         self.repo.save(original)
 
@@ -91,14 +106,21 @@ class ChatMembershipRepoTest(unittest.TestCase):
             is_admin = True,
             use_about_me = False,
             use_custom_prompt = False,
+            max_output_tokens = 8000,
+            max_chat_history_depth = 50,
+            max_iterations = 10,
         )
         result = self.repo.save(updated)
 
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertFalse(result.use_custom_prompt)
+        self.assertEqual(result.max_output_tokens, 8000)
+        self.assertEqual(result.max_chat_history_depth, 50)
+        self.assertEqual(result.max_iterations, 10)
         fetched = self.repo.get(self.user.id, self.chat.chat_id)
         self.assertTrue(fetched.is_admin)
+        self.assertEqual(fetched.max_output_tokens, 8000)
 
     def test_get_all_for_user_returns_memberships(self):
         second_chat = self.sql.chat_config_crud().create(
