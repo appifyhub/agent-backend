@@ -78,7 +78,11 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.llm_tool_library = Mock(spec = LLMToolLibrary)
         # noinspection PyPropertyAccess
         self.mock_di.chat_membership_service = Mock()
-        self.mock_di.chat_membership_service.get.return_value = None
+        mock_membership = Mock()
+        mock_membership.max_chat_history_depth = 30
+        mock_membership.max_output_tokens = 500
+        mock_membership.max_iterations = 20
+        self.mock_di.chat_membership_service.get.return_value = mock_membership
         # noinspection PyPropertyAccess
         self.mock_di.chat_progress_notifier = Mock(return_value = Mock(spec = ChatProgressNotifier))
         # noinspection PyPropertyAccess
@@ -90,9 +94,9 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.llm_tool_library.tool_names = ["test_tool"]
 
         # noinspection PyTypeChecker
-        self.configured_tool = Mock(spec = ConfiguredTool)
+        self.configured_tool = Mock()
 
-        # Mock chat_message_crud so debounce sees our message as the latest by default
+        # Mock message/attachment fetching used in ChatAgent.__init__
         mock_latest_message = ChatMessage(
             message_id = "msg_123",
             author_id = self.user.id,
@@ -101,18 +105,21 @@ class ChatAgentTest(unittest.TestCase):
             chat_id = self.chat_config.chat_id,
         )
         self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [mock_latest_message]
+        self.mock_di.chat_message_attachment_crud.get_by_message.return_value = []
+        self.mock_di.user_crud.get.return_value = None
+        self.mock_di.domain_langchain_mapper.map_to_langchain.return_value = HumanMessage("Test message")
 
         self.sleep_patcher = patch("features.chat.chat_agent.time.sleep")
         self.mock_sleep = self.sleep_patcher.start()
 
         self.agent = ChatAgent(
-            messages = [HumanMessage("Test message")],
             raw_last_message = "Test message",
             last_message_id = "msg_123",
-            attachment_ids = [],
             configured_tool = self.configured_tool,
             di = self.mock_di,
         )
+        # reset so per-test assertions don't count the init call
+        self.mock_di.chat_message_crud.get_latest_chat_messages.reset_mock()
 
     def test_init_fetches_invoker_membership(self):
         self.mock_di.chat_membership_service.get.assert_called_once_with(
@@ -123,10 +130,8 @@ class ChatAgentTest(unittest.TestCase):
     def test_process_commands_no_api_key(self):
         # Create bot without configured_tool
         bot_no_key = ChatAgent(
-            messages = [HumanMessage("Test message")],
             raw_last_message = "Test message",
             last_message_id = "msg_123",
-            attachment_ids = [],
             configured_tool = None,
             di = self.mock_di,
         )
@@ -275,10 +280,8 @@ class ChatAgentTest(unittest.TestCase):
 
         # Create a new bot instance without configured_tool (simulating no API key)
         bot_no_key = ChatAgent(
-            messages = [HumanMessage("Test message")],
             raw_last_message = "Test message",
             last_message_id = "msg_123",
-            attachment_ids = [],
             configured_tool = None,
             di = self.mock_di,
         )
@@ -354,8 +357,8 @@ class ChatAgentTest(unittest.TestCase):
             is_handled = False,
             reply = None,
         )
-        mock_config.max_chatbot_iterations = 2
         mock_config.chat_debounce_delay_s = 0.0
+        self.agent._ChatAgent__max_iterations = 2
 
         # Create AI messages with tool_calls to simulate continued iterations
         tool_call = {"id": "1", "name": "test_tool", "args": {}}
@@ -437,7 +440,6 @@ class ChatAgentTest(unittest.TestCase):
         mock_should_reply.return_value = True
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 0.0
-        mock_config.max_chatbot_iterations = 20
         mock_tools_model = Mock()
         mock_tools_model.invoke.return_value = AIMessage("response")
         self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
@@ -456,7 +458,6 @@ class ChatAgentTest(unittest.TestCase):
         mock_should_reply.return_value = True
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
-        mock_config.max_chatbot_iterations = 20
         mock_tools_model = Mock()
         mock_tools_model.invoke.return_value = AIMessage("LLM response")
         self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
@@ -710,7 +711,7 @@ class ChatAgentTest(unittest.TestCase):
         mock_should_reply.return_value = True
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
-        mock_config.max_chatbot_iterations = 20
+
         newer_message_other_user = Mock()
         newer_message_other_user.message_id = "msg_999"
         newer_message_other_user.author_id = UUID(int = 999)
@@ -783,7 +784,7 @@ class ChatAgentTest(unittest.TestCase):
         self.chat_config.reply_chance_percent = 0
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
-        mock_config.max_chatbot_iterations = 20
+
         mock_config.chat_history_depth = 30
         self.agent._ChatAgent__raw_last_message = f"@{self.agent_user.telegram_username} actually this"
         our_message = Mock()
@@ -807,7 +808,7 @@ class ChatAgentTest(unittest.TestCase):
         self.chat_config.reply_chance_percent = 0
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
-        mock_config.max_chatbot_iterations = 20
+
         mock_config.chat_history_depth = 30
         self.agent._ChatAgent__raw_last_message = f"@{self.agent_user.telegram_username} hey bot"
         newer_from_other = Mock()
@@ -869,7 +870,7 @@ class ChatAgentTest(unittest.TestCase):
         self.chat_config.reply_chance_percent = 0
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
-        mock_config.max_chatbot_iterations = 20
+
         mock_config.chat_history_depth = 30
         self.agent._ChatAgent__raw_last_message = "last message in burst"
         our_message = ChatMessage(

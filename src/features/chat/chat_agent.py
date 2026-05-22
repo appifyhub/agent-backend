@@ -2,13 +2,17 @@ import random
 import re
 import time
 from dataclasses import dataclass
+from itertools import chain
 from typing import Any, TypeVar
 
 from langchain_core.language_models import LanguageModelInput
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
+from db.model.chat_config import ChatConfigDB
 from db.schema.chat_message import ChatMessage
+from db.schema.chat_message_attachment import ChatMessageAttachment
+from db.schema.user import User
 from di.di import DI
 from features.chat.command_processor import is_known_command
 from features.external_tools.configured_tool import ConfiguredTool
@@ -20,10 +24,11 @@ from util import log
 from util.config import config
 from util.error_codes import (
     LLM_UNEXPECTED_RESPONSE,
+    NOT_CHAT_MEMBER,
     TOOL_NOT_FOUND,
     UNEXPECTED_ERROR,
 )
-from util.errors import ExternalServiceError, InternalError, NotFoundError, ServiceError
+from util.errors import AuthorizationError, ExternalServiceError, InternalError, NotFoundError, ServiceError
 
 TMessage = TypeVar("TMessage", bound = BaseMessage)  # Generic message type
 TooledChatModel = Runnable[LanguageModelInput, BaseMessage]
@@ -43,33 +48,61 @@ class ChatAgent:
     __last_message_id: str
     __attachment_ids: list[str]
     __configured_tool: ConfiguredTool | None
+    __max_iterations: int
     __di: DI
 
     def __init__(
         self,
-        messages: list[BaseMessage],
         raw_last_message: str,
         last_message_id: str,
-        attachment_ids: list[str],
         configured_tool: ConfiguredTool | None,
         di: DI,
     ):
         target_chat = di.require_invoker_chat()
+        chat_type = di.require_invoker_chat_type()
         invoker_membership = di.chat_membership_service.get(di.invoker.id, target_chat.chat_id)
+        if invoker_membership is None:
+            raise AuthorizationError(f"User {di.invoker.id} is not a member of chat {target_chat.chat_id}", NOT_CHAT_MEMBER)
+
+        # initialize the basic properties
+        self.__raw_last_message = raw_last_message
+        self.__last_message_id = last_message_id
+        self.__max_iterations = invoker_membership.max_iterations
+        self.__configured_tool = configured_tool
+        self.__di = di
+
+        # load the chat history
+        past_messages_db = di.chat_message_crud.get_latest_chat_messages(
+            chat_id = target_chat.chat_id,
+            limit = invoker_membership.max_chat_history_depth,
+        )
+        past_messages = [ChatMessage.model_validate(message_db) for message_db in past_messages_db]
+        langchain_messages = [self.__map_to_langchain(di, message, chat_type) for message in past_messages][::-1]
+        self.__attachment_ids = [
+            ChatMessageAttachment.model_validate(attachment_db).id
+            for attachment_db in chain.from_iterable(
+                di.chat_message_attachment_crud.get_by_message(message.chat_id, message.message_id)
+                for message in past_messages
+            )
+        ]
         system_prompt = prompt_resolvers.chat(
             invoker = di.invoker,
             target_chat = target_chat,
             invoker_membership = invoker_membership,
             tools_list = str(di.llm_tool_library.tool_names),
         )
-        self.__messages = []
-        self.__messages.append(SystemMessage(system_prompt))
-        self.__messages.extend(messages)
-        self.__raw_last_message = raw_last_message
-        self.__last_message_id = last_message_id
-        self.__attachment_ids = attachment_ids
-        self.__configured_tool = configured_tool
-        self.__di = di
+        self.__messages = [SystemMessage(system_prompt)]
+        self.__messages.extend(langchain_messages)
+
+    @staticmethod
+    def __map_to_langchain(di: DI, message: ChatMessage, chat_type: ChatConfigDB.ChatType) -> HumanMessage | AIMessage:
+        author_db = di.user_crud.get(message.author_id)
+        author = User.model_validate(author_db) if author_db else None
+        return di.domain_langchain_mapper.map_to_langchain(
+            author = author,
+            message = message,
+            chat_type = chat_type,
+        )
 
     def __add_message(self, message: TMessage) -> TMessage:
         self.__messages.append(message)
@@ -145,8 +178,8 @@ class ChatAgent:
             progress_notifier.start()
             while True:
                 # don't blow up the costs
-                if iteration > config.max_chatbot_iterations:
-                    raise InternalError(f"Reached max iterations ({config.max_chatbot_iterations}), finishing", UNEXPECTED_ERROR)
+                if iteration > self.__max_iterations:
+                    raise InternalError(f"Reached max iterations ({self.__max_iterations}), finishing", UNEXPECTED_ERROR)
 
                 # run the actual LLM completion
                 llm_answer = (tools_model or base_model).invoke(self.__messages)

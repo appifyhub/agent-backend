@@ -3,13 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-# noinspection PyUnusedImports
-from langchain_core.messages import BaseMessage
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
 from db.schema.chat_config import ChatConfig
 from db.schema.user import User
+from util.config import config
 from util.error_codes import DI_DEPENDENCY_NOT_MET
 from util.errors import InternalError
 
@@ -585,16 +584,21 @@ class DI:
 
     # === Features & Dynamic Instances ===
 
-    def chat_langchain_model(self, configured_tool: ConfiguredTool) -> "ChatModelUsageTrackingDecorator":
+    def chat_langchain_model(
+        self,
+        configured_tool: ConfiguredTool,
+    ) -> "ChatModelUsageTrackingDecorator":
         from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
         from features.llm import langchain_creator
 
-        base_model = langchain_creator.create(configured_tool)
+        resolved_max_tokens = self.__resolve_max_output_tokens(configured_tool)
+        base_model = langchain_creator.create(configured_tool, resolved_max_tokens)
         return ChatModelUsageTrackingDecorator(
             base_model,
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            resolved_max_tokens,
         )
 
     def base_replicate_client(self, api_token: str, timeout_s: float | None = None) -> "ReplicateSDKClient":
@@ -752,14 +756,12 @@ class DI:
 
     def chat_agent(
         self,
-        messages: list[BaseMessage],
         raw_last_message: str,
         last_message_id: str,
-        attachment_ids: list[str],
         configured_tool: ConfiguredTool | None,
     ) -> "ChatAgent":
         from features.chat.chat_agent import ChatAgent
-        return ChatAgent(messages, raw_last_message, last_message_id, attachment_ids, configured_tool, self)
+        return ChatAgent(raw_last_message, last_message_id, configured_tool, self)
 
     def web_fetcher(
         self,
@@ -1014,3 +1016,13 @@ class DI:
             include_platform_handle, include_full_name,
             request_type_str, configured_tool, self,
         )
+
+    # === Private Helpers ===
+
+    def __resolve_max_output_tokens(self, configured_tool: ConfiguredTool) -> int:
+        multiplier = configured_tool.purpose.output_token_multiplier
+        if self._invoker is not None and self._invoker_chat is not None:
+            membership = self.chat_membership_service.get(self._invoker.id, self._invoker_chat.chat_id)
+            if membership is not None:
+                return int(membership.max_output_tokens * multiplier)
+        return int(config.default_max_output_tokens * multiplier)

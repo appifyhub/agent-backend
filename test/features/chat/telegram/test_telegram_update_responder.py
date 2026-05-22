@@ -134,6 +134,23 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
         self.di.chat_message_crud.save.assert_not_called()
 
+    def test_no_author_returns_false(self):
+        self.di.telegram_domain_mapper.map_update.return_value = Mock(
+            spec = TelegramDomainMapper.Result,
+            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
+        )
+        self.di.telegram_data_resolver.resolve.return_value = Mock(
+            spec = TelegramDataResolver.Result,
+            chat = Mock(spec = ChatConfig, chat_id = "123"),
+            author = None,
+        )
+
+        result = respond_to_update(self.update)
+
+        self.assertFalse(result)
+        self.di.chat_agent.assert_not_called()
+        self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+
     def test_general_exception(self):
         from collections import namedtuple
         with patch("features.chat.telegram.telegram_update_responder.silent", lambda f: f):

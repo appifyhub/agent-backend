@@ -165,8 +165,8 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
             error_message = "Test error"
             ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
             error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
-            # Raise exception during message fetching, after resolved_domain_data is set
-            self.di.chat_message_crud.get_latest_chat_messages.side_effect = Exception(error_message)
+            # Raise exception during agent creation, after resolved_domain_data is set
+            self.di.chat_agent.side_effect = Exception(error_message)
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
             self.di.whatsapp_bot_sdk.send_text_message = Mock()
 

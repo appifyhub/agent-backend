@@ -38,6 +38,7 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            max_tokens = 4096,
         )
 
     def test_invoke_tracks_usage(self):
@@ -175,6 +176,7 @@ class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            max_tokens = 4096,
         )
 
     def test_invoke_tracks_usage(self):
