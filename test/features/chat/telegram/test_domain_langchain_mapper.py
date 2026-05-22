@@ -8,7 +8,7 @@ from db.model.chat_config import ChatConfigDB
 from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
-from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper
+from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
 from features.integrations.integrations import resolve_agent_user
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 
@@ -142,3 +142,119 @@ class DomainLangchainMapperTest(unittest.TestCase):
         result1 = self.mapper.map_bot_message_to_storage(self.chat, message)
         result2 = self.mapper.map_bot_message_to_storage(self.chat, message)
         self.assertNotEqual(result1[0].message_id, result2[0].message_id)
+
+    def test_map_bot_message_to_storage_preserves_code_block(self):
+        content = f"Here's code:{CHAT_MESSAGE_DELIMITER}```python\nx = 1{CHAT_MESSAGE_DELIMITER}y = 2\n```{CHAT_MESSAGE_DELIMITER}Done!"
+        message = AIMessage(content = content)
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0].text, "Here's code:")
+        self.assertEqual(result[1].text, f"```python\nx = 1{CHAT_MESSAGE_DELIMITER}y = 2\n```")
+        self.assertEqual(result[2].text, "Done!")
+
+    def test_map_bot_message_to_storage_preserves_list(self):
+        D = CHAT_MESSAGE_DELIMITER
+        content = f"Steps:{D}- First{D}- Second{D}- Third{D}That's it."
+        message = AIMessage(content = content)
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0].text, "Steps:")
+        self.assertEqual(result[1].text, f"- First{CHAT_MESSAGE_DELIMITER}- Second{CHAT_MESSAGE_DELIMITER}- Third")
+        self.assertEqual(result[2].text, "That's it.")
+
+    def test_map_bot_message_to_storage_closes_unclosed_code_block(self):
+        content = f"Here:{CHAT_MESSAGE_DELIMITER}```python\nprint('hi')"
+        message = AIMessage(content = content)
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].text, "Here:")
+        self.assertEqual(result[1].text, "```python\nprint('hi')\n```")
+
+    def test_map_bot_message_to_storage_closes_unclosed_tilde_fence(self):
+        content = "~~~\nsome code"
+        message = AIMessage(content = content)
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].text, "~~~\nsome code\n~~~")
+
+
+class SplitPreservingBlocksTest(unittest.TestCase):
+
+    D = CHAT_MESSAGE_DELIMITER
+
+    def test_plain_split(self):
+        result = _split_preserving_blocks(f"A{self.D}B{self.D}C", self.D)
+        self.assertEqual(result, ["A", "B", "C"])
+
+    def test_no_delimiter(self):
+        result = _split_preserving_blocks("Just one message", self.D)
+        self.assertEqual(result, ["Just one message"])
+
+    def test_empty_string(self):
+        result = _split_preserving_blocks("", self.D)
+        self.assertEqual(result, [""])
+
+    def test_code_block_with_blank_lines(self):
+        content = f"Intro{self.D}```\nline1{self.D}line2\n```{self.D}Outro"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Intro", f"```\nline1{self.D}line2\n```", "Outro"])
+
+    def test_code_block_with_language(self):
+        content = f"Check this:{self.D}```python\ndef foo():\n    pass{self.D}def bar():\n    pass\n```{self.D}Nice."
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, [
+            "Check this:",
+            f"```python\ndef foo():\n    pass{self.D}def bar():\n    pass\n```",
+            "Nice.",
+        ])
+
+    def test_tilde_code_fence(self):
+        content = f"Start{self.D}~~~\ncode{self.D}more\n~~~{self.D}End"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Start", f"~~~\ncode{self.D}more\n~~~", "End"])
+
+    def test_unordered_list_dash(self):
+        content = f"Items:{self.D}- A{self.D}- B{self.D}- C{self.D}Done"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Items:", f"- A{self.D}- B{self.D}- C", "Done"])
+
+    def test_unordered_list_asterisk(self):
+        content = f"Items:{self.D}* A{self.D}* B{self.D}Done"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Items:", f"* A{self.D}* B", "Done"])
+
+    def test_ordered_list(self):
+        content = f"Steps:{self.D}1. First{self.D}2. Second{self.D}3. Third{self.D}End"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Steps:", f"1. First{self.D}2. Second{self.D}3. Third", "End"])
+
+    def test_ordered_list_with_paren(self):
+        content = f"Steps:{self.D}1) First{self.D}2) Second{self.D}End"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Steps:", f"1) First{self.D}2) Second", "End"])
+
+    def test_multiline_list_items(self):
+        content = f"List:{self.D}- Item one\n  with detail{self.D}- Item two{self.D}End"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["List:", f"- Item one\n  with detail{self.D}- Item two", "End"])
+
+    def test_list_not_merged_with_intro(self):
+        content = f"Here's the plan:{self.D}- Step one{self.D}- Step two"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Here's the plan:", f"- Step one{self.D}- Step two"])
+
+    def test_code_block_then_list(self):
+        content = f"Code:{self.D}```\na{self.D}b\n```{self.D}List:{self.D}- X{self.D}- Y{self.D}Bye"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, [
+            "Code:",
+            f"```\na{self.D}b\n```",
+            "List:",
+            f"- X{self.D}- Y",
+            "Bye",
+        ])
+
+    def test_unclosed_code_block_keeps_rest_together(self):
+        content = f"Oops:{self.D}```\ncode{self.D}more code{self.D}still going"
+        result = _split_preserving_blocks(content, self.D)
+        self.assertEqual(result, ["Oops:", f"```\ncode{self.D}more code{self.D}still going"])

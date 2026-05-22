@@ -1,4 +1,5 @@
 import random
+import re
 from datetime import datetime
 from uuid import UUID
 
@@ -11,6 +12,71 @@ from db.schema.user import User
 from features.integrations.integrations import is_the_agent, resolve_agent_user, resolve_external_handle, resolve_external_id
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 from util import log
+
+_CODE_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_UNORDERED_LIST_RE = re.compile(r"^\s*[-*+]\s")
+_ORDERED_LIST_RE = re.compile(r"^\s*\d+[.)]\s")
+
+
+def _is_list_item(line: str) -> bool:
+    return bool(_UNORDERED_LIST_RE.match(line) or _ORDERED_LIST_RE.match(line))
+
+
+def _unclosed_fence_marker(text: str) -> str | None:
+    open_fence = None
+    for line in text.split("\n"):
+        match = _CODE_FENCE_RE.match(line)
+        if match:
+            marker = match.group(1)
+            if open_fence is None:
+                open_fence = marker
+            elif marker[0] == open_fence[0]:
+                open_fence = None
+    return open_fence
+
+
+def _is_in_code_block(text: str) -> bool:
+    return _unclosed_fence_marker(text) is not None
+
+
+def _ends_in_list_context(text: str) -> bool:
+    for line in reversed(text.split("\n")):
+        if not line.strip():
+            continue
+        if _is_list_item(line):
+            return True
+        if line.startswith(("  ", "\t")):
+            continue
+        return False
+    return False
+
+
+def _starts_with_list_item(text: str) -> bool:
+    for line in text.split("\n"):
+        if line.strip():
+            return _is_list_item(line)
+    return False
+
+
+def _split_preserving_blocks(content: str, delimiter: str) -> list[str]:
+    parts = content.split(delimiter)
+    if len(parts) <= 1:
+        return parts
+
+    result = []
+    current = parts[0]
+
+    for part in parts[1:]:
+        if _is_in_code_block(current) or (
+            _ends_in_list_context(current) and _starts_with_list_item(part)
+        ):
+            current += delimiter + part
+        else:
+            result.append(current)
+            current = part
+
+    result.append(current)
+    return result
 
 
 class DomainLangchainMapper:
@@ -31,10 +97,12 @@ class DomainLangchainMapper:
         log.t(f"Mapping AI message '{message}' to storage message")
         result: list[ChatMessageSave] = []
         content = self.__map_bot_message_text(message)
-        parts = content.split(CHAT_MESSAGE_DELIMITER)
+        parts = _split_preserving_blocks(content, CHAT_MESSAGE_DELIMITER)
         for part in parts:
             if not part:
                 continue
+            if fence := _unclosed_fence_marker(part):
+                part += f"\n{fence}"
             sent_at = datetime.now()
             agent_user = resolve_agent_user(chat.chat_type)
             storage_message = ChatMessageSave(
