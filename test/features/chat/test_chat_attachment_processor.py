@@ -12,12 +12,32 @@ from db.schema.chat_config import ChatConfig
 from db.schema.chat_message_attachment import ChatMessageAttachment
 from db.schema.tools_cache import ToolsCache
 from db.schema.user import User
-from features.chat.chat_attachment_processor import CACHE_TTL, ChatAttachmentProcessor
+from features.chat.chat_attachment_processor import CACHE_TTL, SEARCH_THRESHOLD_TOKENS, ChatAttachmentProcessor
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.url_attachment_resolver import UrlAttachmentResolver
+from features.documents.docx_loader import DocxLoader
+from features.documents.plain_text_loader import PlainTextLoader
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from util.config import config
 from util.errors import NotFoundError, ValidationError
+
+
+def _make_attachment(
+    id: str = "1",
+    mime_type: str = "image/png",
+    extension: str = "png",
+    url: str = "http://test.com/file.png",
+) -> ChatMessageAttachment:
+    return ChatMessageAttachment(
+        id = id,
+        external_id = f"external_{id}",
+        chat_id = UUID(int = 1),
+        message_id = id,
+        mime_type = mime_type,
+        extension = extension,
+        last_url = url,
+        last_url_until = int((datetime.now() + timedelta(days = 1)).timestamp()),
+    )
 
 
 class ChatAttachmentProcessorTest(unittest.TestCase):
@@ -76,16 +96,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
             language_iso_code = "es",
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        self.attachment = ChatMessageAttachment(
-            id = "1",
-            external_id = "telegram_file_1",
-            chat_id = UUID(int = 1),
-            message_id = "1",
-            mime_type = "image/png",
-            extension = "png",
-            last_url = "http://test.com/image.png",
-            last_url_until = int((datetime.now() + timedelta(days = 1)).timestamp()),
-        )
+        self.attachment = _make_attachment()
 
         self.mock_user_crud.get.return_value = self.invoker_user.model_dump()
         self.mock_chat_config_crud.get.return_value = self.chat_config.model_dump()
@@ -94,10 +105,13 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.mock_cache_crud.create_key.return_value = "test_cache_key"
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
 
-        # Use real SDK/resolver instances so the code under test returns real models
         self.mock_di.telegram_bot_sdk = TelegramBotSDK(self.mock_di)
         self.mock_di.platform_bot_sdk = MagicMock(return_value = PlatformBotSDK(self.mock_di))
         self.mock_di.url_attachment_resolver.side_effect = lambda url: UrlAttachmentResolver(url, self.mock_di)
+        self.mock_di.plain_text_loader.side_effect = lambda job_id, document_url: PlainTextLoader(job_id, document_url)
+        self.mock_di.docx_loader.side_effect = lambda job_id, document_url: DocxLoader(job_id, document_url)
+
+    # ── Image cache tests (unchanged behavior) ────────────────────────────
 
     @requests_mock.Mocker()
     def test_execute_with_cache_hit(self, m: requests_mock.Mocker):
@@ -117,7 +131,6 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         result = resolver.execute()
 
         self.assertEqual(result, ChatAttachmentProcessor.Result.success)
-        # Use the public get_result property if available, otherwise check the result length
         self.assertEqual(len(resolver.result), 1)
         self.assertEqual(resolver.result[0]["text_content"], self.cached_content)
         self.mock_di.computer_vision_analyzer.assert_not_called()
@@ -147,6 +160,8 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.assertEqual(resolver.result[0]["text_content"], self.cached_content)
         mock_cv_instance.execute.assert_called_once()
         self.mock_cache_crud.save.assert_called_once()
+
+    # ── Validation / not-found tests (unchanged behavior) ─────────────────
 
     def test_empty_attachment_ids_list(self):
         with self.assertRaises(ValidationError) as context:
@@ -180,17 +195,11 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
             )
         self.assertIn("not found in DB", str(context.exception))
 
+    # ── Audio path (unchanged behavior) ──────────────────────────────────
+
     @requests_mock.Mocker()
     def test_fetch_text_content_with_audio(self, m: requests_mock.Mocker):
-        audio_attachment = ChatMessageAttachment(
-            id = "2",
-            chat_id = UUID(int = 1),
-            message_id = "2",
-            mime_type = "audio/mpeg",
-            extension = "mp3",
-            last_url = "http://test.com/audio.mp3",
-            last_url_until = int((datetime.now() + timedelta(days = 1)).timestamp()),
-        )
+        audio_attachment = _make_attachment(id = "2", mime_type = "audio/mpeg", extension = "mp3", url = "http://test.com/audio.mp3")
         m.get(str(audio_attachment.last_url), content = b"audio data", status_code = 200)
 
         mock_audio_instance = MagicMock()
@@ -209,45 +218,11 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         mock_audio_instance.execute.assert_called_once()
 
     @requests_mock.Mocker()
-    def test_fetch_text_content_with_pdf_document(self, m: requests_mock.Mocker):
-        pdf_attachment = ChatMessageAttachment(
-            id = "4",
-            chat_id = UUID(int = 1),
-            message_id = "4",
-            mime_type = "application/pdf",
-            extension = "pdf",
-            last_url = "http://test.com/document.pdf",
-            last_url_until = int((datetime.now() + timedelta(days = 1)).timestamp()),
-        )
-        m.get(str(pdf_attachment.last_url), content = b"pdf data", status_code = 200)
-
-        mock_document_instance = MagicMock()
-        mock_document_instance.execute.return_value = "Document search results"
-        self.mock_di.document_search.return_value = mock_document_instance
-
-        resolver = ChatAttachmentProcessor(
-            additional_context = "context",
-            attachment_ids = ["4"],
-            urls = None,
-            di = self.mock_di,
-        )
-        content = resolver.fetch_text_content(pdf_attachment)
-
-        self.assertEqual(content, "Document search results")
-        mock_document_instance.execute.assert_called_once()
-
-    @requests_mock.Mocker()
     def test_fetch_text_content_with_unsupported_type(self, m: requests_mock.Mocker):
-        unsupported_attachment = ChatMessageAttachment(
-            id = "3",
-            chat_id = UUID(int = 1),
-            message_id = "3",
-            mime_type = "application/xxx",
-            extension = "xxx",
-            last_url = "http://test.com/document.xxx",
-            last_url_until = int((datetime.now() + timedelta(days = 1)).timestamp()),
+        unsupported_attachment = _make_attachment(
+            id = "3", mime_type = "application/xxx", extension = "xxx", url = "http://test.com/file.xxx",
         )
-        m.get(str(unsupported_attachment.last_url), content = b"pdf data", status_code = 200)
+        m.get(str(unsupported_attachment.last_url), content = b"data", status_code = 200)
 
         resolver = ChatAttachmentProcessor(
             additional_context = "context",
@@ -257,6 +232,277 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         )
         content = resolver.fetch_text_content(unsupported_attachment)
         self.assertIsNone(content)
+
+    # ── Document path: raw strategy ───────────────────────────────────────
+
+    @requests_mock.Mocker()
+    def test_execute_with_plain_text_raw_strategy(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "5", mime_type = "text/plain", extension = "txt", url = "http://test.com/notes.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        small_text = "Hello world"
+        m.get(str(txt_attachment.last_url), content = small_text.encode("utf-8"), status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["5"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        content = resolver.result[0]["text_content"]
+        self.assertIn(small_text, content)
+        self.mock_di.document_search.assert_not_called()
+
+    @requests_mock.Mocker()
+    def test_execute_with_markdown_raw_strategy(self, m: requests_mock.Mocker):
+        md_attachment = _make_attachment(id = "6", mime_type = "text/markdown", extension = "md", url = "http://test.com/readme.md")
+        self.mock_chat_message_attachment_crud.get.return_value = md_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = md_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        m.get(str(md_attachment.last_url), content = b"# Title\n\nSome content.", status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["6"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        self.assertIn("# Title", resolver.result[0]["text_content"])
+        self.mock_di.document_search.assert_not_called()
+
+    # ── Document path: search strategy ───────────────────────────────────
+
+    @requests_mock.Mocker()
+    def test_execute_with_plain_text_search_strategy(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "7", mime_type = "text/plain", extension = "txt", url = "http://test.com/large.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        large_text = "x" * (SEARCH_THRESHOLD_TOKENS * 3 + 3)
+        m.get(str(txt_attachment.last_url), content = large_text.encode("utf-8"), status_code = 200)
+
+        mock_search_instance = MagicMock()
+        mock_search_instance.execute.return_value = "Search result summary"
+        self.mock_di.document_search.return_value = mock_search_instance
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["7"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        self.assertEqual(resolver.result[0]["text_content"], "Search result summary")
+        mock_search_instance.execute.assert_called_once()
+
+    @requests_mock.Mocker()
+    def test_execute_document_uses_search_strategy_at_threshold_boundary(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "8", mime_type = "text/plain", extension = "txt", url = "http://test.com/border.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        # exactly at threshold (tokens = threshold, so raw applies)
+        at_threshold_text = "x" * (SEARCH_THRESHOLD_TOKENS * 3)
+        m.get(str(txt_attachment.last_url), content = at_threshold_text.encode("utf-8"), status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["8"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        # at exactly threshold, raw strategy applies - document_search not called
+        self.mock_di.document_search.assert_not_called()
+
+    # ── Document path: empty extraction ──────────────────────────────────
+
+    @requests_mock.Mocker()
+    def test_execute_with_empty_document_returns_no_text_message(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "9", mime_type = "text/plain", extension = "txt", url = "http://test.com/empty.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        m.get(str(txt_attachment.last_url), content = b"   \n\n  ", status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["9"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        self.assertIn("no extractable text", resolver.result[0]["text_content"])
+        self.mock_di.document_search.assert_not_called()
+
+    # ── Document path: error handling ─────────────────────────────────────
+
+    @requests_mock.Mocker()
+    def test_execute_with_corrupt_document_stores_error_per_attachment(self, m: requests_mock.Mocker):
+        bad_attachment = _make_attachment(
+            id = "10",
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            extension = "docx",
+            url = "http://test.com/corrupt.docx",
+        )
+        self.mock_chat_message_attachment_crud.get.return_value = bad_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = bad_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        m.get(str(bad_attachment.last_url), content = b"not a zip", status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["10"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.failed)
+        self.assertIsNotNone(resolver.result[0]["error"])
+        self.assertNotEqual(resolver.result[0]["error"], "<none>")
+
+    @requests_mock.Mocker()
+    def test_execute_one_bad_one_good_attachment_returns_partial(self, m: requests_mock.Mocker):
+        image_attachment = _make_attachment(id = "1", mime_type = "image/png", extension = "png", url = "http://test.com/img.png")
+        bad_attachment = _make_attachment(
+            id = "11",
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            extension = "docx",
+            url = "http://test.com/bad.docx",
+        )
+
+        def get_by_id(id):
+            if id == "1":
+                return image_attachment.model_dump()
+            if id == "11":
+                return bad_attachment.model_dump()
+            return None
+
+        def save_by_model(model):
+            if model.id == "1":
+                return image_attachment.model_dump()
+            if model.id == "11":
+                return bad_attachment.model_dump()
+            return model.model_dump()
+
+        self.mock_chat_message_attachment_crud.get.side_effect = get_by_id
+        self.mock_chat_message_attachment_crud.save.side_effect = save_by_model
+        self.mock_cache_crud.get.return_value = None
+        m.get(str(image_attachment.last_url), content = b"img data", status_code = 200)
+        m.get(str(bad_attachment.last_url), content = b"not a zip", status_code = 200)
+
+        mock_cv_instance = MagicMock()
+        mock_cv_instance.execute.return_value = "Image description"
+        self.mock_di.computer_vision_analyzer.return_value = mock_cv_instance
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["1", "11"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.partial)
+        results_by_id = {r["id"]: r for r in resolver.result}
+        self.assertEqual(results_by_id["1"]["text_content"], "Image description")
+        self.assertNotEqual(results_by_id["11"]["error"], "<none>")
+
+    # ── Cache key includes strategy ───────────────────────────────────────
+
+    @requests_mock.Mocker()
+    def test_cache_key_includes_strategy_on_save(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "12", mime_type = "text/plain", extension = "txt", url = "http://test.com/doc.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        m.get(str(txt_attachment.last_url), content = b"Short content", status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "ctx",
+            attachment_ids = ["12"],
+            urls = None,
+            di = self.mock_di,
+        )
+        resolver.execute()
+
+        create_key_calls = [str(call) for call in self.mock_cache_crud.create_key.call_args_list]
+        self.assertTrue(
+            any("raw" in call for call in create_key_calls),
+            f"Expected '{'raw'}' in cache key call args: {create_key_calls}",
+        )
+
+    @requests_mock.Mocker()
+    def test_raw_and_search_cache_keys_do_not_collide(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "13", mime_type = "text/plain", extension = "txt", url = "http://test.com/small.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        m.get(str(txt_attachment.last_url), content = b"Small text", status_code = 200)
+
+        captured_keys: list[str] = []
+
+        def capture_key(prefix, identifier):
+            captured_keys.append(identifier)
+            return f"{prefix}-{identifier}"
+
+        self.mock_cache_crud.create_key.side_effect = capture_key
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "ctx",
+            attachment_ids = ["13"],
+            urls = None,
+            di = self.mock_di,
+        )
+        resolver.execute()
+
+        raw_keys = [k for k in captured_keys if "raw" in k]
+        search_keys = [k for k in captured_keys if "search" in k]
+        # save uses raw; lookup probes both - no raw key should equal a search key
+        self.assertTrue(len(raw_keys) > 0)
+        for rk in raw_keys:
+            for sk in search_keys:
+                self.assertNotEqual(rk, sk)
+
+    # ── Encoding fallback ─────────────────────────────────────────────────
+
+    @requests_mock.Mocker()
+    def test_execute_with_latin1_encoded_file(self, m: requests_mock.Mocker):
+        txt_attachment = _make_attachment(id = "14", mime_type = "text/plain", extension = "txt", url = "http://test.com/latin1.txt")
+        self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
+        self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
+        self.mock_cache_crud.get.return_value = None
+        latin1_bytes = "Héllo Wörld".encode("latin-1")
+        m.get(str(txt_attachment.last_url), content = latin1_bytes, status_code = 200)
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["14"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        # should succeed with replacement chars, not raise
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        content = resolver.result[0]["text_content"]
+        self.assertIsNotNone(content)
+
+    # ── URL-resolved attachment tests (unchanged behavior) ─────────────────
 
     @requests_mock.Mocker()
     def test_url_resolved_attachment_skips_db_lookup(self, m: requests_mock.Mocker):
@@ -280,7 +526,6 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.assertEqual(result, ChatAttachmentProcessor.Result.success)
         self.assertEqual(len(resolver.result), 1)
         self.assertTrue(resolver.result[0]["id"].startswith("url-"))
-        # DB lookup must not be called for URL-resolved attachments
         self.mock_chat_message_attachment_crud.get.assert_not_called()
 
     @requests_mock.Mocker()

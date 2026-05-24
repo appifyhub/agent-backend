@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 import requests
+from langchain_core.documents import Document
 
 from db.schema.chat_message_attachment import ChatMessageAttachment
 from db.schema.tools_cache import ToolsCache, ToolsCacheSave
@@ -19,6 +20,7 @@ from util.functions import digest_md5
 
 CACHE_PREFIX = "attachments-analyzer"
 CACHE_TTL = timedelta(weeks = 13)
+SEARCH_THRESHOLD_TOKENS = 15_000
 
 
 class ChatAttachmentProcessor:
@@ -107,7 +109,7 @@ class ChatAttachmentProcessor:
         log.i(f"Resolution result: {result}")
         return result
 
-    def __process_images(self, image_attachments: list[ChatMessageAttachment], indices: list[int]) -> None:
+    def __process_images(self, image_attachments: list[ChatMessageAttachment], indices: list[int]):
         # use a group cache key based on sorted attachment IDs + context
         sorted_ids = ",".join(sorted(a.id for a in image_attachments))
         additional_content_hash = digest_md5(self.__additional_context) if self.__additional_context else "*"
@@ -155,34 +157,122 @@ class ChatAttachmentProcessor:
             for i in indices:
                 self.__errors[i] = f"Error resolving contents for image group '{sorted_ids}': {str(e)}"
 
-    def __process_single(self, attachment: ChatMessageAttachment, index: int) -> None:
-        # assuming the URL will never change... users might ask more questions about the same attachment
+    def __process_single(self, attachment: ChatMessageAttachment, index: int):
+        is_document = (
+            attachment.mime_type in KNOWN_DOCS_FORMATS.values()
+            or attachment.extension in KNOWN_DOCS_FORMATS.keys()
+        )
         additional_content_hash = digest_md5(self.__additional_context) if self.__additional_context else "*"
-        unique_identifier = f"{attachment.id}-{additional_content_hash}"
-        cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX, unique_identifier)
-        cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
-            if not cache_entry.is_expired():
-                log.t(f"Cache hit for '{cache_key}'")
-                self.__contents[index] = cache_entry.value
-                return
-            log.t(f"Cache expired for '{cache_key}'")
-        log.t(f"Cache miss for '{cache_key}'")
-        try:
-            content = self.fetch_text_content(attachment)
-            if content is not None:
-                self.__di.tools_cache_crud.save(
-                    ToolsCacheSave(
-                        key = cache_key,
-                        value = content,
-                        expires_at = datetime.now() + CACHE_TTL,
-                    ),
+
+        if is_document:
+            # processing strategy is determined during extraction, so we probe both possible cache keys
+            for strategy in ("raw", "search"):
+                cache_key = self.__di.tools_cache_crud.create_key(
+                    CACHE_PREFIX,
+                    f"{attachment.id}-{strategy}-{additional_content_hash}",
                 )
-            self.__contents[index] = content
-        except Exception as e:
-            log.w(f"Error resolving contents for '{attachment.id}'", e)
-            self.__errors[index] = f"Error resolving contents for '{attachment.id}': {str(e)}"
+                cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
+                if cache_entry_db:
+                    cache_entry = ToolsCache.model_validate(cache_entry_db)
+                    if not cache_entry.is_expired():
+                        log.t(f"Cache hit for '{cache_key}'")
+                        self.__contents[index] = cache_entry.value
+                        return
+                    log.t(f"Cache expired for '{cache_key}'")
+            log.t(f"Cache miss for document attachment '{attachment.id}'")
+
+            # fetch and cache the content based on the fetch strategy
+            try:
+                strategy, content = self.__fetch_document_content(attachment)
+                if content is not None:
+                    cache_key = self.__di.tools_cache_crud.create_key(
+                        CACHE_PREFIX,
+                        f"{attachment.id}-{strategy}-{additional_content_hash}",
+                    )
+                    self.__di.tools_cache_crud.save(
+                        ToolsCacheSave(
+                            key = cache_key,
+                            value = content,
+                            expires_at = datetime.now() + CACHE_TTL,
+                        ),
+                    )
+                self.__contents[index] = content
+            except Exception as e:
+                log.w(f"Error resolving contents for '{attachment.id}'", e)
+                self.__errors[index] = f"Error resolving contents for '{attachment.id}': {str(e)}"
+        else:
+            # non-document attachment - let's try cache again
+            unique_identifier = f"{attachment.id}-{additional_content_hash}"
+            cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX, unique_identifier)
+            cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
+            if cache_entry_db:
+                cache_entry = ToolsCache.model_validate(cache_entry_db)
+                if not cache_entry.is_expired():
+                    log.t(f"Cache hit for '{cache_key}'")
+                    self.__contents[index] = cache_entry.value
+                    return
+                log.t(f"Cache expired for '{cache_key}'")
+            log.t(f"Cache miss for '{cache_key}'")
+
+            # resolve the attachment to text content and cache it
+            try:
+                content = self.fetch_text_content(attachment)
+                if content is not None:
+                    self.__di.tools_cache_crud.save(
+                        ToolsCacheSave(
+                            key = cache_key,
+                            value = content,
+                            expires_at = datetime.now() + CACHE_TTL,
+                        ),
+                    )
+                self.__contents[index] = content
+            except Exception as e:
+                log.w(f"Error resolving contents for '{attachment.id}'", e)
+                self.__errors[index] = f"Error resolving contents for '{attachment.id}': {str(e)}"
+
+    def __fetch_document_content(self, attachment: ChatMessageAttachment) -> tuple[str, str | None]:
+        log.t(f"Extracting document content for attachment '{attachment.id}'")
+        documents = self.__load_documents(attachment)
+        joined_text = "\n\n".join(doc.page_content for doc in documents)
+
+        if not joined_text.strip():
+            message = f"Document '{attachment.id}' contains no extractable text (possibly image-only)."
+            log.w(message)
+            return "raw", message
+
+        tokens_estimate = len(joined_text) // 3
+        log.t(f"Estimated {tokens_estimate} tokens for attachment '{attachment.id}'")
+
+        if tokens_estimate <= SEARCH_THRESHOLD_TOKENS:
+            log.d(f"Using raw strategy for attachment '{attachment.id}'")
+            return "raw", f"Document Content:\n\n```\n{joined_text}\n```"
+
+        log.d(f"Using search strategy for attachment '{attachment.id}'")
+        embedding_tool = self.__di.tool_choice_resolver.require_tool(
+            DocumentSearch.EMBEDDING_TOOL_TYPE,
+            default_tool_for(DocumentSearch.EMBEDDING_TOOL_TYPE),
+        )
+        copywriter_tool = self.__di.tool_choice_resolver.require_tool(
+            DocumentSearch.COPYWRITER_TOOL_TYPE,
+            default_tool_for(DocumentSearch.COPYWRITER_TOOL_TYPE),
+        )
+        content = self.__di.document_search(
+            job_id = attachment.id,
+            documents = documents,
+            embedding_tool = embedding_tool,
+            copywriter_tool = copywriter_tool,
+            additional_context = self.__additional_context,
+        ).execute()
+        return "search", content
+
+    def __load_documents(self, attachment: ChatMessageAttachment) -> list[Document]:
+        ext = (attachment.extension or "").lower()
+        url = str(attachment.last_url)
+        if ext == "pdf" or attachment.mime_type == "application/pdf":
+            return self.__di.pdf_loader(job_id = attachment.id, document_url = url).load()
+        if ext == "docx":
+            return self.__di.docx_loader(job_id = attachment.id, document_url = url).load()
+        return self.__di.plain_text_loader(job_id = attachment.id, document_url = url).load()
 
     def fetch_text_content(self, attachment: ChatMessageAttachment) -> str | None:
         log.t(f"Resolving text content for attachment '{attachment.id}'")
@@ -207,24 +297,6 @@ class ChatAttachmentProcessor:
                 copywriter_tool = copywriter_tool,
                 def_extension = attachment.extension,
                 audio_content = contents,
-            ).execute()
-
-        # handle documents
-        if attachment.mime_type in KNOWN_DOCS_FORMATS.values() or attachment.extension in KNOWN_DOCS_FORMATS.keys():
-            embedding_tool = self.__di.tool_choice_resolver.require_tool(
-                DocumentSearch.EMBEDDING_TOOL_TYPE,
-                default_tool_for(DocumentSearch.EMBEDDING_TOOL_TYPE),
-            )
-            copywriter_tool = self.__di.tool_choice_resolver.require_tool(
-                DocumentSearch.COPYWRITER_TOOL_TYPE,
-                default_tool_for(DocumentSearch.COPYWRITER_TOOL_TYPE),
-            )
-            return self.__di.document_search(
-                job_id = attachment.id,
-                document_url = str(attachment.last_url),
-                embedding_tool = embedding_tool,
-                copywriter_tool = copywriter_tool,
-                additional_context = self.__additional_context,
             ).execute()
 
         log.w(f"Unsupported attachment '{attachment.id}': {attachment.mime_type}; '.{attachment.extension}'")

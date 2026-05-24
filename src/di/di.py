@@ -15,6 +15,7 @@ from util.errors import InternalError
 if TYPE_CHECKING:
 
     from google.genai import Client as GoogleSDKClient
+    from langchain_core.documents import Document
     from openai import OpenAI
     from replicate.client import Client as ReplicateSDKClient
     from xai_sdk import Client as XAISDKClient
@@ -934,16 +935,31 @@ class DI:
         from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
         return ComputerVisionAnalyzer(job_id, image_mime_types, configured_tool, self, image_urls, image_b64s, additional_context)
 
+    # noinspection PyMethodMayBeStatic
+    def plain_text_loader(self, job_id: str, document_url: str):
+        from features.documents.plain_text_loader import PlainTextLoader
+        return PlainTextLoader(job_id, document_url)
+
+    # noinspection PyMethodMayBeStatic
+    def docx_loader(self, job_id: str, document_url: str):
+        from features.documents.docx_loader import DocxLoader
+        return DocxLoader(job_id, document_url)
+
+    # noinspection PyMethodMayBeStatic
+    def pdf_loader(self, job_id: str, document_url: str):
+        from features.documents.pdf_loader import PdfLoader
+        return PdfLoader(job_id, document_url)
+
     def document_search(
         self,
         job_id: str,
-        document_url: str,
+        documents: list[Document],
         embedding_tool: ConfiguredTool,
         copywriter_tool: ConfiguredTool,
         additional_context: str | None = None,
     ) -> "DocumentSearch":
         from features.documents.document_search import DocumentSearch
-        return DocumentSearch(job_id, document_url, embedding_tool, copywriter_tool, self, additional_context)
+        return DocumentSearch(job_id, documents, embedding_tool, copywriter_tool, self, additional_context)
 
     def audio_transcriber(
         self,
