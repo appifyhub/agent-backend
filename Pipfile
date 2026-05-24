@@ -39,6 +39,7 @@ google-genai = "*"
 python-multipart = "*"
 langchain-xai = "*"
 xai-sdk = "*"
+python-docx = "*"
 
 [dev-packages]
 pytest = "*"
