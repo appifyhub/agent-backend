@@ -340,13 +340,12 @@ def configure_settings(
     raw_settings_type: str,
 ) -> str:
     """
-    Launches the configuration screen. Configurations allow various profile settings, payments, API tokens/keys,
-    current chat's settings, language, response rate, release notifications, model options, etc. Profile settings also
-    serve as the initial setup for the agent (bot). In private chats, user settings are the default. The user will
-    probably not know which settings they need, so they must either be chosen for, or asked.
+    Launches the configuration screen with various profile and payment settings, credits, API tokens/keys, chat's settings,
+    language, response rate, release notifications, model options, etc. Intelligence settings should be the default page.
+    The user will probably not know which settings page they need, so they must either be chosen for, or asked.
 
     Args:
-        raw_settings_type: [mandatory] The type of settings the user wants: [ 'user', 'chat' ]
+        raw_settings_type: [mandatory] The type of settings the user wants: [ 'intelligence', 'user', 'chat' ]
     """
     try:
         settings_link = di.settings_controller.create_settings_link(raw_settings_type).settings_link

@@ -40,9 +40,9 @@ from util.error_codes import (
 )
 from util.errors import AuthorizationError, ConfigurationError, ValidationError
 
-SettingsType: TypeAlias = Annotated[str, Literal["user", "chat"]]
+SettingsType: TypeAlias = Annotated[str, Literal["user", "chat", "intelligence"]]
 InvokerType: TypeAlias = Annotated[str, Literal["creator", "administrator"]]
-DEF_SETTINGS_TYPE: SettingsType = "user"
+DEF_SETTINGS_TYPE: SettingsType = "intelligence"
 SETTINGS_TOKEN_VAR: str = "token"
 
 
@@ -82,7 +82,7 @@ class SettingsController:
             if settings_type == "chat":
                 # any member can access their per-chat settings where admin rights are not required
                 self.__di.chat_membership_service.sync(self.__di.invoker, chat_config)
-            resource_id = self.__di.invoker.id.hex if settings_type == "user" else chat_config.chat_id.hex
+            resource_id = self.__di.invoker.id.hex if settings_type in ("user", "intelligence") else chat_config.chat_id.hex
             lang_iso_code = chat_config.language_iso_code or "en"
         else:
             # API context only supports user settings, we default to the basics
@@ -92,8 +92,14 @@ class SettingsController:
 
         jwt_token = self.__create_jwt_token(chat_type)
         is_sponsored = self.__is_sponsored(self.__di.invoker.id)
-        page = "sponsorships" if (settings_type == "user" and is_sponsored) else "settings"
-        settings_url_base = f"{config.backoffice_url_base}/{lang_iso_code}/{settings_type}/{resource_id}/{page}"
+        url_type = "user" if settings_type in ("user", "intelligence") else settings_type
+        if is_sponsored and settings_type in ("user", "intelligence"):
+            page = "sponsorships"
+        elif settings_type == "intelligence":
+            page = "intelligence"
+        else:
+            page = "settings"
+        settings_url_base = f"{config.backoffice_url_base}/{lang_iso_code}/{url_type}/{resource_id}/{page}"
         long_url = f"{settings_url_base}?{SETTINGS_TOKEN_VAR}={jwt_token}"
 
         valid_until = datetime.now() + timedelta(minutes = config.jwt_expires_in_minutes * 10)
