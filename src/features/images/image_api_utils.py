@@ -16,7 +16,7 @@ from features.external_tools.external_tool_library import (
     IMAGE_GEN_EDIT_SEEDREAM_4_5,
     IMAGE_GEN_FLUX_1_1,
     IMAGE_GEN_GROK_IMAGINE,
-    IMAGE_GEN_GROK_IMAGINE_PRO,
+    IMAGE_GEN_GROK_IMAGINE_QUALITY,
     NANO_BANANA,
     NANO_BANANA_2,
     NANO_BANANA_PRO,
@@ -141,7 +141,7 @@ def map_to_model_parameters(
     elif tool == IMAGE_GEN_GROK_IMAGINE:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
         return replace(unified_params, resolution = convert_size_to_k(unified_params.size).lower(), aspect_ratio = ar)
-    elif tool == IMAGE_GEN_GROK_IMAGINE_PRO:
+    elif tool == IMAGE_GEN_GROK_IMAGINE_QUALITY:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
         return replace(unified_params, resolution = convert_size_to_k(unified_params.size).lower(), aspect_ratio = ar)
     else:

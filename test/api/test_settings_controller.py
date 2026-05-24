@@ -185,13 +185,25 @@ class SettingsControllerTest(unittest.TestCase):
             can_delete_stories = False,
         )
 
-    def test_create_settings_link_success_user_settings(self):
+    def test_create_settings_link_default_is_intelligence(self):
         controller = SettingsController(self.mock_di)
         link_response = controller.create_settings_link()
 
         self.assertIsInstance(link_response, SettingsLinkResponse)
         link = link_response.settings_link
         self.assertIn("user", link)
+        self.assertIn("intelligence", link)
+        self.assertIn(self.invoker_user.id.hex, link)
+        self.assertIn("token=", link)
+
+    def test_create_settings_link_success_user_settings(self):
+        controller = SettingsController(self.mock_di)
+        link_response = controller.create_settings_link("user")
+
+        self.assertIsInstance(link_response, SettingsLinkResponse)
+        link = link_response.settings_link
+        self.assertIn("user", link)
+        self.assertIn("settings", link)
         self.assertIn(self.invoker_user.id.hex, link)
         self.assertIn("token=", link)
 
