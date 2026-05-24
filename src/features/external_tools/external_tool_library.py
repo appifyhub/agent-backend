@@ -285,9 +285,9 @@ GEMINI_FLASH_LATEST = ExternalTool(
     provider = GOOGLE_AI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 50,
-        output_1m_tokens = 300,
-        search_1m_tokens = 25,  # used with vision queries
+        input_1m_tokens = 150,
+        output_1m_tokens = 900,
+        search_1m_tokens = 75,  # used with vision queries
     ),
 )
 
@@ -304,7 +304,7 @@ GEMINI_PRO_LATEST = ExternalTool(
 )
 
 NANO_BANANA = ExternalTool(
-    id = "gemini-3-flash-preview",
+    id = "gemini-2.5-flash-image",
     name = "Nano Banana",
     provider = GOOGLE_AI,
     types = [ToolType.images_gen, ToolType.images_edit],
@@ -350,28 +350,6 @@ NANO_BANANA_2 = ExternalTool(
 
 ###  xAI  ###
 
-GROK_4_1_FAST_NON_REASONING = ExternalTool(
-    id = "grok-4-1-fast-non-reasoning",
-    name = "Grok 4.1 Fast",
-    provider = XAI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 20,
-        output_1m_tokens = 50,
-    ),
-)
-
-GROK_4_1_FAST_REASONING = ExternalTool(
-    id = "grok-4-1-fast-reasoning",
-    name = "Grok 4.1 Fast (Reasoning)",
-    provider = XAI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 20,
-        output_1m_tokens = 50,
-    ),
-)
-
 GROK_4_20_NON_REASONING = ExternalTool(
     id = "grok-4.20-non-reasoning",
     name = "Grok 4.20",
@@ -386,6 +364,17 @@ GROK_4_20_NON_REASONING = ExternalTool(
 GROK_4_20_REASONING = ExternalTool(
     id = "grok-4.20-reasoning",
     name = "Grok 4.20 (Reasoning)",
+    provider = XAI,
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 200,
+        output_1m_tokens = 600,
+    ),
+)
+
+GROK_4_3 = ExternalTool(
+    id = "grok-4.3",
+    name = "Grok 4.3",
     provider = XAI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
@@ -412,13 +401,13 @@ IMAGE_GEN_GROK_IMAGINE = ExternalTool(
     max_input_images = 5,
 )
 
-IMAGE_GEN_GROK_IMAGINE_PRO = ExternalTool(
-    id = "grok-imagine-image-pro",
-    name = "Grok Imagine Image Pro",
+IMAGE_GEN_GROK_IMAGINE_QUALITY = ExternalTool(
+    id = "grok-imagine-image-quality",
+    name = "Grok Imagine Image (Quality)",
     provider = XAI,
     types = [ToolType.images_gen, ToolType.images_edit],
     cost_estimate = CostEstimate(
-        output_image_1k = 7,
+        output_image_1k = 5,
         output_image_2k = 7,
         output_image_4k = 7,
         input_image_1k = 0.2,
@@ -718,12 +707,11 @@ ALL_EXTERNAL_TOOLS = [
     NANO_BANANA_PRO,
     NANO_BANANA_2,
     # xAI
-    GROK_4_1_FAST_NON_REASONING,
-    GROK_4_1_FAST_REASONING,
     GROK_4_20_NON_REASONING,
     GROK_4_20_REASONING,
+    GROK_4_3,
     IMAGE_GEN_GROK_IMAGINE,
-    IMAGE_GEN_GROK_IMAGINE_PRO,
+    IMAGE_GEN_GROK_IMAGINE_QUALITY,
     # Perplexity
     SONAR,
     SONAR_PRO,
