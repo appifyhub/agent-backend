@@ -217,18 +217,6 @@ CLAUDE_4_5_SONNET = ExternalTool(
     ),
 )
 
-CLAUDE_4_5_OPUS = ExternalTool(
-    id = "claude-opus-4-5",
-    name = "Claude 4.5 Opus",
-    provider = ANTHROPIC,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 500,
-        output_1m_tokens = 2500,
-        search_1m_tokens = 200,  # used with vision queries
-    ),
-)
-
 CLAUDE_4_6_SONNET = ExternalTool(
     id = "claude-sonnet-4-6",
     name = "Claude 4.6 Sonnet",
@@ -256,6 +244,18 @@ CLAUDE_4_6_OPUS = ExternalTool(
 CLAUDE_4_7_OPUS = ExternalTool(
     id = "claude-opus-4-7",
     name = "Claude 4.7 Opus",
+    provider = ANTHROPIC,
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 500,
+        output_1m_tokens = 2500,
+        search_1m_tokens = 200,  # used with vision queries
+    ),
+)
+
+CLAUDE_4_8_OPUS = ExternalTool(
+    id = "claude-opus-4-8",
+    name = "Claude 4.8 Opus",
     provider = ANTHROPIC,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
@@ -695,10 +695,10 @@ ALL_EXTERNAL_TOOLS = [
     # Anthropic
     CLAUDE_4_5_HAIKU,
     CLAUDE_4_5_SONNET,
-    CLAUDE_4_5_OPUS,
     CLAUDE_4_6_SONNET,
     CLAUDE_4_6_OPUS,
     CLAUDE_4_7_OPUS,
+    CLAUDE_4_8_OPUS,
     # Google AI
     GEMINI_FLASH_LITE_LATEST,
     GEMINI_FLASH_LATEST,
