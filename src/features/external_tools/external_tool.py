@@ -20,6 +20,7 @@ class CostEstimate:
     output_image_4k: float | None = None
     api_call: float | None = None
     second_of_runtime: float | None = None
+    web_search_query: float | None = None
 
     def get_minimum_for(
         self,
@@ -36,6 +37,7 @@ class CostEstimate:
         result += (search_tokens / 1_000_000) * (self.search_1m_tokens or 0)
         result += runtime_seconds * (self.second_of_runtime or 0)
         result += float(self.api_call or 0)
+        result += float(self.web_search_query or 0)
         input_image_costs = {
             "1k": float(self.input_image_1k or 0),
             "2k": float(self.input_image_2k or 0),
