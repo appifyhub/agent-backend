@@ -283,11 +283,12 @@ GEMINI_FLASH_LATEST = ExternalTool(
     id = "gemini-flash-latest",
     name = "Gemini Flash (Latest)",
     provider = GOOGLE_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
         input_1m_tokens = 150,
         output_1m_tokens = 900,
         search_1m_tokens = 75,  # used with vision queries
+        web_search_query = 1.4,
     ),
 )
 

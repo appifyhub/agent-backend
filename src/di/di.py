@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from features.accounting.transfers.credit_transfer_service import CreditTransferService
     from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
     from features.accounting.usage.decorators.google_ai_usage_tracking_decorator import GoogleAIUsageTrackingDecorator
+    from features.accounting.usage.decorators.google_search_usage_tracking_decorator import GoogleSearchUsageTrackingDecorator
     from features.accounting.usage.decorators.http_usage_tracking_decorator import HTTPUsageTrackingDecorator
     from features.accounting.usage.decorators.openai_usage_tracking_decorator import OpenAIUsageTrackingDecorator
     from features.accounting.usage.decorators.replicate_usage_tracking_decorator import ReplicateUsageTrackingDecorator
@@ -660,6 +661,20 @@ class DI:
             configured_tool,
             output_image_sizes,
             input_image_sizes,
+        )
+
+    def google_search_client(
+        self,
+        configured_tool: ConfiguredTool,
+    ) -> "GoogleSearchUsageTrackingDecorator":
+        from features.accounting.usage.decorators.google_search_usage_tracking_decorator import GoogleSearchUsageTrackingDecorator
+
+        base_client = self.base_google_ai_client(configured_tool.token.get_secret_value(), config.web_timeout_s * 6)
+        return GoogleSearchUsageTrackingDecorator(
+            base_client,
+            self.usage_tracking_service,
+            self.spending_service,
+            configured_tool,
         )
 
     def base_x_ai_client(

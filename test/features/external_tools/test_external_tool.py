@@ -58,6 +58,13 @@ class ExternalToolTest(unittest.TestCase):
 
         self.assertEqual(result, 5.0)
 
+    def test_adds_web_search_query_cost(self):
+        estimate = CostEstimate(web_search_query = 1.4)
+
+        result = estimate.get_minimum_for()
+
+        self.assertAlmostEqual(result, 1.4, places = 5)
+
     def test_adds_input_image_costs_by_size(self):
         estimate = CostEstimate(
             input_image_1k = 1, input_image_2k = 2, input_image_4k = 4, input_image_8k = 8, input_image_12k = 12,
@@ -102,13 +109,15 @@ class ExternalToolTest(unittest.TestCase):
         # input: 4000 chars → 1000 tokens; (1000/1M)*1000 = 1.0
         # output: (1000/1M)*1000 = 1.0
         # api_call: 10.0
+        # web_search_query: 1.4
         # input_image_1k: 5.0
         # output_image_2k: 3.0
-        # total: 20.0
+        # total: 21.4
         estimate = CostEstimate(
             input_1m_tokens = 1000,
             output_1m_tokens = 1000,
             api_call = 10,
+            web_search_query = 1.4,
             input_image_1k = 5,
             output_image_2k = 3,
         )
@@ -120,7 +129,7 @@ class ExternalToolTest(unittest.TestCase):
             output_image_sizes = ["2k"],
         )
 
-        self.assertAlmostEqual(result, 20.0, places = 3)
+        self.assertAlmostEqual(result, 21.4, places = 3)
 
     def test_temperature_percent_for_llm_types(self):
         self.assertEqual(ToolType.chat.temperature_percent, 0.25)

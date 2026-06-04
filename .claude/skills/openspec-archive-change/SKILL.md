@@ -6,7 +6,7 @@ compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.2.0"
+  generatedBy: "1.4.1"
 ---
 
 Archive a completed change in the experimental workflow.
@@ -30,7 +30,10 @@ Archive a completed change in the experimental workflow.
 
    Parse the JSON to understand:
    - `schemaName`: The workflow being used
+   - `planningHome`, `changeRoot`, `artifactPaths`, and `actionContext`: path and scope context
    - `artifacts`: List of artifacts with their status (`done` or other)
+
+   If status reports `actionContext.mode: "workspace-planning"`, explain that workspace archive is not supported in this slice and STOP. Do not move workspace changes into repo-local archives or edit linked repos.
 
    **If any artifacts are not `done`:**
    - Display warning listing incomplete artifacts
@@ -50,30 +53,36 @@ Archive a completed change in the experimental workflow.
 
    **If no tasks file exists:** Proceed without task-related warning.
 
-4. **Summarize delta specs (informational)**
+4. **Assess delta spec sync state**
 
-   Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, note "No delta specs" in the summary.
+   Use `artifactPaths.specs.existingOutputPaths` from status JSON to check for delta specs. If none exist, proceed without sync prompt.
 
    **If delta specs exist:**
-   - Read each spec and summarize what capabilities are being archived (adds, modifications, removals)
-   - Display the summary to the user
-   - Do NOT copy or sync specs to `openspec/specs/` — specs are preserved inside the archive via the `mv` in the next step
+   - Compare each delta spec with its corresponding main spec at `openspec/specs/<capability>/spec.md`
+   - Determine what changes would be applied (adds, modifications, removals, renames)
+   - Show a combined summary before prompting
+
+   **Prompt options:**
+   - If changes needed: "Sync now (recommended)", "Archive without syncing"
+   - If already synced: "Archive now", "Sync anyway", "Cancel"
+
+   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
 
 5. **Perform the archive**
 
-   Create the archive directory if it doesn't exist:
+   Create an `archive` directory under `planningHome.changesDir` if it doesn't exist:
    ```bash
-   mkdir -p openspec/changes/archive
+   mkdir -p "<planningHome.changesDir>/archive"
    ```
 
    Generate target name using current date: `YYYY-MM-DD-<change-name>`
 
    **Check if target already exists:**
    - If yes: Fail with error, suggest renaming existing archive or using different date
-   - If no: Move the change directory to archive
+   - If no: Move `changeRoot` to the archive directory
 
    ```bash
-   mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+   mv "<changeRoot>" "<planningHome.changesDir>/archive/YYYY-MM-DD-<name>"
    ```
 
 6. **Display summary**
@@ -82,7 +91,7 @@ Archive a completed change in the experimental workflow.
    - Change name
    - Schema that was used
    - Archive location
-   - Delta specs preserved in archive (list capability names, or "None")
+   - Whether specs were synced (if applicable)
    - Note about any warnings (incomplete artifacts/tasks)
 
 **Output On Success**
@@ -92,8 +101,8 @@ Archive a completed change in the experimental workflow.
 
 **Change:** <change-name>
 **Schema:** <schema-name>
-**Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
-**Specs:** ✓ Preserved in archive: <capability-names> (or "None")
+**Archived to:** the archive path derived from `planningHome.changesDir`/YYYY-MM-DD-<name>/
+**Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
 
 All artifacts complete. All tasks complete.
 ```
@@ -104,4 +113,5 @@ All artifacts complete. All tasks complete.
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened
-- Never write delta specs to `openspec/specs/` — the archive is the canonical location
+- If sync is requested, use openspec-sync-specs approach (agent-driven)
+- If delta specs exist, always run the sync assessment and show the combined summary before prompting

@@ -36,3 +36,15 @@ class URICleanupTest(unittest.TestCase):
     def test_url_with_fragment(self):
         url = "https://example.com/path#fragment"
         self.assertEqual(simplify_url(url), "example.com/path")
+
+    def test_keep_subdomains_preserves_scheme_and_host(self):
+        url = "https://www.example.com/path"
+        self.assertEqual(simplify_url(url, strip_subdomains = False), "https://www.example.com/path")
+
+    def test_keep_subdomains_still_strips_tracking_params(self):
+        url = "https://www.example.com/page?utm_source=google&valid=1"
+        self.assertEqual(simplify_url(url, strip_subdomains = False), "https://www.example.com/page?valid=1")
+
+    def test_keep_subdomains_removes_all_tracking_params(self):
+        url = "https://www.example.com?utm_source=x&utm_medium=y"
+        self.assertEqual(simplify_url(url, strip_subdomains = False), "https://www.example.com")

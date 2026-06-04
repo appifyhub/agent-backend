@@ -65,6 +65,8 @@ class _ContextLibrary:
             "Focus on clarity and relevance, and don't omit any important information. "
             "You may connect this query to other relevant, related topics, in order to provide a broader context. "
             "You may also connect the current event to historical events or even future predictions. "
+            "Do not ask questions, do not offer further assistance, and do not suggest follow-up topics. "
+            "Your output should contain only the answer to the query, nothing more. "
         ).strip(),
     )
 

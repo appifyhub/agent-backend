@@ -16,15 +16,17 @@ TRACKING_PARAMS = [
 ]
 
 
-def simplify_url(url: str) -> str:
+def simplify_url(url: str, strip_subdomains: bool = True) -> str:
     # split into domain part and query+fragment part for cleanup
     url_parts = url.split("?")
-    # remove useless subdomains
     parsed_url = urlparse(url_parts[0])
-    simple_domain = ".".join(
-        [domain_part for domain_part in parsed_url.netloc.split(".") if domain_part not in WEB_SUBDOMAINS],
-    )
-    simple_url = f"{simple_domain}{parsed_url.path or ""}"
+    if strip_subdomains:
+        domain = ".".join(
+            [part for part in parsed_url.netloc.split(".") if part not in WEB_SUBDOMAINS],
+        )
+        simple_url = f"{domain}{parsed_url.path or ''}"
+    else:
+        simple_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path or ''}"
     # remove tracking parameters from the query string
     query_string = url_parts[1] if len(url_parts) > 1 else ""
     query_map = {
@@ -38,4 +40,4 @@ def simplify_url(url: str) -> str:
     }
     # join the simple URL and the cleaned query string (implicitly removing empty params and fragments)
     query_string = urlencode(query_map)
-    return f"{simple_url}{"?" + query_string if query_string else ""}"
+    return f"{simple_url}{'?' + query_string if query_string else ''}"

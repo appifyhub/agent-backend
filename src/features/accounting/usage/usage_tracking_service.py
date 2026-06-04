@@ -123,6 +123,39 @@ class UsageTrackingService:
         )
         return self.__di.usage_record_repo.create(record)
 
+    def track_web_search_query(
+        self,
+        tool: ExternalTool,
+        tool_purpose: ToolType,
+        runtime_seconds: float,
+        payer_id: UUID,
+        uses_credits: bool,
+        query_count: int,
+        is_failed: bool = False,
+    ) -> list[UsageRecord]:
+        per_query_cost: float = float(tool.cost_estimate.web_search_query or 0)
+        records: list[UsageRecord] = []
+        for _ in range(max(query_count, 0)):
+            record = UsageRecord(
+                user_id = self.__di.invoker.id,
+                payer_id = payer_id,
+                uses_credits = uses_credits,
+                is_failed = is_failed,
+                chat_id = self.__di.invoker_chat.chat_id if self.__di.invoker_chat else None,
+                tool = tool,
+                tool_purpose = tool_purpose,
+                timestamp = datetime.now(timezone.utc),
+                model_cost_credits = 0.0,
+                remote_runtime_cost_credits = 0.0,
+                api_call_cost_credits = per_query_cost,
+                maintenance_fee_credits = 0.0,
+                total_cost_credits = per_query_cost,
+                runtime_seconds = runtime_seconds,
+                participant_details = self.__build_participant_details(payer_id),
+            )
+            records.append(self.__di.usage_record_repo.create(record))
+        return records
+
     def track_api_call(
         self,
         tool: ExternalTool,

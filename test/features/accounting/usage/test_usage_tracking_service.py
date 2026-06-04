@@ -675,3 +675,78 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.participant_details.payer.user_id, self.user_id)
         self.assertIsNotNone(record.participant_details.owner)
         self.assertEqual(record.participant_details.owner.user_id, self.user_id)
+
+    def _create_search_tool(self, web_search_query: float = 1.4) -> ExternalTool:
+        provider = ExternalToolProvider(
+            id = "test-provider",
+            name = "Test Provider",
+            token_management_url = "https://test.com",
+            token_format = "test",
+            tools = [],
+        )
+        return ExternalTool(
+            id = "test-search-tool",
+            name = "Test Search Tool",
+            provider = provider,
+            types = [ToolType.search],
+            cost_estimate = CostEstimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+                web_search_query = web_search_query,
+            ),
+        )
+
+    def test_track_web_search_query_emits_correct_record_count(self):
+        tool = self._create_search_tool()
+        records = self.service.track_web_search_query(
+            tool = tool,
+            tool_purpose = ToolType.search,
+            runtime_seconds = 2.0,
+            payer_id = self.payer_id,
+            uses_credits = False,
+            query_count = 3,
+        )
+        self.assertEqual(len(records), 3)
+        self.assertEqual(self.mock_di.usage_record_repo.create.call_count, 3)
+
+    def test_track_web_search_query_fee_placement(self):
+        tool = self._create_search_tool(web_search_query = 1.4)
+        records = self.service.track_web_search_query(
+            tool = tool,
+            tool_purpose = ToolType.search,
+            runtime_seconds = 1.0,
+            payer_id = self.payer_id,
+            uses_credits = False,
+            query_count = 2,
+        )
+        for record in records:
+            self.assertAlmostEqual(record.api_call_cost_credits, 1.4, places = 5)
+            self.assertEqual(record.model_cost_credits, 0.0)
+            self.assertEqual(record.maintenance_fee_credits, 0.0)
+            self.assertAlmostEqual(record.total_cost_credits, 1.4, places = 5)
+
+    def test_track_web_search_query_zero_count_returns_empty(self):
+        tool = self._create_search_tool()
+        records = self.service.track_web_search_query(
+            tool = tool,
+            tool_purpose = ToolType.search,
+            runtime_seconds = 1.0,
+            payer_id = self.payer_id,
+            uses_credits = False,
+            query_count = 0,
+        )
+        self.assertEqual(records, [])
+        self.mock_di.usage_record_repo.create.assert_not_called()
+
+    def test_track_web_search_query_payer_id_stored(self):
+        tool = self._create_search_tool()
+        records = self.service.track_web_search_query(
+            tool = tool,
+            tool_purpose = ToolType.search,
+            runtime_seconds = 1.0,
+            payer_id = self.payer_id,
+            uses_credits = True,
+            query_count = 1,
+        )
+        self.assertEqual(records[0].payer_id, self.payer_id)
+        self.assertTrue(records[0].uses_credits)
