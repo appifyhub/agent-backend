@@ -1,0 +1,43 @@
+# Project Rules — Backend (Python)
+
+## Code Style
+
+### Python
+
+In Python, I want you to use the latest type syntax (`type | None`) instead of `Optional`. I also want you to use a single space (`=`) around the equals sign (`=`) in function argument calls. It's important to use double quotation marks (`"`) instead of single quotations (`'`). And finally, we want to always use trailing commas in multi-line function declarations and calls. There's never a reason to write `unittest.main()` manually, we have a script for running tests. Never use inline imports inside of functions (use file header even in tests), and always use `from ... import ...` syntax at the top of the file.
+
+## Error Handling
+
+Never use generic `ValueError`, `AssertionError`, or bare `Exception` for raising errors. Always use the structured exceptions from `util.errors` (`ValidationError`, `NotFoundError`, `AuthorizationError`, `ExternalServiceError`, `RateLimitError`, `ConfigurationError`, `InternalError`). Each raise must include an error code from `util.error_codes`. When re-raising from a caught exception, always use `raise ... from e` to preserve the chain. When calling external services (LLMs, image APIs, web fetchers), always guard against empty/null/empty-array responses with `ExternalServiceError`.
+
+## Environment Management
+
+- ALWAYS use `pipenv` for dependency management and Python command execution
+- ALL commands must be run from project root (where Pipfile exists)
+- Never use `pip` directly - always use `pipenv install` or `pipenv run`
+
+## Database Migrations
+
+- Ask the user to run `./tools/db_generate_migration.sh -y` to generate new Alembic migrations (auto-generates based on model changes)
+- Ask the user to run `./tools/db_apply_migration.sh` to apply migrations to database (only with user's approval)
+- Always check if model imports in `src/db/alembic/env.py` are up to date before running `db_generate_migration.sh`
+
+## Development Workflow
+
+- Use `pipenv install --dev` and `pipenv run python src/main.py --dev` for development server (includes hot reload, verbose logging, dev API key)
+- Use `pipenv run pre-commit run --all-files --show-diff-on-failure` for code quality checks
+- Use `pipenv install` and `pipenv run python src/main.py` for production runs
+- For all other operations like testing, always run inside of `pipenv`
+
+## Code Quality
+
+- Always run linting before commits: `pipenv run pre-commit run`
+- All scripts handle environment setup automatically (PYTHONPATH, .env files)
+
+## Project Structure
+
+- All scripts are in `tools` directory and use common `messages.sh` for colored output
+- Scripts validate project root location and fail safely if run from wrong directory
+- Version is managed through `pyproject.toml` in project root
+- You can see the CI/CD pipeline in `.github/workflows` directory
+- You can see the API docs in `docs/` directory (keep it updated!)

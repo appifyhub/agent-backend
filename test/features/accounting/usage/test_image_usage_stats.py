@@ -116,3 +116,41 @@ class ImageUsageStatsTest(unittest.TestCase):
         self.assertIsNone(stats.input_tokens)
         self.assertIsNone(stats.output_tokens)
         self.assertIsNone(stats.total_tokens)
+
+    def test_from_google_grounding_response_includes_thoughts(self):
+        response = Mock(spec = GenerateContentResponse)
+        response.usage_metadata = Mock()
+        response.usage_metadata.prompt_token_count = 19
+        response.usage_metadata.candidates_token_count = 282
+        response.usage_metadata.thoughts_token_count = 864
+        response.usage_metadata.total_token_count = 1165
+
+        stats = ImageUsageStats.from_google_grounding_response(response)
+
+        self.assertEqual(stats.input_tokens, 19)
+        self.assertEqual(stats.output_tokens, 1146)  # 282 + 864
+        self.assertEqual(stats.total_tokens, 1165)
+
+    def test_from_google_grounding_response_no_thoughts(self):
+        response = Mock(spec = GenerateContentResponse)
+        response.usage_metadata = Mock()
+        response.usage_metadata.prompt_token_count = 50
+        response.usage_metadata.candidates_token_count = 200
+        response.usage_metadata.thoughts_token_count = None
+        response.usage_metadata.total_token_count = 250
+
+        stats = ImageUsageStats.from_google_grounding_response(response)
+
+        self.assertEqual(stats.input_tokens, 50)
+        self.assertEqual(stats.output_tokens, 200)
+        self.assertEqual(stats.total_tokens, 250)
+
+    def test_from_google_grounding_response_no_usage_metadata(self):
+        response = Mock(spec = GenerateContentResponse)
+        response.usage_metadata = None
+
+        stats = ImageUsageStats.from_google_grounding_response(response)
+
+        self.assertIsNone(stats.input_tokens)
+        self.assertIsNone(stats.output_tokens)
+        self.assertIsNone(stats.total_tokens)

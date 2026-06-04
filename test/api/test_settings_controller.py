@@ -870,6 +870,7 @@ class SettingsControllerTest(unittest.TestCase):
                 output_image_1k = 10,
                 api_call = 5,
                 second_of_runtime = 0.01,
+                web_search_query = 1.4,
             ),
         )
 
@@ -898,6 +899,7 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIsNone(cost_est.output_image_4k)
         self.assertEqual(cost_est.api_call, 5)
         self.assertEqual(cost_est.second_of_runtime, 0.01)
+        self.assertEqual(cost_est.web_search_query, 1.4)
 
     @patch("api.auth.create_jwt_token")
     def test_create_help_link_success(self, mock_create_jwt_token):

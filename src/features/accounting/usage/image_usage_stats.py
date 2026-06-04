@@ -50,3 +50,28 @@ class ImageUsageStats:
             output_tokens = output_tokens,
             total_tokens = total_tokens,
         )
+
+    @classmethod
+    def from_google_grounding_response(
+        cls,
+        response: GenerateContentResponse,
+    ) -> "ImageUsageStats":
+        input_tokens = None
+        output_tokens = None
+        total_tokens = None
+
+        if response.usage_metadata:
+            input_tokens = response.usage_metadata.prompt_token_count
+            candidates = response.usage_metadata.candidates_token_count or 0
+            thoughts = response.usage_metadata.thoughts_token_count or 0
+            output_tokens = candidates + thoughts
+            total_tokens = response.usage_metadata.total_token_count
+
+        if (input_tokens is not None or output_tokens is not None) and total_tokens is None:
+            total_tokens = (input_tokens or 0) + (output_tokens or 0)
+
+        return cls(
+            input_tokens = input_tokens,
+            output_tokens = output_tokens,
+            total_tokens = total_tokens,
+        )

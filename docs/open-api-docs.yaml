@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.15.3
+  version: 5.16.0
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -1636,6 +1636,11 @@ components:
           format: float
           nullable: true
           description: Cost per second of runtime in credits
+        web_search_query:
+          type: number
+          format: float
+          nullable: true
+          description: Cost per grounding web search query in credits
 
     UsageRecord:
       type: object
