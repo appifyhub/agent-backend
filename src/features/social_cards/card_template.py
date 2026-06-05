@@ -24,6 +24,7 @@ from features.social_cards.card_layout import (
     FONT_SIZE_NAME,
     FOOTER_OPACITY,
     LINE_HEIGHT_BODY,
+    LOGO_CIRCLE_R,
     LOGO_SIZE,
     PHOTO_CORNER_RADIUS,
     PHOTO_GAP,
@@ -400,11 +401,23 @@ def build_svg(
             f'fill="{theme.text_color}" fill-opacity="0.7">{dt_str}</text>',
         )
 
-    # Agent logo (top-right)
-    logo_x = cx + card_width - CARD_INNER_PAD - LOGO_SIZE
-    logo_y = y + (AVATAR_SIZE - LOGO_SIZE) // 2
+    # Agent logo (top-right) with contrast circle
+    logo_cx = cx + card_width - CARD_INNER_PAD - LOGO_CIRCLE_R
+    logo_cy = y + AVATAR_SIZE // 2
     logo_key = _agent_logo_key(theme)
     logo_b64 = _logo_svg_b64(logo_key)
+    if logo_key == "agent_logo_color":
+        content.append(
+            f'<circle cx="{logo_cx}" cy="{logo_cy}" r="{LOGO_CIRCLE_R}" '
+            f'fill="{theme.text_color}" fill-opacity="0.5"/>',
+        )
+    else:
+        content.append(
+            f'<circle cx="{logo_cx}" cy="{logo_cy}" r="{LOGO_CIRCLE_R}" '
+            f'fill="none" stroke="{theme.text_color}" stroke-width="1.3"/>',
+        )
+    logo_x = logo_cx - LOGO_SIZE // 2
+    logo_y = logo_cy - LOGO_SIZE // 2 - round(LOGO_SIZE * 0.05)
     logo_opacity = ' opacity="0.8"' if logo_key != "agent_logo_color" else ""
     content.append(
         f'<image x="{logo_x}" y="{logo_y}" width="{LOGO_SIZE}" height="{LOGO_SIZE}" href="{logo_b64}"{logo_opacity}/>',
