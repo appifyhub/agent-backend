@@ -47,13 +47,15 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     mock_di: DI
     mock_x_api_tool: ConfiguredTool
+    mock_vision_tool: ConfiguredTool
 
     def setUp(self):
         self.mock_di = _make_mock_di()
         self.mock_x_api_tool = _make_x_api_tool()
+        self.mock_vision_tool = _make_x_api_tool()
 
     def _make_orchestrator(self) -> SocialCardOrchestrator:
-        return SocialCardOrchestrator(self.mock_x_api_tool, self.mock_di)
+        return SocialCardOrchestrator(self.mock_x_api_tool, self.mock_vision_tool, self.mock_di)
 
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     @patch("features.social_cards.social_card_orchestrator.PhotoDownloader")

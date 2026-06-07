@@ -1,8 +1,11 @@
+import html
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from time import sleep
 from typing import Any
+from urllib.parse import urlparse
 
 from db.schema.tools_cache import ToolsCache, ToolsCacheSave
 from di.di import DI
@@ -19,6 +22,15 @@ CACHE_PREFIX = "twitter-status-fetcher"
 CACHE_PREFIX_STRUCTURED = "twitter-status-fetcher-json"
 CACHE_TTL = timedelta(weeks = 1)
 RATE_LIMIT_DELAY_S = 2
+
+
+@dataclass
+class TweetLinkPreview:
+    title: str | None
+    description: str | None
+    og_image_url: str | None
+    expanded_url: str
+    domain: str
 
 
 @dataclass
@@ -43,6 +55,10 @@ class TweetData:
     language: str | None
     created_at: str | None
     media: list[TweetMediaItem] = field(default_factory = list)
+    link_previews: list[TweetLinkPreview] = field(default_factory = list)
+    quoted_tweet_id: str | None = None
+    is_reply: bool = False
+    replied_to_tweet_id: str | None = None
 
 
 class TwitterStatusFetcher:
@@ -108,7 +124,7 @@ class TwitterStatusFetcher:
         params = {
             "expansions": "author_id,attachments.media_keys",
             "user.fields": "name,username,description,profile_image_url",
-            "tweet.fields": "lang,text,created_at,note_tweet",
+            "tweet.fields": "lang,text,created_at,note_tweet,entities,referenced_tweets",
             "media.fields": "url,type,preview_image_url",
         }
 
@@ -165,7 +181,27 @@ class TwitterStatusFetcher:
             )
 
         note_tweet = post_data.get("note_tweet") or {}
-        text = note_tweet.get("text") or post_data.get("text") or "<No text posted>"
+        text = html.unescape(note_tweet.get("text") or post_data.get("text") or "<No text posted>")
+
+        entities = note_tweet.get("entities") or post_data.get("entities") or {}
+        entity_urls = entities.get("urls") or []
+
+        referenced_tweets = post_data.get("referenced_tweets") or []
+        quoted_tweet_id: str | None = None
+        is_reply = False
+        replied_to_tweet_id: str | None = None
+        for ref in referenced_tweets:
+            ref_type = ref.get("type")
+            ref_id = ref.get("id")
+            if ref_type == "quoted" and ref_id:
+                quoted_tweet_id = ref_id
+            elif ref_type == "replied_to" and ref_id:
+                is_reply = True
+                replied_to_tweet_id = ref_id
+
+        link_previews, text, url_quoted_id = self.__process_urls(text, entity_urls)
+        if not quoted_tweet_id and url_quoted_id:
+            quoted_tweet_id = url_quoted_id
 
         return TweetData(
             user = user,
@@ -173,7 +209,76 @@ class TwitterStatusFetcher:
             language = post_data.get("lang") or None,
             created_at = post_data.get("created_at") or None,
             media = media_items,
+            link_previews = link_previews,
+            quoted_tweet_id = quoted_tweet_id,
+            is_reply = is_reply,
+            replied_to_tweet_id = replied_to_tweet_id,
         )
+
+    def __process_urls(
+        self,
+        text: str,
+        entity_urls: list[dict[str, Any]],
+    ) -> tuple[list[TweetLinkPreview], str, str | None]:
+        link_previews: list[TweetLinkPreview] = []
+        tco_urls_to_strip: set[str] = set()
+        quoted_tweet_id: str | None = None
+
+        for entity in entity_urls:
+            tco_url = entity.get("url") or ""
+            expanded = entity.get("expanded_url") or ""
+
+            if not tco_url:
+                continue
+
+            is_media_self_ref = f"/status/{self.__tweet_id}/" in expanded
+            is_twitter_domain = any(
+                d in expanded for d in ["x.com/", "twitter.com/"]
+            )
+
+            if is_media_self_ref:
+                tco_urls_to_strip.add(tco_url)
+            elif is_twitter_domain:
+                qt_id = self.__extract_tweet_id_from_url(expanded)
+                if qt_id:
+                    quoted_tweet_id = qt_id
+                    tco_urls_to_strip.add(tco_url)
+            else:
+                tco_urls_to_strip.add(tco_url)
+                title = entity.get("title") or None
+                description = entity.get("description") or None
+                if title or description:
+                    images = entity.get("images") or []
+                    og_image_url = images[0].get("url") if images else None
+                    parsed = urlparse(expanded)
+                    domain = parsed.hostname or ""
+                    if domain.startswith("www."):
+                        domain = domain[4:]
+                    parts = domain.split(".")
+                    if len(parts) > 2:
+                        domain = ".".join(parts[-2:])
+                    link_previews.append(
+                        TweetLinkPreview(
+                            title = title,
+                            description = description,
+                            og_image_url = og_image_url,
+                            expanded_url = expanded,
+                            domain = domain,
+                        ),
+                    )
+
+        for tco_url in tco_urls_to_strip:
+            text = text.replace(tco_url, "")
+
+        text = re.sub(r" +", " ", text).strip()
+        return link_previews, text, quoted_tweet_id
+
+    @staticmethod
+    def __extract_tweet_id_from_url(url: str) -> str | None:
+        parts = url.split("/status/")
+        if len(parts) == 2:
+            return parts[1].split("?")[0].split("/")[0]
+        return None
 
     def __resolve_content(self, response: dict[str, Any]) -> str:
         try:

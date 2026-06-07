@@ -17,6 +17,8 @@ def render(
     profile_bytes: bytes | None = None,
     media_bytes: list[bytes] | None = None,
     short_url: str | None = None,
+    link_preview_data: list[dict] | None = None,
+    quoted_tweet_data: dict | None = None,
 ) -> bytes:
     media = media_bytes or []
     card_width = card_width_from_text(tweet.text)
@@ -27,6 +29,8 @@ def render(
         profile_bytes = profile_bytes,
         media_bytes = media,
         short_url = short_url,
+        link_preview_data = link_preview_data or [],
+        quoted_tweet_data = quoted_tweet_data,
     )
     font_files = [str(p) for p in _FONTS_DIR.glob("*.ttf") if p.is_file()]
     return resvg_py.svg_to_bytes(
