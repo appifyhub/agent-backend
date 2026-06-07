@@ -841,9 +841,9 @@ class DI:
         return PhotoDownloader(bearer_token = bearer_token)
 
     # noinspection PyMethodMayBeStatic
-    def social_card_orchestrator(self, x_api_tool: ConfiguredTool) -> "SocialCardOrchestrator":
+    def social_card_orchestrator(self, x_api_tool: ConfiguredTool, vision_tool: ConfiguredTool) -> "SocialCardOrchestrator":
         from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
-        return SocialCardOrchestrator(x_api_tool, self)
+        return SocialCardOrchestrator(x_api_tool, vision_tool, self)
 
     def url_shortener(
         self,
