@@ -11,7 +11,7 @@ from requests_mock import Mocker
 from db.schema.tools_cache import ToolsCache
 from di.di import DI
 from features.external_tools.tool_choice_resolver import ConfiguredTool
-from features.web_browsing.twitter_status_fetcher import TweetData, TweetMediaItem, TwitterStatusFetcher
+from features.web_browsing.twitter_status_fetcher import TweetData, TweetLinkPreview, TweetMediaItem, TwitterStatusFetcher
 from util.config import config
 
 
@@ -397,3 +397,218 @@ class TwitterStatusFetcherTest(unittest.TestCase):
 
         # noinspection PyUnresolvedReferences
         self.mock_di.computer_vision_analyzer.assert_not_called()
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_extracts_quoted_tweet_id(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "Check this out https://t.co/abc123",
+                    "lang": "en",
+                    "entities": {
+                        "urls": [
+                            {
+                                "url": "https://t.co/abc123",
+                                "expanded_url": "https://x.com/someone/status/9876543210",
+                            },
+                        ],
+                    },
+                },
+                "includes": {"users": [{"username": "poster"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertEqual(result.quoted_tweet_id, "9876543210")
+        self.assertNotIn("https://t.co/abc123", result.text)
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_no_quoted_tweet_for_self_media(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "My photo https://t.co/xyz",
+                    "lang": "en",
+                    "entities": {
+                        "urls": [
+                            {
+                                "url": "https://t.co/xyz",
+                                "expanded_url": f"https://x.com/me/status/{self.tweet_id}/photo/1",
+                            },
+                        ],
+                    },
+                },
+                "includes": {"users": [{"username": "me"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertIsNone(result.quoted_tweet_id)
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_extracts_link_previews(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "Read this https://t.co/link1",
+                    "lang": "en",
+                    "entities": {
+                        "urls": [
+                            {
+                                "url": "https://t.co/link1",
+                                "expanded_url": "https://www.example.com/article",
+                                "title": "Great Article",
+                                "description": "A deep dive",
+                                "images": [{"url": "https://example.com/og.jpg"}],
+                            },
+                        ],
+                    },
+                },
+                "includes": {"users": [{"username": "poster"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertEqual(len(result.link_previews), 1)
+        lp = result.link_previews[0]
+        self.assertIsInstance(lp, TweetLinkPreview)
+        self.assertEqual(lp.title, "Great Article")
+        self.assertEqual(lp.description, "A deep dive")
+        self.assertEqual(lp.domain, "example.com")
+        self.assertEqual(lp.og_image_url, "https://example.com/og.jpg")
+        self.assertNotIn("https://t.co/link1", result.text)
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_unescapes_html_entities(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "AT&amp;T &lt;3 Tom &amp; Jerry",
+                    "lang": "en",
+                },
+                "includes": {"users": [{"username": "poster"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertEqual(result.text, "AT&T <3 Tom & Jerry")
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_referenced_tweets_quoted(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "Quoting this",
+                    "lang": "en",
+                    "referenced_tweets": [{"type": "quoted", "id": "111222333"}],
+                },
+                "includes": {"users": [{"username": "quoter"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertEqual(result.quoted_tweet_id, "111222333")
+        self.assertFalse(result.is_reply)
+        self.assertIsNone(result.replied_to_tweet_id)
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_referenced_tweets_reply(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "Replying here",
+                    "lang": "en",
+                    "referenced_tweets": [{"type": "replied_to", "id": "444555666"}],
+                },
+                "includes": {"users": [{"username": "replier"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertTrue(result.is_reply)
+        self.assertEqual(result.replied_to_tweet_id, "444555666")
+        self.assertIsNone(result.quoted_tweet_id)
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_referenced_tweets_both(self, m: Mocker, _):
+        self.mock_di.tools_cache_crud.get.return_value = None
+        m.get(
+            self.api_url,
+            json = {
+                "data": {
+                    "text": "Reply with quote",
+                    "lang": "en",
+                    "referenced_tweets": [
+                        {"type": "replied_to", "id": "444555666"},
+                        {"type": "quoted", "id": "777888999"},
+                    ],
+                },
+                "includes": {"users": [{"username": "both"}]},
+            },
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.as_structured()
+
+        self.assertTrue(result.is_reply)
+        self.assertEqual(result.replied_to_tweet_id, "444555666")
+        self.assertEqual(result.quoted_tweet_id, "777888999")

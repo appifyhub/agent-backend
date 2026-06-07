@@ -3,9 +3,8 @@ import io
 import re
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 
-from PIL import Image, ImageFont
+from PIL import Image
 
 from features.social_cards.card_layout import (
     AVATAR_GAP,
@@ -30,64 +29,34 @@ from features.social_cards.card_layout import (
     PHOTO_GAP,
     X_ICON_SIZE,
 )
+from features.social_cards.card_utils import (
+    FONT_NAME,
+    FONT_PATH,
+    b64_image,
+    emoji_split,
+    escape_xml,
+    image_mime,
+    render_text_segments,
+    rounded_rect_path,
+    text_width,
+)
+from features.social_cards.embedded_post import render_embedded_post
+from features.social_cards.link_preview import render_link_previews
 from features.social_cards.theme import ThemeColors
 from features.web_browsing.twitter_status_fetcher import TweetData
 from util.config import config
-
-_FONT_PATH = Path(config.fonts_dir) / "Heebo-Variable.ttf"
-_FONT_NAME = "Heebo"
-_EMOJI_FONT_NAME = "Noto Color Emoji"
 
 _FONT_B64: str | None = None
 _LOGO_CACHE: dict[str, bytes] = {}
 
 _SPECIAL_TOKEN_RE = re.compile(r"(https?://\S+|www\.\S+|@\w+|#\w+|\$[A-Za-z]+)")
 
-_EMOJI_RE = re.compile(
-    "(?:"
-    "[\U0001F1E6-\U0001F1FF]"      # regional indicators (flags)
-    "|[\U0001F300-\U0001F5FF]"      # misc symbols & pictographs
-    "|[\U0001F600-\U0001F64F]"      # emoticons
-    "|[\U0001F680-\U0001F6FF]"      # transport & map
-    "|[\U0001F700-\U0001F77F]"      # alchemical
-    "|[\U0001F780-\U0001F7FF]"      # geometric extended
-    "|[\U0001F800-\U0001F8FF]"      # supplemental arrows-C
-    "|[\U0001F900-\U0001F9FF]"      # supplemental symbols & pictographs
-    "|[\U0001FA00-\U0001FAFF]"      # symbols & pictographs ext-A
-    "|[☀-➿]"              # misc symbols & dingbats
-    "|[⌀-⏿]"              # misc technical
-    "|[⬀-⯿]"              # misc symbols & arrows
-    ")"
-    "[️‍\U0001F3FB-\U0001F3FF]*"  # variation selector, ZWJ, skin tones
-    "(?:"
-    "(?:"
-    "[\U0001F1E6-\U0001F1FF]"
-    "|[\U0001F300-\U0001F5FF]"
-    "|[\U0001F600-\U0001F64F]"
-    "|[\U0001F680-\U0001F6FF]"
-    "|[\U0001F700-\U0001F77F]"
-    "|[\U0001F780-\U0001F7FF]"
-    "|[\U0001F800-\U0001F8FF]"
-    "|[\U0001F900-\U0001F9FF]"
-    "|[\U0001FA00-\U0001FAFF]"
-    "|[☀-➿]"
-    "|[⌀-⏿]"
-    "|[⬀-⯿]"
-    ")"
-    "[️‍\U0001F3FB-\U0001F3FF]*"
-    ")*",
-)
-
 
 def _font_b64() -> str:
     global _FONT_B64
     if _FONT_B64 is None:
-        _FONT_B64 = base64.b64encode(_FONT_PATH.read_bytes()).decode("ascii")
+        _FONT_B64 = base64.b64encode(FONT_PATH.read_bytes()).decode("ascii")
     return _FONT_B64
-
-
-def _b64_image(data: bytes, mime: str = "image/jpeg") -> str:
-    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 def _fetch_logo(key: str) -> bytes:
@@ -123,15 +92,6 @@ def _accent_color(theme: ThemeColors) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _image_mime(data: bytes) -> str:
-    try:
-        img = Image.open(io.BytesIO(data))
-        fmt = (img.format or "JPEG").upper()
-        return {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "WEBP": "image/webp"}.get(fmt, "image/jpeg")
-    except Exception:
-        return "image/jpeg"
-
-
 def _photo_natural_height(data: bytes, display_w: int) -> int:
     try:
         img = Image.open(io.BytesIO(data))
@@ -154,29 +114,6 @@ def _photo_sort_key(data: bytes) -> int:
         return 1
 
 
-def _pillow_font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(_FONT_PATH), size)
-
-
-def _emoji_pillow_font(size: int) -> ImageFont.FreeTypeFont | None:
-    for p in Path(config.fonts_dir).glob("*.ttf"):
-        if "emoji" in p.name.lower() or "colr" in p.name.lower():
-            return ImageFont.truetype(str(p), size)
-    return None
-
-
-def _text_width(text: str, size: int) -> int:
-    font = _pillow_font(size)
-    return round(font.getlength(text))
-
-
-def _emoji_text_width(text: str, size: int) -> int:
-    emoji_font = _emoji_pillow_font(size)
-    if emoji_font is None:
-        return _text_width(text, size)
-    return round(emoji_font.getlength(text))
-
-
 def _word_wrap(text: str, max_width: int, font_size: int) -> list[str]:
     lines: list[str] = []
     for paragraph in text.splitlines():
@@ -187,7 +124,7 @@ def _word_wrap(text: str, max_width: int, font_size: int) -> list[str]:
         current = ""
         for word in words:
             candidate = (current + " " + word).strip()
-            if _text_width(candidate, font_size) <= max_width:
+            if text_width(candidate, font_size) <= max_width:
                 current = candidate
             else:
                 if current:
@@ -196,53 +133,6 @@ def _word_wrap(text: str, max_width: int, font_size: int) -> list[str]:
         if current:
             lines.append(current)
     return lines or [""]
-
-
-def _emoji_split(text: str) -> list[tuple[str, bool]]:
-    out: list[tuple[str, bool]] = []
-    pos = 0
-    for match in _EMOJI_RE.finditer(text):
-        s, e = match.span()
-        if s > pos:
-            out.append((text[pos:s], False))
-        out.append((text[s:e], True))
-        pos = e
-    if pos < len(text):
-        out.append((text[pos:], False))
-    return out or [(text, False)]
-
-
-def _segment_width(text: str, font_size: int, is_emoji: bool) -> int:
-    if is_emoji:
-        return _emoji_text_width(text, font_size)
-    return _text_width(text, font_size)
-
-
-def _render_text_segments(
-    segments: list[tuple[str, str, str, bool]],
-    x: int,
-    y: int,
-    font_size: int,
-    fill_default: str,
-    weight: int = 400,
-) -> tuple[list[str], int]:
-    """Render (text, fill, decoration, is_emoji) tuples as separate <text> elements at computed x.
-    Avoids the usvg panic caused by font-family switches inside a single <text> with flag emoji.
-    Bold is achieved via stroke since resvg's variable-font wght axis is inert below size 24."""
-    out = []
-    cur_x = x
-    for text, fill, decoration, is_emoji in segments:
-        family = _EMOJI_FONT_NAME if is_emoji else _FONT_NAME
-        applied_fill = fill or fill_default
-        bold_attrs = ""
-        if weight == 700 and not is_emoji:
-            bold_attrs = f' stroke="{applied_fill}" stroke-width="0.7" paint-order="stroke"'
-        out.append(
-            f'<text x="{cur_x}" y="{y}" font-family="{family}" font-size="{font_size}" '
-            f'fill="{applied_fill}"{decoration}{bold_attrs} xml:space="preserve">{_escape(text)}</text>',
-        )
-        cur_x += _segment_width(text, font_size, is_emoji)
-    return out, cur_x
 
 
 def _line_to_segments(line: str, normal_fill: str, accent: str) -> list[tuple[str, str, str, bool]]:
@@ -254,7 +144,7 @@ def _line_to_segments(line: str, normal_fill: str, accent: str) -> list[tuple[st
         is_special = i % 2 == 1
         fill = accent if is_special else normal_fill
         decoration = ' text-decoration="underline"' if is_special else ""
-        for sub_text, is_emoji in _emoji_split(part):
+        for sub_text, is_emoji in emoji_split(part):
             if sub_text:
                 segments.append((sub_text, fill, decoration, is_emoji))
     return segments
@@ -272,20 +162,6 @@ def _format_datetime(created_at: str | None) -> str:
         return created_at
 
 
-def _rounded_rect_path(x: int, y: int, w: int, h: int, tl: int, tr: int, br: int, bl: int) -> str:
-    return (
-        f"M {x + tl},{y} "
-        f"H {x + w - tr} "
-        f"Q {x + w},{y} {x + w},{y + tr} "
-        f"V {y + h - br} "
-        f"Q {x + w},{y + h} {x + w - br},{y + h} "
-        f"H {x + bl} "
-        f"Q {x},{y + h} {x},{y + h - bl} "
-        f"V {y + tl} "
-        f"Q {x},{y} {x + tl},{y} Z"
-    )
-
-
 def _photo_cell_parts(
     cell_id: str,
     x: int,
@@ -298,7 +174,7 @@ def _photo_cell_parts(
     br: int,
     bl: int,
 ) -> tuple[str, str]:
-    path = _rounded_rect_path(x, y, w, h, tl, tr, br, bl)
+    path = rounded_rect_path(x, y, w, h, tl, tr, br, bl)
     clip = f'<clipPath id="{cell_id}-clip"><path d="{path}"/></clipPath>'
     img = (
         f'<image clip-path="url(#{cell_id}-clip)" x="{x}" y="{y}" width="{w}" height="{h}" '
@@ -314,6 +190,8 @@ def build_svg(
     profile_bytes: bytes | None,
     media_bytes: list[bytes],
     short_url: str | None,
+    link_preview_data: list[dict] | None = None,
+    quoted_tweet_data: dict | None = None,
 ) -> str:
     cx = CARD_OUTER_PAD  # card left edge
     inner_w = card_width - 2 * CARD_INNER_PAD
@@ -327,7 +205,7 @@ def build_svg(
     # Font
     defs.append(
         f'<style type="text/css">'
-        f'@font-face {{font-family:"{_FONT_NAME}";font-style:normal;font-weight:100 900;'
+        f'@font-face {{font-family:"{FONT_NAME}";font-style:normal;font-weight:100 900;'
         f'src:url("data:font/truetype;base64,{_font_b64()}") format("truetype");}}'
         f"</style>",
     )
@@ -358,7 +236,7 @@ def build_svg(
 
     # Header
     if profile_bytes:
-        avatar_b64 = _b64_image(profile_bytes, _image_mime(profile_bytes))
+        avatar_b64 = b64_image(profile_bytes, image_mime(profile_bytes))
         content.append(
             f'<image clip-path="url(#avatar-clip)" x="{cx + CARD_INNER_PAD}" y="{y}" '
             f'width="{AVATAR_SIZE}" height="{AVATAR_SIZE}" href="{avatar_b64}" preserveAspectRatio="xMidYMid slice"/>',
@@ -367,7 +245,7 @@ def build_svg(
         initial = (tweet.user.handle or "?")[0].upper()
         content.append(
             f'<circle cx="{av_cx}" cy="{av_cy_center}" r="{AVATAR_SIZE // 2}" fill="{theme.text_color}" fill-opacity="0.2"/>'
-            f'<text x="{av_cx}" y="{av_cy_center + 8}" text-anchor="middle" font-family="{_FONT_NAME}" '
+            f'<text x="{av_cx}" y="{av_cy_center + 8}" text-anchor="middle" font-family="{FONT_NAME}" '
             f'font-size="{AVATAR_SIZE // 2}" fill="{theme.text_color}">{initial}</text>',
         )
 
@@ -378,26 +256,26 @@ def build_svg(
     date_y = name_y + _name_date_span
 
     def _name_segments(text: str) -> list[tuple[str, str, str, bool]]:
-        return [(sub, theme.text_color, "", is_emoji) for sub, is_emoji in _emoji_split(text) if sub]
+        return [(sub, theme.text_color, "", is_emoji) for sub, is_emoji in emoji_split(text) if sub]
 
     if tweet.user.name:
-        name_elems, name_end_x = _render_text_segments(
+        name_elems, name_end_x = render_text_segments(
             _name_segments(tweet.user.name), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
         )
         content.extend(name_elems)
-        handle_elems, _ = _render_text_segments(
+        handle_elems, _ = render_text_segments(
             _name_segments(f" (@{tweet.user.handle})"), name_end_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 400,
         )
         content.extend(handle_elems)
     else:
-        handle_elems, _ = _render_text_segments(
+        handle_elems, _ = render_text_segments(
             _name_segments(f"@{tweet.user.handle}"), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
         )
         content.extend(handle_elems)
     dt_str = _format_datetime(tweet.created_at)
     if dt_str:
         content.append(
-            f'<text x="{name_x}" y="{date_y}" font-family="{_FONT_NAME}" font-size="{FONT_SIZE_DATE}" '
+            f'<text x="{name_x}" y="{date_y}" font-family="{FONT_NAME}" font-size="{FONT_SIZE_DATE}" '
             f'fill="{theme.text_color}" fill-opacity="0.7">{dt_str}</text>',
         )
 
@@ -425,12 +303,37 @@ def build_svg(
 
     y += AVATAR_SIZE + CARD_SECTION_GAP
 
-    # Divider
-    content.append(
-        f'<line x1="{body_x}" y1="{y}" x2="{body_x + inner_w}" y2="{y}" '
-        f'stroke="{theme.text_color}" stroke-opacity="{DIVIDER_OPACITY}" stroke-width="1"/>',
-    )
-    y += CARD_SECTION_GAP
+    # Embedded quoted post (above body text) — replaces divider
+    if quoted_tweet_data:
+        quote_line_w = 4
+        quote_line_gap = 12
+        embed_x = body_x + quote_line_w + quote_line_gap
+        embed_w = inner_w - quote_line_w - quote_line_gap
+        ep_defs, ep_content, ep_height = render_embedded_post(
+            tweet = quoted_tweet_data["tweet"],
+            x = embed_x,
+            y = y,
+            width = embed_w,
+            theme = theme,
+            profile_bytes = quoted_tweet_data.get("profile_bytes"),
+            media_bytes = quoted_tweet_data.get("media_bytes"),
+        )
+        defs.extend(ep_defs)
+        line_inset = round(ep_height * 0.05)
+        line_h = ep_height - 2 * line_inset
+        content.append(
+            f'<rect x="{body_x}" y="{y + line_inset}" width="{quote_line_w}" height="{line_h}" '
+            f'rx="2" fill="{theme.text_color}" fill-opacity="0.3"/>',
+        )
+        content.extend(ep_content)
+        y += ep_height + CARD_SECTION_GAP
+    else:
+        # Divider (only when no embedded post)
+        content.append(
+            f'<line x1="{body_x}" y1="{y}" x2="{body_x + inner_w}" y2="{y}" '
+            f'stroke="{theme.text_color}" stroke-opacity="{DIVIDER_OPACITY}" stroke-width="1"/>',
+        )
+        y += CARD_SECTION_GAP
 
     # Tweet body with colored tokens
     lines = _word_wrap(tweet.text, inner_w, FONT_SIZE_BODY)
@@ -440,9 +343,23 @@ def build_svg(
             segments = _line_to_segments(ln, theme.text_color, accent)
             if not segments:
                 continue
-            line_elems, _ = _render_text_segments(segments, body_x, line_y, FONT_SIZE_BODY, theme.text_color)
+            line_elems, _ = render_text_segments(segments, body_x, line_y, FONT_SIZE_BODY, theme.text_color)
             content.extend(line_elems)
         y += len(lines) * LINE_HEIGHT_BODY + CARD_SECTION_GAP
+
+    # Link previews (above photos)
+    if link_preview_data:
+        lp_defs, lp_content, lp_height = render_link_previews(
+            link_previews = link_preview_data,
+            x = body_x,
+            y = y,
+            width = inner_w,
+            theme = theme,
+        )
+        defs.extend(lp_defs)
+        content.extend(lp_content)
+        if lp_height > 0:
+            y += lp_height + CARD_SECTION_GAP
 
     # Photos — sorted portrait → square → landscape
     if media_bytes:
@@ -454,7 +371,7 @@ def build_svg(
 
         def _add_cell(photo_data: bytes, cx: int, cy: int, w: int, h: int, tl: int, tr: int, br: int, bl: int) -> None:
             nonlocal cell
-            b64 = _b64_image(photo_data, _image_mime(photo_data))
+            b64 = b64_image(photo_data, image_mime(photo_data))
             clip, img = _photo_cell_parts(f"photo-{cell}", cx, cy, w, h, b64, tl, tr, br, bl)
             defs.append(clip)
             content.append(img)
@@ -532,8 +449,8 @@ def build_svg(
     if short_url:
         display_url = short_url.removeprefix("https://").removeprefix("http://")
         content.append(
-            f'<text x="{body_x + X_ICON_SIZE + 5}" y="{footer_y}" font-family="{_FONT_NAME}" font-size="{FONT_SIZE_FOOTER}" '
-            f'fill="{theme.text_color}" opacity="{FOOTER_OPACITY}">{_escape(display_url)}</text>',
+            f'<text x="{body_x + X_ICON_SIZE + 5}" y="{footer_y}" font-family="{FONT_NAME}" font-size="{FONT_SIZE_FOOTER}" '
+            f'fill="{theme.text_color}" opacity="{FOOTER_OPACITY}">{escape_xml(display_url)}</text>',
         )
     y += FONT_SIZE_FOOTER + CARD_INNER_PAD
 
@@ -549,7 +466,3 @@ def build_svg(
     defs_svg = "<defs>" + "".join(defs) + "</defs>"
     content_svg = card_rect + "".join(content)
     return f'<svg xmlns="http://www.w3.org/2000/svg" width="{svg_w}" height="{total_h}">{defs_svg}{content_svg}</svg>'
-
-
-def _escape(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")

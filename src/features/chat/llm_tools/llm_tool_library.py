@@ -496,7 +496,8 @@ def render_social_post(di: DI, url: str) -> str:
     """
     try:
         x_api_tool = di.tool_choice_resolver.require_tool(SocialCardOrchestrator.TOOL_TYPE, default_tool_for(SocialCardOrchestrator.TOOL_TYPE))
-        image_url = di.social_card_orchestrator(x_api_tool).execute(url)
+        vision_tool = di.tool_choice_resolver.require_tool(SocialCardOrchestrator.VISION_TOOL_TYPE, default_tool_for(SocialCardOrchestrator.VISION_TOOL_TYPE))
+        image_url = di.social_card_orchestrator(x_api_tool, vision_tool).execute(url)
         invoker_chat = di.require_invoker_chat()
         di.platform_bot_sdk().smart_send_photo(
             media_mode = invoker_chat.media_mode,
