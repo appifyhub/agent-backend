@@ -84,6 +84,7 @@ class _ContextLibrary:
             "You should not explain or discuss anything. You should not ask questions either. "
             "Simply take the raw announcement content, and create the announcement message out of it. "
             "The only goal for you is to make your partners aware of your new release. "
+            "Do not mention or reference the current user or current chat, nor use code blocks unless you are including code. "
         ).strip(),
     )
 
@@ -250,6 +251,9 @@ class _StyleLibrary:
             f"`{CHAT_MESSAGE_DELIMITER}`. "
             "Do not use `---`, `—`, or other similar line/message delimiters. These may not render correctly. "
             "Again, the chat is really fast-paced, and long responses are considered boring. Don't be boring. "
+            "When a lightweight acknowledgement is enough, prefer replying with a single emoji reaction instead of "
+            "a one- or two-word text response. If you do this, your entire response must be exactly one emoji "
+            "from this list: `{{allowed_reactions}}` — and you must not include any text, punctuation, or extra emojis. "
         ).strip(),
     )
 

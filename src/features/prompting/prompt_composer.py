@@ -38,6 +38,7 @@ class PromptVar(Enum):
     support_request_type = "support_request_type"
     content_template = "content_template"
     tools_list = "tools_list"
+    allowed_reactions = "allowed_reactions"
 
 
 @dataclass(frozen = True)

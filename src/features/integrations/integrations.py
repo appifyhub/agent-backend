@@ -14,13 +14,16 @@ from features.integrations.integration_config import (
     BACKGROUND_AGENT,
     TELEGRAM_REACTION_INITIAL_DELAY_S,
     TELEGRAM_REACTION_INTERVAL_S,
+    TELEGRAM_REACTIONS,
     THE_AGENT,
     WHATSAPP_REACTION_INITIAL_DELAY_S,
     WHATSAPP_REACTION_INTERVAL_S,
+    WHATSAPP_REACTIONS,
 )
 from util.functions import normalize_phone_number, normalize_username
 
 WHATSAPP_MESSAGING_WINDOW_HOURS = 24
+REACTION_RESPONSE_TEMPLATE = "<reaction>{reaction}</reaction>"
 
 
 def resolve_agent_user(chat_type: ChatConfigDB.ChatType) -> UserSave:
@@ -198,6 +201,24 @@ def add_messaging_frequency_warning(response_data: dict, chat_type: ChatConfigDB
             "you've messaged the agent within the last 24 hours. If you haven't sent a message "
             "recently, you won't receive this alert notification."
         )
+
+
+def resolve_allowed_reactions(chat_type: ChatConfigDB.ChatType) -> list[str]:
+    match chat_type:
+        case ChatConfigDB.ChatType.telegram:
+            return TELEGRAM_REACTIONS
+        case ChatConfigDB.ChatType.whatsapp:
+            return WHATSAPP_REACTIONS
+        case _:
+            return []
+
+
+def is_reaction_response(text: str, chat_type: ChatConfigDB.ChatType) -> bool:
+    return text.strip() in resolve_allowed_reactions(chat_type)
+
+
+def format_reaction_response(reaction: str) -> str:
+    return REACTION_RESPONSE_TEMPLATE.format(reaction = reaction)
 
 
 def resolve_reaction_timing(chat_type: ChatConfigDB.ChatType) -> tuple[int, int] | None:

@@ -18,9 +18,11 @@ from features.integrations.integrations import (
     WHATSAPP_MESSAGING_WINDOW_HOURS,
     format_handle,
     is_own_chat,
+    is_reaction_response,
     is_the_agent,
     lookup_user_by_handle,
     resolve_agent_user,
+    resolve_allowed_reactions,
     resolve_any_external_handle,
     resolve_best_notification_chat,
     resolve_external_handle,
@@ -59,6 +61,22 @@ class IntegrationsTest(TestCase):
         assert agent.whatsapp_phone_number is not None
         self.assertEqual(agent.whatsapp_phone_number.get_secret_value(), config.whatsapp_bot_phone_number)
         self.assertEqual(agent.full_name, "The Agent")
+
+    def test_resolve_allowed_reactions_telegram(self):
+        reactions = resolve_allowed_reactions(ChatConfigDB.ChatType.telegram)
+        self.assertIn("👍", reactions)
+
+    def test_resolve_allowed_reactions_github_empty(self):
+        self.assertEqual(resolve_allowed_reactions(ChatConfigDB.ChatType.github), [])
+
+    def test_is_reaction_response(self):
+        self.assertTrue(is_reaction_response(" 👍 ", ChatConfigDB.ChatType.telegram))
+
+    def test_is_reaction_response_rejects_text(self):
+        self.assertFalse(is_reaction_response("👍 ok", ChatConfigDB.ChatType.telegram))
+
+    def test_is_reaction_response_rejects_unsupported_chat_type(self):
+        self.assertFalse(is_reaction_response("👍", ChatConfigDB.ChatType.github))
 
     def test_resolve_external_id_telegram_success(self):
         user = User(

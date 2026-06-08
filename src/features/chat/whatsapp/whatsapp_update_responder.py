@@ -1,5 +1,8 @@
+from datetime import datetime
+
 from langchain_core.messages import AIMessage
 
+from db.schema.chat_message import ChatMessageSave
 from db.sql import get_detached_session
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
@@ -7,7 +10,7 @@ from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
 from features.external_tools.intelligence_presets import default_tool_for
 from features.integrations import prompt_resolvers
-from features.integrations.integrations import resolve_agent_user
+from features.integrations.integrations import format_reaction_response, is_reaction_response, resolve_agent_user
 from util import log
 from util.config import config
 from util.errors import ServiceError
@@ -56,15 +59,33 @@ def respond_to_update(update: Update) -> bool:
 
             # send and store the response[s]
             sent_messages: int = 0
-            domain_messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
-            for message in domain_messages:
-                di.whatsapp_bot_sdk.send_text_message(str(resolved_domain_data.chat.external_id), message.text)
-                sent_messages += 1
+            agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
+            as_reaction = str(answer.content).strip()
+            if is_reaction_response(as_reaction, resolved_domain_data.chat.chat_type):
+                di.chat_message_crud.save(
+                    ChatMessageSave(
+                        chat_id = resolved_domain_data.chat.chat_id,
+                        message_id = f"reaction:{resolved_domain_data.message.message_id}",
+                        author_id = agent.id,
+                        sent_at = datetime.now(),
+                        text = format_reaction_response(as_reaction),
+                    ),
+                )
+                silent(di.platform_bot_sdk().set_reaction)(
+                    str(resolved_domain_data.chat.external_id),
+                    resolved_domain_data.message.message_id,
+                    as_reaction,
+                )
+                log.i(f"Reacted to message {resolved_domain_data.message.message_id} with {as_reaction}")
+            else:
+                domain_messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
+                for message in domain_messages:
+                    di.whatsapp_bot_sdk.send_text_message(str(resolved_domain_data.chat.external_id), message.text)
+                    sent_messages += 1
 
             # mark the incoming message as read
             di.whatsapp_bot_sdk.mark_as_read(resolved_domain_data.message.message_id)
 
-            agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
             log.t(f"Finished responding to updates. \n[{agent.full_name}]: {answer.content}")
             log.i(f"Sent {sent_messages} messages")
             return True
