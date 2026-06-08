@@ -68,6 +68,6 @@
 
 - [x] 9.1 Run `pipenv run pre-commit run --all-files --show-diff-on-failure`
 - [x] 9.2 Run the full test suite via the project's test runner script
-- [ ] 9.3 Manual sanity check: send a `.md`, a `.docx`, and a `.pdf` through the running bot in dev mode and confirm correct strategy + content reach the chat LLM
+- [x] 9.3 Manual sanity check: send a `.md`, a `.docx`, and a `.pdf` through the running bot in dev mode and confirm correct strategy + content reach the chat LLM
 - [x] 9.4 Update API/feature documentation in `docs/` to mention the broader file-type support
   - (N/A: docs cover REST endpoints only; file attachment behavior is internal to the bot and not documented in open-api-docs.yaml)
