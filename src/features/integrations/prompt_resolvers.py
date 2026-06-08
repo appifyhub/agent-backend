@@ -4,7 +4,7 @@ from db.model.chat_config import ChatConfigDB
 from db.schema.chat_config import ChatConfig, ChatConfigSave
 from db.schema.user import User, UserSave
 from features.chat.membership.chat_membership import ChatMembership
-from features.integrations.integrations import resolve_agent_user
+from features.integrations.integrations import resolve_agent_user, resolve_allowed_reactions
 from features.prompting import prompt_composer, prompt_library
 from features.prompting.prompt_composer import PromptFragment, PromptVar
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
@@ -45,6 +45,7 @@ def chat(
         (PromptVar.author_role, invoker.group.value),
         (PromptVar.date_and_time, __now()),
         (PromptVar.tools_list, tools_list or PLACEHOLDER_NO_DATA),
+        (PromptVar.allowed_reactions, ", ".join(resolve_allowed_reactions(target_chat.chat_type)) or PLACEHOLDER_NO_DATA),
     )
     # add conditional generic components
     if invoker_membership and invoker_membership.use_about_me and invoker.about_me and (

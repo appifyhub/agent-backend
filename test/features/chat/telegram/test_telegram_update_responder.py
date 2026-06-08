@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from db.schema.chat_config import ChatConfig
-from db.schema.chat_message import ChatMessage
+from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
@@ -102,6 +102,77 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         # Agent user creation logic was removed, so user_crud.save should not be called
         self.di.chat_agent.return_value.execute.assert_called_once()
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Test response")
+
+    def test_reaction_response(self):
+        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
+        self.di.telegram_domain_mapper.map_update.return_value = Mock(
+            spec = TelegramDomainMapper.Result,
+            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
+        )
+        self.di.telegram_data_resolver.resolve.return_value = Mock(
+            spec = TelegramDataResolver.Result,
+            chat = ChatConfig(
+                chat_id = UUID(int = 123),
+                external_id = "123",
+                language_name = "English",
+                language_iso_code = "en",
+                title = "Test Chat",
+                is_private = False,
+                reply_chance_percent = 100,
+                release_notifications = ChatConfigDB.ReleaseNotifications.all,
+                media_mode = ChatConfigDB.MediaMode.photo,
+                chat_type = ChatConfigDB.ChatType.telegram,
+            ),
+            author = Mock(spec = User, id = UUID(int = 1)),
+            message = Mock(spec = ChatMessage, message_id = "test-message-id"),
+        )
+
+        result = respond_to_update(self.update)
+
+        self.assertTrue(result)
+        self.di.platform_bot_sdk.return_value.set_reaction.assert_called_once_with("123", "test-message-id", "👍")
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
+        self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+        saved_message = self.di.chat_message_crud.save.call_args.args[0]
+        self.assertIsInstance(saved_message, ChatMessageSave)
+        self.assertEqual(saved_message.message_id, "reaction:test-message-id")
+        self.assertEqual(saved_message.text, "<reaction>👍</reaction>")
+
+    def test_reaction_response_failure(self):
+        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
+        self.di.platform_bot_sdk.return_value.set_reaction.side_effect = Exception("Reaction failed")
+        self.di.telegram_domain_mapper.map_update.return_value = Mock(
+            spec = TelegramDomainMapper.Result,
+            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
+        )
+        self.di.telegram_data_resolver.resolve.return_value = Mock(
+            spec = TelegramDataResolver.Result,
+            chat = ChatConfig(
+                chat_id = UUID(int = 123),
+                external_id = "123",
+                language_name = "English",
+                language_iso_code = "en",
+                title = "Test Chat",
+                is_private = False,
+                reply_chance_percent = 100,
+                release_notifications = ChatConfigDB.ReleaseNotifications.all,
+                media_mode = ChatConfigDB.MediaMode.photo,
+                chat_type = ChatConfigDB.ChatType.telegram,
+            ),
+            author = Mock(spec = User, id = UUID(int = 1)),
+            message = Mock(spec = ChatMessage, message_id = "test-message-id"),
+        )
+
+        result = respond_to_update(self.update)
+
+        self.assertTrue(result)
+        self.di.platform_bot_sdk.return_value.set_reaction.assert_called_once_with("123", "test-message-id", "👍")
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
+        self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+        saved_message = self.di.chat_message_crud.save.call_args.args[0]
+        self.assertIsInstance(saved_message, ChatMessageSave)
+        self.assertEqual(saved_message.message_id, "reaction:test-message-id")
+        self.assertEqual(saved_message.text, "<reaction>👍</reaction>")
 
     def test_empty_response(self):
         self.di.telegram_domain_mapper.map_update.return_value = Mock(spec = TelegramDomainMapper.Result)
