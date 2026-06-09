@@ -44,6 +44,66 @@ def format_sources_from_google(grounding_chunks: list, di: DI) -> str:
     return __render_sources(raw_sources, di)
 
 
+def format_sources_from_xai(response: object, di: DI) -> str:
+    raw_sources: list[tuple[str, str]] = []
+
+    citations = getattr(response, "citations", None) or []
+    if __is_iterable(citations):
+        for url in citations:
+            if url:
+                url = str(url)
+                domain = urlparse(url).netloc or simplify_url(url)
+                raw_sources.append((domain, simplify_url(url, strip_subdomains = False)))
+
+    inline_citations = getattr(response, "inline_citations", None) or []
+    if __is_iterable(inline_citations):
+        for citation in inline_citations:
+            source = __extract_xai_inline_source(citation)
+            if source:
+                raw_sources.append(source)
+
+    return __render_sources(raw_sources, di)
+
+
+def __is_iterable(value: object) -> bool:
+    return not isinstance(value, str | bytes) and hasattr(value, "__iter__")
+
+
+def __extract_xai_inline_source(citation: object) -> tuple[str, str] | None:
+    for field_name in ["web_citation", "x_citation"]:
+        if not __has_xai_citation_field(citation, field_name):
+            continue
+        source = getattr(citation, field_name, None)
+        if not source:
+            continue
+        url = None
+        for url_attr in ["url", "uri", "post_url", "tweet_url"]:
+            url = getattr(source, url_attr, None)
+            if url:
+                break
+        if not url:
+            continue
+        url = str(url)
+        title = None
+        for title_attr in ["title", "name", "handle", "username"]:
+            title = getattr(source, title_attr, None)
+            if title:
+                break
+        domain = str(title) if title else (urlparse(url).netloc or simplify_url(url))
+        return domain, simplify_url(url, strip_subdomains = False)
+    return None
+
+
+def __has_xai_citation_field(citation: object, field_name: str) -> bool:
+    has_field = getattr(citation, "HasField", None)
+    if callable(has_field):
+        try:
+            return bool(has_field(field_name))
+        except ValueError:
+            return False
+    return bool(getattr(citation, field_name, None))
+
+
 def __render_sources(raw_sources: list[tuple[str, str]], di: DI) -> str:
     if not raw_sources:
         return ""

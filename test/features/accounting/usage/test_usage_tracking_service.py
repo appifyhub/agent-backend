@@ -750,3 +750,41 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
         self.assertEqual(records[0].payer_id, self.payer_id)
         self.assertTrue(records[0].uses_credits)
+
+    def test_track_provider_reported_cost_uses_exact_cost_as_model_cost(self):
+        tool = self._create_search_tool()
+        record = self.service.track_provider_reported_cost(
+            tool = tool,
+            tool_purpose = ToolType.search,
+            runtime_seconds = 2.0,
+            payer_id = self.payer_id,
+            uses_credits = True,
+            provider_cost_credits = 3.75,
+            input_tokens = 10,
+            output_tokens = 20,
+            total_tokens = 30,
+        )
+
+        self.assertEqual(record.model_cost_credits, 3.75)
+        self.assertEqual(record.api_call_cost_credits, 0.0)
+        self.assertEqual(record.remote_runtime_cost_credits, 0.0)
+        self.assertEqual(record.maintenance_fee_credits, 1.0)
+        self.assertEqual(record.total_cost_credits, 4.75)
+        self.assertEqual(record.input_tokens, 10)
+        self.assertEqual(record.output_tokens, 20)
+        self.assertEqual(record.total_tokens, 30)
+        self.assertTrue(record.uses_credits)
+
+    def test_track_provider_reported_cost_persists_to_repo(self):
+        tool = self._create_search_tool()
+
+        self.service.track_provider_reported_cost(
+            tool = tool,
+            tool_purpose = ToolType.search,
+            runtime_seconds = 1.0,
+            payer_id = self.payer_id,
+            uses_credits = False,
+            provider_cost_credits = 1.25,
+        )
+
+        self.mock_di.usage_record_repo.create.assert_called_once()
