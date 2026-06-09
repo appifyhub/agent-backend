@@ -5,6 +5,7 @@ from di.di import DI
 from features.web_browsing.search_source_formatter import (
     format_sources_from_google,
     format_sources_from_perplexity,
+    format_sources_from_xai,
 )
 from util.errors import ExternalServiceError
 
@@ -130,4 +131,26 @@ class SearchSourceFormatterTest(unittest.TestCase):
     def test_google_empty_chunks_returns_empty(self):
         di = self._make_di()
         output = format_sources_from_google([], di)
+        self.assertEqual(output, "")
+
+    def test_xai_sources_from_citations(self):
+        di = self._make_di()
+        response = Mock()
+        response.citations = ["https://example.com/page"]
+        response.inline_citations = []
+
+        output = format_sources_from_xai(response, di)
+
+        self.assertIn("Sources:", output)
+        self.assertIn("example.com", output)
+        self.assertIn("https://short.ly/abc", output)
+
+    def test_xai_empty_sources_returns_empty(self):
+        di = self._make_di()
+        response = Mock()
+        response.citations = []
+        response.inline_citations = []
+
+        output = format_sources_from_xai(response, di)
+
         self.assertEqual(output, "")

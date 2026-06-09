@@ -355,10 +355,11 @@ GROK_4_20_NON_REASONING = ExternalTool(
     id = "grok-4.20-non-reasoning",
     name = "Grok 4.20",
     provider = XAI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
+    types = [ToolType.chat, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
         input_1m_tokens = 200,
         output_1m_tokens = 600,
+        web_search_query = 5,
     ),
 )
 
@@ -366,10 +367,11 @@ GROK_4_20_REASONING = ExternalTool(
     id = "grok-4.20-reasoning",
     name = "Grok 4.20 (Reasoning)",
     provider = XAI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
         input_1m_tokens = 200,
         output_1m_tokens = 600,
+        web_search_query = 5,
     ),
 )
 
@@ -377,10 +379,11 @@ GROK_4_3 = ExternalTool(
     id = "grok-4.3",
     name = "Grok 4.3",
     provider = XAI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
         input_1m_tokens = 200,
         output_1m_tokens = 600,
+        web_search_query = 5,
     ),
 )
 
