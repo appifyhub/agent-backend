@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
-from features.external_tools.external_tool_provider_library import GOOGLE_AI, PERPLEXITY
+from features.external_tools.external_tool_provider_library import GOOGLE_AI, PERPLEXITY, XAI
 from features.web_browsing.ai_web_search import AIWebSearch
 from util.errors import ConfigurationError, ExternalServiceError
 
@@ -131,6 +131,74 @@ class AIWebSearchGoogleTest(unittest.TestCase):
         mock_client = Mock()
         mock_client.models.generate_content.return_value = response
         self.di.google_search_client.return_value = mock_client
+
+        with self.assertRaises(ExternalServiceError):
+            AIWebSearch("query", self.configured_tool, self.di).execute()
+
+
+class AIWebSearchXAITest(unittest.TestCase):
+
+    def setUp(self):
+        self.di = _make_di()
+        self.configured_tool = _make_provider(XAI)
+
+    def _make_client(self, content: str = "xai answer") -> Mock:
+        response = Mock()
+        response.content = content
+        response.citations = []
+        response.inline_citations = []
+        mock_chat = Mock()
+        mock_chat.sample.return_value = response
+        mock_client = Mock()
+        mock_client.chat.create.return_value = mock_chat
+        self.di.x_ai_client.return_value = mock_client
+        return mock_client
+
+    @patch("features.web_browsing.ai_web_search.format_sources_from_xai", return_value = "\n\nSources:\n- [x](http://s)")
+    @patch("features.web_browsing.ai_web_search.x_search", return_value = "x-search-tool")
+    @patch("features.web_browsing.ai_web_search.web_search", return_value = "web-search-tool")
+    @patch("features.web_browsing.ai_web_search.user", return_value = "user-message")
+    @patch("features.web_browsing.ai_web_search.system", return_value = "system-message")
+    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
+    def test_xai_path_uses_both_search_tools(
+        self,
+        mock_resolvers,
+        mock_system,
+        mock_user,
+        mock_web_search,
+        mock_x_search,
+        mock_sources,
+    ):
+        mock_resolvers.sentient_web_search.return_value = "system prompt"
+        mock_client = self._make_client()
+
+        result = AIWebSearch("query", self.configured_tool, self.di).execute()
+
+        self.assertIsInstance(result, AIMessage)
+        self.assertIn("xai answer", result.content)
+        mock_client.chat.create.assert_called_once()
+        call_kwargs = mock_client.chat.create.call_args.kwargs
+        self.assertEqual(call_kwargs["model"], self.configured_tool.definition.id)
+        self.assertEqual(call_kwargs["messages"], ["system-message", "user-message"])
+        self.assertEqual(call_kwargs["tools"], ["web-search-tool", "x-search-tool"])
+        self.assertEqual(call_kwargs["include"], ["inline_citations"])
+
+    @patch("features.web_browsing.ai_web_search.format_sources_from_xai", return_value = "")
+    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
+    def test_xai_uses_xai_client(self, mock_resolvers, mock_sources):
+        mock_resolvers.sentient_web_search.return_value = "system prompt"
+        self._make_client()
+
+        AIWebSearch("query", self.configured_tool, self.di).execute()
+
+        self.di.x_ai_client.assert_called_once()
+        self.assertEqual(self.di.x_ai_client.call_args.args[0], self.configured_tool)
+
+    @patch("features.web_browsing.ai_web_search.format_sources_from_xai", return_value = "")
+    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
+    def test_xai_raises_on_empty_answer(self, mock_resolvers, mock_sources):
+        mock_resolvers.sentient_web_search.return_value = "system prompt"
+        self._make_client(content = "")
 
         with self.assertRaises(ExternalServiceError):
             AIWebSearch("query", self.configured_tool, self.di).execute()

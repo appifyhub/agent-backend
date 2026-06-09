@@ -1,16 +1,20 @@
 from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from xai_sdk.chat import system, user
+from xai_sdk.tools import web_search, x_search
 
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_provider_library import GOOGLE_AI, PERPLEXITY
+from features.external_tools.external_tool_provider_library import GOOGLE_AI, PERPLEXITY, XAI
 from features.integrations import prompt_resolvers
 from features.web_browsing.search_source_formatter import (
     format_sources_from_google,
     format_sources_from_perplexity,
+    format_sources_from_xai,
 )
 from util import log
+from util.config import config
 from util.error_codes import EXTERNAL_EMPTY_RESPONSE, LLM_UNEXPECTED_RESPONSE, UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError, ExternalServiceError
 
@@ -35,6 +39,8 @@ class AIWebSearch:
             return self.__search_with_perplexity()
         elif provider == GOOGLE_AI:
             return self.__search_with_google()
+        elif provider == XAI:
+            return self.__search_with_xai()
         else:
             raise ConfigurationError(f"Unsupported search provider: '{provider.name}'", UNSUPPORTED_PROVIDER)
 
@@ -75,4 +81,24 @@ class AIWebSearch:
         sources = format_sources_from_google(chunks, self.__di)
         content = answer_text + sources
         log.d(f"Finished Google web search, result size is {len(content)} characters")
+        return AIMessage(content = content)
+
+    def __search_with_xai(self) -> AIMessage:
+        system_prompt = prompt_resolvers.sentient_web_search(self.__di.invoker_chat)
+        client = self.__di.x_ai_client(self.__configured_tool, config.web_timeout_s * 6)
+        chat = client.chat.create(
+            model = self.__configured_tool.definition.id,
+            messages = [system(system_prompt), user(self.__search_query)],
+            tools = [web_search(), x_search()],
+            include = ["inline_citations"],
+        )
+        response = chat.sample()
+
+        answer_text = getattr(response, "content", None) or ""
+        if not answer_text:
+            raise ExternalServiceError("xAI search returned empty answer", EXTERNAL_EMPTY_RESPONSE)
+
+        sources = format_sources_from_xai(response, self.__di)
+        content = answer_text + sources
+        log.d(f"Finished xAI web search, result size is {len(content)} characters")
         return AIMessage(content = content)

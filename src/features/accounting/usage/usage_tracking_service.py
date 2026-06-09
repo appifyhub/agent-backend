@@ -156,6 +156,44 @@ class UsageTrackingService:
             records.append(self.__di.usage_record_repo.create(record))
         return records
 
+    def track_provider_reported_cost(
+        self,
+        tool: ExternalTool,
+        tool_purpose: ToolType,
+        runtime_seconds: float,
+        payer_id: UUID,
+        uses_credits: bool,
+        provider_cost_credits: float,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
+        is_failed: bool = False,
+    ) -> UsageRecord:
+        maintenance_fee_credits: float = config.usage_maintenance_fee_credits
+        total_cost_credits: float = provider_cost_credits + maintenance_fee_credits
+
+        record = UsageRecord(
+            user_id = self.__di.invoker.id,
+            payer_id = payer_id,
+            uses_credits = uses_credits,
+            is_failed = is_failed,
+            chat_id = self.__di.invoker_chat.chat_id if self.__di.invoker_chat else None,
+            tool = tool,
+            tool_purpose = tool_purpose,
+            timestamp = datetime.now(timezone.utc),
+            model_cost_credits = provider_cost_credits,
+            remote_runtime_cost_credits = 0.0,
+            api_call_cost_credits = 0.0,
+            maintenance_fee_credits = maintenance_fee_credits,
+            total_cost_credits = total_cost_credits,
+            runtime_seconds = runtime_seconds,
+            input_tokens = input_tokens,
+            output_tokens = output_tokens,
+            total_tokens = total_tokens,
+            participant_details = self.__build_participant_details(payer_id),
+        )
+        return self.__di.usage_record_repo.create(record)
+
     def track_api_call(
         self,
         tool: ExternalTool,
