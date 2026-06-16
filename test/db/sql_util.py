@@ -10,6 +10,7 @@ from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
+from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
 
 
@@ -46,6 +47,11 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return ChatConfigCRUD(self.__session)
+
+    def chat_config_repo(self) -> ChatConfigRepository:
+        if not self.__is_session_active:
+            self.start_session()
+        return ChatConfigRepository(self.__session)
 
     def chat_membership_repo(self) -> ChatMembershipRepository:
         if not self.__is_session_active:

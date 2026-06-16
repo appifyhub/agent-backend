@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from features.chat.chat_image_edit_service import ChatImageEditService
     from features.chat.chat_progress_notifier import ChatProgressNotifier
     from features.chat.command_processor import CommandProcessor
+    from features.chat.config.chat_config_repo import ChatConfigRepository
     from features.chat.currency_alert_service import CurrencyAlertService
     from features.chat.dev_announcements_service import DevAnnouncementsService
     from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
@@ -114,6 +115,7 @@ class DI:
     # Repositories
     _user_crud: "UserCRUD | None"
     _chat_config_crud: "ChatConfigCRUD | None"
+    _chat_config_repo: "ChatConfigRepository | None"
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_crud: "ChatMessageCRUD | None"
@@ -173,6 +175,7 @@ class DI:
         # Repositories
         self._user_crud = None
         self._chat_config_crud = None
+        self._chat_config_repo = None
         self._chat_membership_repo = None
         self._chat_membership_service = None
         self._chat_message_crud = None
@@ -355,6 +358,13 @@ class DI:
             from db.crud.chat_config import ChatConfigCRUD
             self._chat_config_crud = ChatConfigCRUD(self.db)
         return self._chat_config_crud
+
+    @property
+    def chat_config_repo(self) -> "ChatConfigRepository":
+        if self._chat_config_repo is None:
+            from features.chat.config.chat_config_repo import ChatConfigRepository
+            self._chat_config_repo = ChatConfigRepository(self.db)
+        return self._chat_config_repo
 
     @property
     def chat_membership_repo(self) -> "ChatMembershipRepository":
