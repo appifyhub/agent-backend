@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User
+from features.chat.config.chat_config import ChatConfig
 from util.config import config
 from util.error_codes import DI_DEPENDENCY_NOT_MET
 from util.errors import InternalError
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from api.sponsorships_controller import SponsorshipsController
     from api.transfers_controller import TransfersController
     from api.usage_controller import UsageController
-    from db.crud.chat_config import ChatConfigCRUD
     from db.crud.chat_message import ChatMessageCRUD
     from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
     from db.crud.price_alert import PriceAlertCRUD
@@ -114,7 +113,6 @@ class DI:
     _whatsapp_bot_sdk: "WhatsAppBotSDK | None"
     # Repositories
     _user_crud: "UserCRUD | None"
-    _chat_config_crud: "ChatConfigCRUD | None"
     _chat_config_repo: "ChatConfigRepository | None"
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
@@ -174,7 +172,6 @@ class DI:
         self._whatsapp_bot_sdk = None
         # Repositories
         self._user_crud = None
-        self._chat_config_crud = None
         self._chat_config_repo = None
         self._chat_membership_repo = None
         self._chat_membership_service = None
@@ -351,13 +348,6 @@ class DI:
             from db.crud.user import UserCRUD
             self._user_crud = UserCRUD(self.db)
         return self._user_crud
-
-    @property
-    def chat_config_crud(self) -> "ChatConfigCRUD":
-        if self._chat_config_crud is None:
-            from db.crud.chat_config import ChatConfigCRUD
-            self._chat_config_crud = ChatConfigCRUD(self.db)
-        return self._chat_config_crud
 
     @property
     def chat_config_repo(self) -> "ChatConfigRepository":

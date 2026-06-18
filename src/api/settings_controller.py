@@ -16,9 +16,9 @@ from api.model.user_chat_config_payload import UserChatConfigPayload
 from api.model.user_settings_payload import UserSettingsPayload
 from api.model.user_settings_response import UserSettingsResponse
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig, ChatConfigSave
 from db.schema.user import User
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.external_tools.external_tool_library import ALL_EXTERNAL_TOOLS
 from features.external_tools.external_tool_provider_library import ALL_PROVIDERS
@@ -176,11 +176,10 @@ class SettingsController:
 
         results: list[tuple[ChatConfig, ChatMembership]] = []
         for membership in memberships:
-            chat_config_db = self.__di.chat_config_crud.get(membership.chat_id)
-            if not chat_config_db:
+            chat_config = self.__di.chat_config_repo.get(membership.chat_id)
+            if not chat_config:
                 log.t(f"  Skipping orphan membership for chat '{membership.chat_id}' (chat config missing)")
                 continue
-            chat_config = ChatConfig.model_validate(chat_config_db)
             results.append((chat_config, membership))
 
         # sort: private/own first, then by chat type, then by title
@@ -254,36 +253,38 @@ class SettingsController:
         )
 
     def __apply_chat_config_changes(self, chat_config: ChatConfig, payload: ChatConfigPayload) -> None:
-        chat_config_save = ChatConfigSave(**chat_config.model_dump())
-
         # validate language changes
         if not payload.language_name or not payload.language_iso_code:
             raise ValidationError("Both language_name and language_iso_code must be non-empty", INVALID_LANGUAGE_SETTINGS)
         log.t(f"  Updating language to '{payload.language_name}' ({payload.language_iso_code})")
-        chat_config_save.language_name = payload.language_name
-        chat_config_save.language_iso_code = payload.language_iso_code
 
         # validate reply chance changes
-        if chat_config_save.is_private and payload.reply_chance_percent != 100:
+        if chat_config.is_private and payload.reply_chance_percent != 100:
             raise ValidationError("Chat is private, reply chance cannot be changed", INVALID_REPLY_CHANCE)
         log.t(f"  Updating reply chance to {payload.reply_chance_percent}%")
-        chat_config_save.reply_chance_percent = payload.reply_chance_percent
 
         # validate release notifications changes
         release_notifications = ChatConfigDB.ReleaseNotifications.lookup(payload.release_notifications)
         if not release_notifications:
             raise ValidationError(f"Invalid release notifications setting value '{payload.release_notifications}'", INVALID_RELEASE_NOTIFICATIONS)  # noqa: E501
         log.t(f"  Updating release notifications to '{release_notifications.value}'")
-        chat_config_save.release_notifications = release_notifications
 
         # validate media mode changes
         media_mode = ChatConfigDB.MediaMode.lookup(payload.media_mode)
         if not media_mode:
             raise ValidationError(f"Invalid media mode setting value '{payload.media_mode}'", INVALID_MEDIA_MODE)
         log.t(f"  Updating media mode to '{media_mode.value}'")
-        chat_config_save.media_mode = media_mode
 
-        ChatConfig.model_validate(self.__di.chat_config_crud.save(chat_config_save))
+        updated_chat_config = replace(
+            chat_config,
+            language_name = payload.language_name,
+            language_iso_code = payload.language_iso_code,
+            reply_chance_percent = payload.reply_chance_percent,
+            release_notifications = release_notifications,
+            media_mode = media_mode,
+        )
+
+        self.__di.chat_config_repo.save(updated_chat_config)
 
     def save_user_settings(self, user_id_hex: str, payload: UserSettingsPayload):
         log.d(f"Saving user settings for user '{user_id_hex}'")

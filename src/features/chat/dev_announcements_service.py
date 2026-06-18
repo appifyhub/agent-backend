@@ -3,9 +3,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
@@ -55,13 +55,9 @@ class DevAnnouncementsService:
             if not external_id:
                 raise AuthorizationError(f"Target user '{target_handle}' has no external ID for {chat_type.value}", NO_PRIVATE_CHAT)  # noqa: E501
 
-            target_chat_db = self.__di.chat_config_crud.get_by_external_identifiers(
-                external_id = external_id,
-                chat_type = chat_type,
-            )
-            if not target_chat_db:
+            self.__target_chat = self.__di.chat_config_repo.get_by_external_identifiers(external_id, chat_type)
+            if not self.__target_chat:
                 raise NotFoundError(f"Target chat '{external_id}' not found", TARGET_CHAT_NOT_FOUND)
-            self.__target_chat = ChatConfig.model_validate(target_chat_db)
 
     def execute(self) -> dict:
         log.t(f"Executing announcement from {self.__di.invoker.id.hex}")
@@ -76,10 +72,10 @@ class DevAnnouncementsService:
             invoker_external_id = resolve_external_id(self.__di.invoker, chat_type) or ""
             agent_user = resolve_agent_user(chat_type)
             bot_external_id = resolve_external_id(agent_user, chat_type) or ""
-            target_chats_db = self.__di.chat_config_crud.get_all(limit = 2048)
+            target_chats_all = self.__di.chat_config_repo.get_all(limit = 2048)
             target_chats = [
-                ChatConfig.model_validate(chat)
-                for chat in target_chats_db
+                chat
+                for chat in target_chats_all
                 if chat.external_id not in [bot_external_id, invoker_external_id]
             ]
 

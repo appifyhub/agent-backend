@@ -8,7 +8,6 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message_attachment import ChatMessageAttachment
 from db.schema.tools_cache import ToolsCache
 from db.schema.user import User
@@ -50,12 +49,10 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.mock_di = MagicMock()
         self.mock_cache_crud = MagicMock()
         self.mock_user_crud = MagicMock()
-        self.mock_chat_config_crud = MagicMock()
         self.mock_chat_message_attachment_crud = MagicMock()
         self.mock_access_token_resolver = MagicMock()
         self.mock_di.tools_cache_crud = self.mock_cache_crud
         self.mock_di.user_crud = self.mock_user_crud
-        self.mock_di.chat_config_crud = self.mock_chat_config_crud
         self.mock_di.chat_message_attachment_crud = self.mock_chat_message_attachment_crud
         self.mock_di.access_token_resolver = self.mock_access_token_resolver
         self.mock_di.invoker_chat_id = UUID(int = 1).hex
@@ -89,17 +86,9 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
-        self.chat_config = ChatConfig(
-            chat_id = UUID(int = 1),
-            external_id = "1",
-            language_name = "Spanish",
-            language_iso_code = "es",
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
         self.attachment = _make_attachment()
 
         self.mock_user_crud.get.return_value = self.invoker_user.model_dump()
-        self.mock_chat_config_crud.get.return_value = self.chat_config.model_dump()
         self.mock_chat_message_attachment_crud.get.return_value = self.attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = self.attachment.model_dump()
         self.mock_cache_crud.create_key.return_value = "test_cache_key"

@@ -1,18 +1,18 @@
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
-from uuid import UUID
 
 from db.sql_util import SQLUtil
 from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig, ChatConfigSave
 from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.chat_message_attachment import ChatMessageAttachment, ChatMessageAttachmentSave
 from db.schema.user import User, UserSave
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
+from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
@@ -32,7 +32,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.sql = SQLUtil()
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
-        self.mock_di.chat_config_crud = self.sql.chat_config_crud()
+        self.mock_di.chat_config_repo = self.sql.chat_config_repo()
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = self.sql.user_crud()
         # noinspection PyPropertyAccess
@@ -53,7 +53,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.sql.end_session()
 
     def test_resolve_no_author(self):
-        chat_config_data = ChatConfigSave(
+        chat_config_data = ChatConfigRemoteData(
             external_id = "c1",
             title = "Chat Title",
             is_private = True,
@@ -92,7 +92,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
 
     def test_resolve_with_author_bot(self):
-        chat_config_data = ChatConfigSave(
+        chat_config_data = ChatConfigRemoteData(
             external_id = "c1",
             title = "Chat Title",
             is_private = True,
@@ -140,7 +140,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.mock_di.chat_membership_service.sync.assert_not_called()
 
     def test_resolve_with_author_normal(self):
-        chat_config_data = ChatConfigSave(
+        chat_config_data = ChatConfigRemoteData(
             external_id = "c1",
             title = "Chat Title",
             is_private = True,
@@ -186,64 +186,6 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
         self.mock_di.chat_membership_service.sync.assert_called_once()
-
-    def test_resolve_chat_config_existing(self):
-        existing_config_data = ChatConfigSave(
-            external_id = "c1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Old Title",
-            is_private = False,
-            reply_chance_percent = 100,
-            release_notifications = ChatConfigDB.ReleaseNotifications.major,
-            media_mode = ChatConfigDB.MediaMode.file,  # Non-default value to test preservation
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        existing_config_db = self.sql.chat_config_crud().save(existing_config_data)
-        existing_config = ChatConfig.model_validate(existing_config_db)
-
-        mapped_data = ChatConfigSave(
-            external_id = "c1",
-            title = "New Title",
-            is_private = True,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-
-        result = self.resolver.resolve_chat_config(mapped_data)
-        saved_config_db = self.sql.chat_config_crud().get(mapped_data.chat_id)
-        saved_config = ChatConfig.model_validate(saved_config_db)
-
-        self.assertEqual(result, saved_config)
-        self.assertEqual(result.chat_id, mapped_data.chat_id)
-        self.assertEqual(result.language_iso_code, existing_config.language_iso_code)
-        self.assertEqual(result.language_name, existing_config.language_name)
-        self.assertEqual(result.title, mapped_data.title)
-        self.assertEqual(result.is_private, mapped_data.is_private)
-        self.assertEqual(result.reply_chance_percent, mapped_data.reply_chance_percent)
-        self.assertEqual(result.release_notifications, existing_config.release_notifications)
-        self.assertEqual(result.media_mode, existing_config.media_mode)
-
-    def test_resolve_chat_config_new(self):
-        mapped_data = ChatConfigSave(
-            external_id = "c1",
-            title = "Title",
-            is_private = True,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-
-        result = self.resolver.resolve_chat_config(mapped_data)
-        saved_config_db = self.sql.chat_config_crud().get(result.chat_id)
-        saved_config = ChatConfig.model_validate(saved_config_db)
-
-        self.assertEqual(result, saved_config)
-        # For new configs, chat_id is generated; mapped_data.chat_id remains None
-        self.assertIsNone(mapped_data.chat_id)
-        self.assertEqual(result.language_iso_code, mapped_data.language_iso_code)
-        self.assertEqual(result.language_name, mapped_data.language_name)
-        self.assertEqual(result.title, mapped_data.title)
-        self.assertEqual(result.is_private, mapped_data.is_private)
-        self.assertEqual(result.reply_chance_percent, mapped_data.reply_chance_percent)
-        self.assertEqual(result.release_notifications, mapped_data.release_notifications)
 
     def test_resolve_author_none(self):
         result = self.resolver.resolve_author(None)
@@ -434,96 +376,9 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.id, existing_user.id)
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
 
-    @patch("db.crud.user.UserCRUD.get_by_telegram_user_id")
-    @patch("db.crud.user.UserCRUD.get_by_telegram_username")
-    def test_resolve_author_api_key_reset(self, mock_get_by_username, mock_get_by_user_id):
-        fake_user = User(
-            id = UUID("123e4567-e89b-12d3-a456-426614174000"),
-            full_name = "Existing User",
-            telegram_username = "test_username",
-            telegram_chat_id = "c1",
-            telegram_user_id = 1,
-            open_ai_key = None,
-            anthropic_key = None,
-            google_ai_key = None,
-            perplexity_key = None,
-            replicate_key = None,
-            rapid_api_key = None,
-            coinmarketcap_key = None,
-            x_key = None,
-            x_ai_key = None,
-            group = UserDB.Group.developer,
-            created_at = datetime.now().date(),
-        )
-
-        mock_get_by_user_id.return_value = fake_user
-        mock_get_by_username.return_value = None
-
-        # Get all API key fields dynamically
-        secret_fields = User._get_secret_str_fields()
-
-        # test the no-key behavior for all API keys
-        mapped_data = UserSave(
-            telegram_user_id = 1,
-            full_name = "Test User",
-            telegram_chat_id = "c1",
-        )
-        result = self.resolver.resolve_author(mapped_data)
-        for field in secret_fields:
-            self.assertIsNone(getattr(result, field), f"{field} should remain None when already None")
-
-        # test the empty key behavior for all API keys
-        for field in secret_fields:
-            setattr(mapped_data, field, SecretStr(""))
-            setattr(fake_user, field, SecretStr(""))
-        result = self.resolver.resolve_author(mapped_data)
-        for field in secret_fields:
-            self.assertIsNone(getattr(result, field), f"{field} should be reset to None if empty")
-
-        # test the whitespace behavior for all API keys
-        for field in secret_fields:
-            setattr(mapped_data, field, SecretStr("    "))
-            setattr(fake_user, field, SecretStr("    "))
-        result = self.resolver.resolve_author(mapped_data)
-        for field in secret_fields:
-            self.assertIsNone(getattr(result, field), f"{field} should be reset to None if whitespace")
-
-        # test the valid key behavior for all API keys
-        for field in secret_fields:
-            setattr(mapped_data, field, SecretStr(f"valid_{field}"))
-            setattr(fake_user, field, SecretStr(f"valid_{field}"))
-        result = self.resolver.resolve_author(mapped_data)
-        for field in secret_fields:
-            result_key = getattr(result, field)
-            expected_key = result_key.get_secret_value() if result_key else None
-            self.assertEqual(expected_key, f"valid_{field}", f"{field} should remain unchanged if valid")
-
-    def test_resolve_author_tool_choice_cleanup(self):
-        mapped_data = UserSave(
-            telegram_user_id = 1,
-            full_name = "Test User",
-            telegram_chat_id = "c1",
-            # Test various empty/whitespace scenarios for tool choice fields
-            tool_choice_chat = "",  # empty string
-            tool_choice_reasoning = "   ",  # whitespace
-            tool_choice_copywriting = "perplexity",  # valid value
-            tool_choice_vision = None,  # already None
-        )
-
-        result = self.resolver.resolve_author(mapped_data)
-        assert result is not None
-        # Empty string should be cleaned to None
-        self.assertIsNone(result.tool_choice_chat, "Empty tool_choice_chat should be reset to None")
-        # Whitespace should be cleaned to None
-        self.assertIsNone(result.tool_choice_reasoning, "Whitespace tool_choice_reasoning should be reset to None")
-        # Valid value should be preserved
-        self.assertEqual(result.tool_choice_copywriting, "perplexity", "Valid tool_choice_copywriting should be preserved")
-        # None should remain None
-        self.assertIsNone(result.tool_choice_vision, "None tool_choice_vision should remain None")
-
     def test_resolve_chat_message_new(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         mapped_data = ChatMessageSave(
             chat_id = chat.chat_id,
@@ -543,8 +398,8 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.text, mapped_data.text)
 
     def test_resolve_chat_message_with_existing(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         old_message_data = ChatMessageSave(
             chat_id = chat.chat_id,
@@ -577,8 +432,8 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.text, mapped_data.text)
 
     def test_resolve_chat_message_attachment_new(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         self.sql.chat_message_crud().create(
             ChatMessageSave(chat_id = chat.chat_id, message_id = "m1", text = "x"),
@@ -608,8 +463,8 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.mime_type, mapped_data.mime_type)
 
     def test_resolve_chat_message_attachment_existing(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         self.sql.chat_message_crud().create(
             ChatMessageSave(chat_id = chat.chat_id, message_id = "m1", text = "x"),

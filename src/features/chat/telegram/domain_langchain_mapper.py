@@ -6,9 +6,9 @@ from uuid import UUID
 from langchain_core.messages import AIMessage, HumanMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User
+from features.chat.config.chat_config import ChatConfig
 from features.integrations.integrations import is_the_agent, resolve_agent_user, resolve_external_handle, resolve_external_id
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 from util import log

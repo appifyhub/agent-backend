@@ -5,15 +5,15 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.chat_message import ChatMessageCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.chat_message import ChatMessageDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User, UserSave
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
+from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.integrations.integrations import (
     WHATSAPP_MESSAGING_WINDOW_HOURS,
     format_handle,
@@ -833,7 +833,7 @@ class NotificationChatResolutionTest(TestCase):
 
     def setUp(self):
         self.mock_di = Mock(spec = DI)
-        self.mock_di.chat_config_crud = Mock(spec = ChatConfigCRUD)
+        self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
         self.mock_di.chat_message_crud = Mock(spec = ChatMessageCRUD)
 
         self.user = User(
@@ -847,8 +847,8 @@ class NotificationChatResolutionTest(TestCase):
             group = UserDB.Group.standard,
         )
 
-    def _make_chat(self, chat_type: ChatConfigDB.ChatType, external_id: str) -> ChatConfigDB:
-        return ChatConfigDB(
+    def _make_chat(self, chat_type: ChatConfigDB.ChatType, external_id: str) -> ChatConfig:
+        return ChatConfig(
             chat_id = UUID(int = hash(external_id) % (2 ** 32)),
             external_id = external_id,
             title = f"Test {chat_type.value} Chat",
@@ -871,13 +871,13 @@ class NotificationChatResolutionTest(TestCase):
         )
 
     def test_no_platforms_available(self):
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(return_value = None)
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(return_value = None)
         result = resolve_best_notification_chat(self.user, self.mock_di)
         self.assertIsNone(result)
 
     def test_telegram_only(self):
         telegram_chat = self._make_chat(ChatConfigDB.ChatType.telegram, "telegram_chat_123")
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             telegram_chat if chat_type == ChatConfigDB.ChatType.telegram else None
         ))
         self.mock_di.chat_message_crud.get_latest_chat_messages = Mock(return_value = [])
@@ -888,7 +888,7 @@ class NotificationChatResolutionTest(TestCase):
 
     def test_telegram_no_messages_still_selected(self):
         telegram_chat = self._make_chat(ChatConfigDB.ChatType.telegram, "telegram_chat_123")
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             telegram_chat if chat_type == ChatConfigDB.ChatType.telegram else None
         ))
         self.mock_di.chat_message_crud.get_latest_chat_messages = Mock(return_value = [])
@@ -901,7 +901,7 @@ class NotificationChatResolutionTest(TestCase):
         whatsapp_chat = self._make_chat(ChatConfigDB.ChatType.whatsapp, "whatsapp_user_123")
         recent_msg = self._make_message(whatsapp_chat.chat_id, self.user.id, datetime.now() - timedelta(hours = 12))
 
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp else None
         ))
         self.mock_di.chat_message_crud.get_latest_chat_messages = Mock(return_value = [recent_msg])
@@ -917,7 +917,7 @@ class NotificationChatResolutionTest(TestCase):
             datetime.now() - timedelta(hours = WHATSAPP_MESSAGING_WINDOW_HOURS + 1),
         )
 
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp else None
         ))
         self.mock_di.chat_message_crud.get_latest_chat_messages = Mock(return_value = [old_msg])
@@ -931,7 +931,7 @@ class NotificationChatResolutionTest(TestCase):
         telegram_msg = self._make_message(telegram_chat.chat_id, self.user.id, datetime.now() - timedelta(hours = 10))
         whatsapp_msg = self._make_message(whatsapp_chat.chat_id, self.user.id, datetime.now() - timedelta(hours = 2))
 
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             telegram_chat if chat_type == ChatConfigDB.ChatType.telegram
             else whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp
             else None
@@ -951,7 +951,7 @@ class NotificationChatResolutionTest(TestCase):
         telegram_msg = self._make_message(telegram_chat.chat_id, self.user.id, datetime.now() - timedelta(hours = 2))
         whatsapp_msg = self._make_message(whatsapp_chat.chat_id, self.user.id, datetime.now() - timedelta(hours = 10))
 
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             telegram_chat if chat_type == ChatConfigDB.ChatType.telegram
             else whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp
             else None
@@ -974,7 +974,7 @@ class NotificationChatResolutionTest(TestCase):
             datetime.now() - timedelta(hours = WHATSAPP_MESSAGING_WINDOW_HOURS + 2),
         )
 
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             telegram_chat if chat_type == ChatConfigDB.ChatType.telegram
             else whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp
             else None
@@ -992,7 +992,7 @@ class NotificationChatResolutionTest(TestCase):
         public_chat = self._make_chat(ChatConfigDB.ChatType.telegram, "telegram_chat_123")
         public_chat.is_private = False
 
-        self.mock_di.chat_config_crud.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
+        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
             public_chat if chat_type == ChatConfigDB.ChatType.telegram else None
         ))
 

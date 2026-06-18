@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from db.schema.user import User
+from features.chat.config.chat_config import ChatConfig
 from features.chat.dev_announcements_service import DevAnnouncementsService
 from features.external_tools.tool_choice_resolver import ConfiguredTool
 from util.errors import AuthorizationError, NotFoundError
@@ -47,9 +48,8 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
         self.mock_di.chat_langchain_model.return_value = MagicMock()
         self.mock_di.user_crud.get_by_telegram_username.return_value = None
-        self.mock_di.chat_config_crud.get.return_value = None
-        self.mock_di.chat_config_crud.get_by_external_identifiers.return_value = None
-        self.mock_di.chat_config_crud.get_all.return_value = []
+        self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
+        self.mock_di.chat_config_repo.get_all.return_value = []
         self.mock_platform_sdk.send_text_message.return_value = {"result": {"message_id": 123}}
         self.mock_di.chat_message_crud.save.return_value = MagicMock()
         self.mock_di.translations_cache.get.return_value = "Translated announcement"
@@ -62,7 +62,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
 
     @staticmethod
     def __create_mock_chat_config(external_id: str, language: str = "en"):
-        return ChatConfigDB(
+        return ChatConfig(
             chat_id = UUID(int = 1),
             external_id = external_id,
             language_iso_code = language,
@@ -110,7 +110,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
         self.mock_di.chat_langchain_model.return_value = mock_llm
 
-        self.mock_di.chat_config_crud.get_all.return_value = [
+        self.mock_di.chat_config_repo.get_all.return_value = [
             self.__create_mock_chat_config("1", "en"),
             self.__create_mock_chat_config("2", "es"),
         ]
@@ -143,7 +143,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
         self.mock_di.chat_langchain_model.return_value = mock_llm
 
-        self.mock_di.chat_config_crud.get_all.return_value = [
+        self.mock_di.chat_config_repo.get_all.return_value = [
             self.__create_mock_chat_config("1", "en"),
         ]
         self.mock_di.translations_cache.get.return_value = None  # Force translation attempt
@@ -177,7 +177,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
         self.mock_di.chat_langchain_model.return_value = mock_llm
 
-        self.mock_di.chat_config_crud.get_all.return_value = [
+        self.mock_di.chat_config_repo.get_all.return_value = [
             self.__create_mock_chat_config("1", "en"),
         ]
         self.mock_platform_sdk.send_text_message.side_effect = Exception("Notification failed")
@@ -210,7 +210,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
         self.mock_di.chat_langchain_model.return_value = mock_llm
 
-        self.mock_di.chat_config_crud.get_all.return_value = []
+        self.mock_di.chat_config_repo.get_all.return_value = []
 
         # Mock external ID resolution
         from unittest.mock import patch
@@ -257,7 +257,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         from unittest.mock import patch
         with patch("features.chat.dev_announcements_service.lookup_user_by_handle") as mock_lookup:
             mock_lookup.return_value = target_user
-            self.mock_di.chat_config_crud.get_by_external_identifiers.return_value = self.__create_mock_chat_config(
+            self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = self.__create_mock_chat_config(
                 external_id = "12345",
                 language = "en",
             )
@@ -338,7 +338,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         from unittest.mock import patch
         with patch("features.integrations.integrations.lookup_user_by_handle") as mock_lookup:
             mock_lookup.return_value = target_user
-            self.mock_di.chat_config_crud.get_by_external_identifiers.return_value = None
+            self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
 
             with self.assertRaises(NotFoundError) as context:
                 DevAnnouncementsService(

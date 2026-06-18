@@ -3,11 +3,11 @@ from typing import List
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig, ChatConfigSave
 from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.chat_message_attachment import ChatMessageAttachment, ChatMessageAttachmentSave
 from db.schema.user import User, UserSave
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import is_the_agent
 from util import log
@@ -35,7 +35,7 @@ class TelegramDataResolver:
 
     def resolve(self, mapping_result: TelegramDomainMapper.Result) -> Result:
         log.t(f"Resolving mapping result: {mapping_result}")
-        resolved_chat_config = self.resolve_chat_config(mapping_result.chat)
+        resolved_chat_config = self.__di.chat_config_repo.save(mapping_result.chat)
         resolved_author: User | None = None
         is_author_the_agent = False
         if mapping_result.author:
@@ -60,31 +60,6 @@ class TelegramDataResolver:
             message = resolved_chat_message,
             attachments = resolved_attachments,
         )
-
-    def resolve_chat_config(self, mapped_data: ChatConfigSave) -> ChatConfig:
-        log.t(f"  Resolving chat config: {mapped_data}")
-        old_chat_config_db = self.__di.chat_config_crud.get_by_external_identifiers(
-            external_id = str(mapped_data.external_id),
-            chat_type = mapped_data.chat_type,
-        )
-        if old_chat_config_db:
-            old_chat_config = ChatConfig.model_validate(old_chat_config_db)
-            # reset the attributes that are not normally changed through the Telegram API
-            mapped_data.chat_id = old_chat_config.chat_id
-            mapped_data.language_iso_code = old_chat_config.language_iso_code
-            mapped_data.language_name = old_chat_config.language_name
-            mapped_data.is_private = old_chat_config.is_private
-            mapped_data.reply_chance_percent = old_chat_config.reply_chance_percent
-            mapped_data.release_notifications = old_chat_config.release_notifications
-            mapped_data.media_mode = old_chat_config.media_mode
-        else:
-            # new chat, let's set sensible default values
-            mapped_data.media_mode = ChatConfigDB.MediaMode.photo
-            if mapped_data.is_private:
-                mapped_data.release_notifications = ChatConfigDB.ReleaseNotifications.major
-            else:
-                mapped_data.release_notifications = ChatConfigDB.ReleaseNotifications.none
-        return ChatConfig.model_validate(self.__di.chat_config_crud.save(mapped_data))
 
     # noinspection DuplicatedCode
     def resolve_author(self, mapped_data: UserSave | None) -> User | None:
@@ -140,56 +115,6 @@ class TelegramDataResolver:
             mapped_data.is_invited_to_start = False
             mapped_data.are_policies_accepted = False
 
-        # reset token values to None if they are non-null but contain only whitespace
-        def is_empty_secret(secret):
-            if hasattr(secret, "get_secret_value"):
-                return not secret.get_secret_value().strip()
-            return not secret.strip() if isinstance(secret, str) else False
-
-        # reset all SecretStr fields that are non-null but empty/whitespace
-        secret_fields = mapped_data._get_secret_str_fields()
-        for field_name in secret_fields:
-            field_value = getattr(mapped_data, field_name)
-            if field_value is not None and is_empty_secret(field_value):
-                log.d(f"Resetting {field_name} to None because it is empty")
-                setattr(mapped_data, field_name, None)
-        # reset tool choice values to None if they are empty strings (not if already None)
-        if mapped_data.tool_choice_chat is not None and not mapped_data.tool_choice_chat.strip():
-            log.w("Resetting tool_choice_chat to None because it is empty")
-            mapped_data.tool_choice_chat = None
-        if mapped_data.tool_choice_reasoning is not None and not mapped_data.tool_choice_reasoning.strip():
-            log.w("Resetting tool_choice_reasoning to None because it is empty")
-            mapped_data.tool_choice_reasoning = None
-        if mapped_data.tool_choice_copywriting is not None and not mapped_data.tool_choice_copywriting.strip():
-            log.w("Resetting tool_choice_copywriting to None because it is empty")
-            mapped_data.tool_choice_copywriting = None
-        if mapped_data.tool_choice_vision is not None and not mapped_data.tool_choice_vision.strip():
-            log.w("Resetting tool_choice_vision to None because it is empty")
-            mapped_data.tool_choice_vision = None
-        if mapped_data.tool_choice_hearing is not None and not mapped_data.tool_choice_hearing.strip():
-            log.w("Resetting tool_choice_hearing to None because it is empty")
-            mapped_data.tool_choice_hearing = None
-        if mapped_data.tool_choice_images_gen is not None and not mapped_data.tool_choice_images_gen.strip():
-            log.w("Resetting tool_choice_images_gen to None because it is empty")
-            mapped_data.tool_choice_images_gen = None
-        if mapped_data.tool_choice_images_edit is not None and not mapped_data.tool_choice_images_edit.strip():
-            log.w("Resetting tool_choice_images_edit to None because it is empty")
-            mapped_data.tool_choice_images_edit = None
-        if mapped_data.tool_choice_search is not None and not mapped_data.tool_choice_search.strip():
-            log.w("Resetting tool_choice_search to None because it is empty")
-            mapped_data.tool_choice_search = None
-        if mapped_data.tool_choice_embedding is not None and not mapped_data.tool_choice_embedding.strip():
-            log.w("Resetting tool_choice_embedding to None because it is empty")
-            mapped_data.tool_choice_embedding = None
-        if mapped_data.tool_choice_api_fiat_exchange is not None and not mapped_data.tool_choice_api_fiat_exchange.strip():
-            log.w("Resetting tool_choice_api_fiat_exchange to None because it is empty")
-            mapped_data.tool_choice_api_fiat_exchange = None
-        if mapped_data.tool_choice_api_crypto_exchange is not None and not mapped_data.tool_choice_api_crypto_exchange.strip():
-            log.w("Resetting tool_choice_api_crypto_exchange to None because it is empty")
-            mapped_data.tool_choice_api_crypto_exchange = None
-        if mapped_data.tool_choice_api_twitter is not None and not mapped_data.tool_choice_api_twitter.strip():
-            log.w("Resetting tool_choice_api_twitter to None because it is empty")
-            mapped_data.tool_choice_api_twitter = None
         return User.model_validate(self.__di.user_crud.save(mapped_data))
 
     def resolve_chat_message(self, mapped_data: ChatMessageSave) -> ChatMessage:

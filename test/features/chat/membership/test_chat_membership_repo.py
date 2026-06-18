@@ -5,8 +5,8 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfigSave
 from db.schema.user import UserSave
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
 
@@ -19,8 +19,8 @@ class ChatMembershipRepoTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.chat_membership_repo()
-        self.chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        self.chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         self.user = self.sql.user_crud().create(
             UserSave(
@@ -123,8 +123,8 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertEqual(fetched.max_output_tokens, 8000)
 
     def test_get_all_for_user_returns_memberships(self):
-        second_chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat2", chat_type = ChatConfigDB.ChatType.telegram),
+        second_chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat2", chat_type = ChatConfigDB.ChatType.telegram),
         )
         self.repo.save(ChatMembership(
             user_id = self.user.id,

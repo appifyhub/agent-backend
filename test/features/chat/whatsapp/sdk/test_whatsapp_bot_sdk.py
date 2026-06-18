@@ -4,10 +4,10 @@ from unittest.mock import Mock, patch
 from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage
 from db.schema.chat_message_attachment import ChatMessageAttachment
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.chat.whatsapp.model.response import ContactResponse, MessageResponse, SentMessageResponse
 from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
 from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
@@ -31,7 +31,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_domain_mapper = Mock(spec = WhatsAppDomainMapper)
         # noinspection PyPropertyAccess
-        self.mock_di.chat_config_crud = Mock()
+        self.mock_di.chat_config_repo = Mock()
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_attachment_crud = Mock()
         # noinspection PyPropertyAccess
@@ -58,11 +58,6 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.mock_di.whatsapp_bot_api.send_image.return_value = self.api_response
         self.mock_di.whatsapp_bot_api.send_document.return_value = self.api_response
 
-        # Mock ChatConfig that will be returned when looking up by external_id
-        mock_chat_config_db = Mock()
-        self.mock_di.chat_config_crud.get_by_external_identifiers.return_value = mock_chat_config_db
-
-        # Create a real ChatConfig to be validated
         self.chat_config = ChatConfig(
             chat_id = self.chat_uuid,
             external_id = self.chat_id,
@@ -70,16 +65,15 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             is_private = True,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
+        self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = self.chat_config
 
         # Create a mock DB object that will be returned when saving message
         mock_message_db = Mock()
         self.mock_di.chat_message_crud.save.return_value = mock_message_db
 
     @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_config.ChatConfig.model_validate")
     @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_text_message(self, mock_message_validate, mock_validate, mock_map_update):
-        mock_validate.return_value = self.chat_config
+    def test_send_text_message(self, mock_message_validate, mock_map_update):
         mock_message_validate.return_value = ChatMessage(
             message_id = self.message_id,
             chat_id = self.chat_uuid,
@@ -110,10 +104,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     @patch("requests.get")
     @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_config.ChatConfig.model_validate")
     @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_photo(self, mock_message_validate, mock_validate, mock_map_update, mock_requests_get):
-        mock_validate.return_value = self.chat_config
+    def test_send_photo(self, mock_message_validate, mock_map_update, mock_requests_get):
         mock_message_validate.return_value = ChatMessage(
             message_id = self.message_id,
             chat_id = self.chat_uuid,
@@ -154,10 +146,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     @patch("requests.get")
     @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_config.ChatConfig.model_validate")
     @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_document(self, mock_message_validate, mock_validate, mock_map_update, mock_requests_get):
-        mock_validate.return_value = self.chat_config
+    def test_send_document(self, mock_message_validate, mock_map_update, mock_requests_get):
         mock_message_validate.return_value = ChatMessage(
             message_id = self.message_id,
             chat_id = self.chat_uuid,
@@ -207,10 +197,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
 
     @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_config.ChatConfig.model_validate")
     @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_button_link(self, mock_message_validate, mock_validate, mock_map_update):
-        mock_validate.return_value = self.chat_config
+    def test_send_button_link(self, mock_message_validate, mock_map_update):
         mock_message_validate.return_value = ChatMessage(
             message_id = self.message_id,
             chat_id = self.chat_uuid,
@@ -276,10 +264,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
 
-    @patch("db.schema.chat_config.ChatConfig.model_validate")
     @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_store_api_response_mapping_failure(self, mock_message_validate, mock_validate):
-        mock_validate.return_value = self.chat_config
+    def test_store_api_response_mapping_failure(self, mock_message_validate):
         mock_message_validate.return_value = ChatMessage(
             message_id = self.message_id,
             chat_id = self.chat_uuid,
@@ -295,10 +281,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
         self.assertIsInstance(result, ChatMessage)
 
-    @patch("db.schema.chat_config.ChatConfig.model_validate")
     @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_store_api_response_resolution_failure(self, mock_message_validate, mock_validate):
-        mock_validate.return_value = self.chat_config
+    def test_store_api_response_resolution_failure(self, mock_message_validate):
         mock_message_validate.return_value = ChatMessage(
             message_id = self.message_id,
             chat_id = self.chat_uuid,
