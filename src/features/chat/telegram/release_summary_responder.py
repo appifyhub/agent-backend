@@ -6,9 +6,9 @@ from typing import Any
 
 from api.model.release_output_payload import ReleaseOutputPayload
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from di.di import DI
 from features.announcements.release_summary_service import ReleaseSummaryService
+from features.chat.config.chat_config import ChatConfig
 from features.external_tools.intelligence_presets import default_tool_for
 from util import log
 from util.config import config
@@ -108,8 +108,7 @@ def respond_with_summary(payload: ReleaseOutputPayload, di: DI) -> dict:
 
     # prepare and filter the eligible chats
     change_type = get_version_change_type(latest_version, new_target_version)
-    latest_chats_db = di.chat_config_crud.get_all(limit = 2048)
-    latest_chats = [ChatConfig.model_validate(chat_db) for chat_db in latest_chats_db]
+    latest_chats = di.chat_config_repo.get_all(limit = 2048)
     subscribed_chats = [chat for chat in latest_chats if is_chat_subscribed(chat, change_type)]
     result.chats_eligible = len(latest_chats)
     result.chats_subscribed = len(subscribed_chats)

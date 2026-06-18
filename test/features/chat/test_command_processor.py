@@ -8,7 +8,6 @@ from api.settings_controller import SettingsController
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.command_processor import (
@@ -19,6 +18,7 @@ from features.chat.command_processor import (
     CommandProcessor,
     is_known_command,
 )
+from features.chat.config.chat_config import ChatConfig
 from features.connect.profile_connect_service import ProfileConnectService
 from features.integrations.integrations import resolve_agent_user
 from features.integrations.platform_bot_sdk import PlatformBotSDK

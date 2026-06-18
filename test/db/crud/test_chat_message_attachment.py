@@ -5,9 +5,9 @@ from uuid import UUID
 from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfigSave
 from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.chat_message_attachment import ChatMessageAttachment, ChatMessageAttachmentSave
+from features.chat.config.chat_config import ChatConfig
 
 
 class ChatMessageAttachmentCRUDTest(unittest.TestCase):
@@ -21,8 +21,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.sql.end_session()
 
     def test_create_attachment(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -57,8 +57,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(attachment.mime_type, attachment_data.mime_type)
 
     def test_create_attachment_auto_generates_id(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -85,8 +85,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(attachment.size, 512)
 
     def test_create_with_external_id_only(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -110,8 +110,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(attachment.message_id, chat_message.message_id)
 
     def test_get_attachment(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -138,8 +138,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(fetched_attachment.message_id, created_attachment.message_id)
 
     def test_get_by_external_id(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -174,8 +174,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertIsNone(fetched_attachment)
 
     def test_get_all_attachments(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -214,8 +214,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
             self.assertEqual(fetched_attachments[i].message_id, attachments[i].message_id)
 
     def test_get_by_message(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -266,8 +266,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(len(non_existent_attachments), 0)
 
     def test_update_attachment(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -311,8 +311,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(updated_attachment.mime_type, update_data.mime_type)
 
     def test_save_attachment(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -368,8 +368,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(updated_attachment.mime_type, update_data.mime_type)
 
     def test_save_attachment_auto_generates_id(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -396,8 +396,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(saved_attachment.size, 4096)
 
     def test_delete_attachment(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -427,8 +427,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
 
     def test_integration_id_and_external_id_relationship(self):
         """Test the relationship between id and external_id fields"""
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         chat_message_db = self.sql.chat_message_crud().create(
             ChatMessageSave(
@@ -467,8 +467,8 @@ class ChatMessageAttachmentCRUDTest(unittest.TestCase):
         self.assertEqual(by_id.external_id, "telegram_external_456")
 
     def test_delete_by_old_messages(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         old_message = self.sql.chat_message_crud().create(
             ChatMessageSave(

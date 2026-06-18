@@ -1,6 +1,5 @@
 import json
 
-from db.schema.chat_config import ChatConfig
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.external_tools.intelligence_presets import default_tool_for
@@ -21,10 +20,9 @@ def respond_with_currency_alerts(di: DI) -> dict:
         scoped_di: DI
         # try to summarize the announcement first
         try:
-            chat_config_db = di.chat_config_crud.get(triggered_alert.chat_id)
-            if not chat_config_db:
+            chat_config = di.chat_config_repo.get(triggered_alert.chat_id)
+            if not chat_config:
                 raise NotFoundError(f"Chat config not found for chat {triggered_alert.chat_id}", CHAT_CONFIG_NOT_FOUND)
-            chat_config = ChatConfig.model_validate(chat_config_db)
             scoped_di = di.clone(invoker_id = triggered_alert.owner_id.hex, invoker_chat_id = chat_config.chat_id.hex)
 
             # find the correct translations cache for this alert

@@ -8,15 +8,15 @@ from uuid import UUID
 from langchain_core.messages import AIMessage
 
 from api.model.release_output_payload import ReleaseOutputPayload
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import UserSave
 from di.di import DI
 from features.announcements.release_summary_service import ReleaseSummaryService
+from features.chat.config.chat_config import ChatConfig
+from features.chat.config.chat_config_repo import ChatConfigRepository
 
 # noinspection PyProtectedMember
 from features.chat.telegram.release_summary_responder import (
@@ -47,7 +47,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = Mock(spec = UserCRUD)
         # noinspection PyPropertyAccess
-        self.mock_di.chat_config_crud = Mock(spec = ChatConfigCRUD)
+        self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_crud = Mock(spec = SponsorshipCRUD)
         # noinspection PyPropertyAccess
@@ -165,7 +165,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         mock_summary_service = Mock(spec = ReleaseSummaryService)
         mock_summary_service.execute.return_value = Mock(content = "Test summary")
         self.mock_di.release_summary_service.return_value = mock_summary_service
-        self.mock_di.chat_config_crud.get_all.return_value = []
+        self.mock_di.chat_config_repo.get_all.return_value = []
         result = respond_with_summary(self.payload, self.mock_di)
         self.assertEqual(result["summaries_created"], 1)
         self.assertNotIn("Skipping", result["summary"])
@@ -185,7 +185,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         # Use the real translations cache - it will cache summaries as needed
 
         # Mock chat config
-        self.mock_di.chat_config_crud.get_all.return_value = [self.__make_chat_db()]
+        self.mock_di.chat_config_repo.get_all.return_value = [self.__make_chat()]
 
         # Mock scoped DI and platform SDK for cloning
         mock_scoped_di = Mock()
@@ -204,9 +204,9 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         mock_summarizer = Mock(spec = ReleaseSummaryService)
         mock_summarizer.execute.return_value = AIMessage(content = "Summary")
         self.mock_di.release_summary_service.return_value = mock_summarizer
-        self.mock_di.chat_config_crud.get_all.return_value = [
-            self.__make_chat_db(chat_id = "123", lang_name = "English", lang_iso = "en"),
-            self.__make_chat_db(chat_id = "456", lang_name = "Spanish", lang_iso = "es"),
+        self.mock_di.chat_config_repo.get_all.return_value = [
+            self.__make_chat(chat_id = "123", lang_name = "English", lang_iso = "en"),
+            self.__make_chat(chat_id = "456", lang_name = "Spanish", lang_iso = "es"),
         ]
         result = respond_with_summary(self.payload, self.mock_di)
         self.assertEqual(result["chats_notified"], 2)
@@ -224,7 +224,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         # Use the real translations cache
 
         # Mock chat config
-        self.mock_di.chat_config_crud.get_all.return_value = [self.__make_chat_db()]
+        self.mock_di.chat_config_repo.get_all.return_value = [self.__make_chat()]
 
         # Mock scoped DI with platform SDK send failure
         mock_scoped_di = Mock()
@@ -248,7 +248,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         # Use the real translations cache
 
         # Mock empty chat config list
-        self.mock_di.chat_config_crud.get_all.return_value = []
+        self.mock_di.chat_config_repo.get_all.return_value = []
 
         result = respond_with_summary(self.payload, self.mock_di)
         self.assertEqual(result["chats_eligible"], 0)
@@ -259,12 +259,12 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         mock_sum = Mock(spec = ReleaseSummaryService)
         mock_sum.execute.return_value = Mock(content = "Gen summary")
         self.mock_di.release_summary_service.return_value = mock_sum
-        self.mock_di.chat_config_crud.get_all.return_value = [
-            self.__make_chat_db(chat_id = "123", lang_name = "English", lang_iso = "en"),
-            self.__make_chat_db(chat_id = "456", lang_name = "Spanish", lang_iso = "es"),
-            self.__make_chat_db(chat_id = "789", lang_name = "Greek", lang_iso = "gr"),
-            self.__make_chat_db(chat_id = "sss", lang_name = "Spanish", lang_iso = "es"),
-            self.__make_chat_db(chat_id = "eee", lang_name = "English", lang_iso = "en"),
+        self.mock_di.chat_config_repo.get_all.return_value = [
+            self.__make_chat(chat_id = "123", lang_name = "English", lang_iso = "en"),
+            self.__make_chat(chat_id = "456", lang_name = "Spanish", lang_iso = "es"),
+            self.__make_chat(chat_id = "789", lang_name = "Greek", lang_iso = "gr"),
+            self.__make_chat(chat_id = "sss", lang_name = "Spanish", lang_iso = "es"),
+            self.__make_chat(chat_id = "eee", lang_name = "English", lang_iso = "en"),
         ]
         result = respond_with_summary(self.payload, self.mock_di)
         self.assertEqual(result["chats_eligible"], 5)
@@ -281,7 +281,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         self.mock_di.release_summary_service.return_value = mock_summary_service
 
         # Mock chat config
-        self.mock_di.chat_config_crud.get_all.return_value = [self.__make_chat_db()]
+        self.mock_di.chat_config_repo.get_all.return_value = [self.__make_chat()]
 
         result = respond_with_summary(self.payload, self.mock_di)
         self.assertEqual(result["chats_notified"], 0)
@@ -299,14 +299,14 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         self.assertEqual(_strip_title_formatting("###   "), "")
 
     @staticmethod
-    def __make_chat_db(
+    def __make_chat(
         notifications: ChatConfigDB.ReleaseNotifications = ChatConfigDB.ReleaseNotifications.all,
         media_mode: ChatConfigDB.MediaMode = ChatConfigDB.MediaMode.photo,
         chat_id: str = "1234",
         lang_name: str = "English",
         lang_iso: str = "en",
-    ) -> ChatConfigDB:
-        return ChatConfigDB(
+    ) -> ChatConfig:
+        return ChatConfig(
             chat_id = UUID(int = 1),
             external_id = chat_id,
             language_name = lang_name,
@@ -317,27 +317,4 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
             release_notifications = notifications,
             media_mode = media_mode,
             chat_type = ChatConfigDB.ChatType.telegram,
-        )
-
-    @staticmethod
-    def __make_chat(
-        notifications: ChatConfigDB.ReleaseNotifications = ChatConfigDB.ReleaseNotifications.all,
-        media_mode: ChatConfigDB.MediaMode = ChatConfigDB.MediaMode.photo,
-        chat_id: str = "1234",
-        lang_name: str = "English",
-        lang_iso: str = "en",
-    ) -> ChatConfig:
-        return ChatConfig.model_validate(
-            ChatConfigDB(
-                chat_id = UUID(int = 1),
-                external_id = chat_id,
-                language_name = lang_name,
-                language_iso_code = lang_iso,
-                title = "Chat Title",
-                is_private = True,
-                reply_chance_percent = 100,
-                release_notifications = notifications,
-                media_mode = media_mode,
-                chat_type = ChatConfigDB.ChatType.telegram,
-            ),
         )

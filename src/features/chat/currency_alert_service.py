@@ -6,9 +6,9 @@ from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
 from db.model.price_alert import PriceAlertDB
-from db.schema.chat_config import ChatConfig
 from db.schema.price_alert import PriceAlert, PriceAlertSave
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.integrations.integrations import resolve_agent_user
 from util import log
 from util.error_codes import BOT_CANNOT_SET_ALERTS, NO_PRIVATE_CHAT

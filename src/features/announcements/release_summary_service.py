@@ -2,8 +2,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig, ChatConfigSave
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
@@ -23,7 +23,7 @@ class ReleaseSummaryService:
     def __init__(
         self,
         raw_notes: str,
-        target_chat: ChatConfig | ChatConfigSave | None,
+        target_chat: ChatConfig | None,
         configured_tool: ConfiguredTool,
         di: DI,
     ):

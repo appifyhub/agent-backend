@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User
+from features.chat.config.chat_config import ChatConfig
 from util.config import config
 from util.error_codes import DI_DEPENDENCY_NOT_MET
 from util.errors import InternalError
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from api.sponsorships_controller import SponsorshipsController
     from api.transfers_controller import TransfersController
     from api.usage_controller import UsageController
-    from db.crud.chat_config import ChatConfigCRUD
     from db.crud.chat_message import ChatMessageCRUD
     from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
     from db.crud.price_alert import PriceAlertCRUD
@@ -57,6 +56,7 @@ if TYPE_CHECKING:
     from features.chat.chat_image_edit_service import ChatImageEditService
     from features.chat.chat_progress_notifier import ChatProgressNotifier
     from features.chat.command_processor import CommandProcessor
+    from features.chat.config.chat_config_repo import ChatConfigRepository
     from features.chat.currency_alert_service import CurrencyAlertService
     from features.chat.dev_announcements_service import DevAnnouncementsService
     from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
@@ -113,7 +113,7 @@ class DI:
     _whatsapp_bot_sdk: "WhatsAppBotSDK | None"
     # Repositories
     _user_crud: "UserCRUD | None"
-    _chat_config_crud: "ChatConfigCRUD | None"
+    _chat_config_repo: "ChatConfigRepository | None"
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_crud: "ChatMessageCRUD | None"
@@ -172,7 +172,7 @@ class DI:
         self._whatsapp_bot_sdk = None
         # Repositories
         self._user_crud = None
-        self._chat_config_crud = None
+        self._chat_config_repo = None
         self._chat_membership_repo = None
         self._chat_membership_service = None
         self._chat_message_crud = None
@@ -350,11 +350,11 @@ class DI:
         return self._user_crud
 
     @property
-    def chat_config_crud(self) -> "ChatConfigCRUD":
-        if self._chat_config_crud is None:
-            from db.crud.chat_config import ChatConfigCRUD
-            self._chat_config_crud = ChatConfigCRUD(self.db)
-        return self._chat_config_crud
+    def chat_config_repo(self) -> "ChatConfigRepository":
+        if self._chat_config_repo is None:
+            from features.chat.config.chat_config_repo import ChatConfigRepository
+            self._chat_config_repo = ChatConfigRepository(self.db)
+        return self._chat_config_repo
 
     @property
     def chat_membership_repo(self) -> "ChatMembershipRepository":

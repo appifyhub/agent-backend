@@ -4,10 +4,10 @@ from typing import List
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfigSave
 from db.schema.chat_message import ChatMessageSave
 from db.schema.chat_message_attachment import ChatMessageAttachmentSave
 from db.schema.user import UserSave
+from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.update import Update
@@ -19,13 +19,13 @@ from util.functions import generate_deterministic_short_uuid
 class TelegramDomainMapper:
 
     class Result(BaseModel):
-        chat: ChatConfigSave
+        chat: ChatConfigRemoteData
         author: UserSave | None
         message: ChatMessageSave
         attachments: List[ChatMessageAttachmentSave]
 
     def map_update(self, update: Update) -> Result | None:
-        log.t(f"Mapping Telegramupdate: {update}")
+        log.t(f"Mapping Telegram update: {update}")
         message = update.edited_message or update.message
         if not message:
             log.w(f"  Nothing to map in update: {update}")
@@ -93,12 +93,12 @@ class TelegramDomainMapper:
         log.t(f"  Mapping message text: {parts}")
         return "\n\n".join(parts)
 
-    def map_chat(self, message: Message) -> ChatConfigSave:
+    def map_chat(self, message: Message) -> ChatConfigRemoteData:
         chat = message.chat
         log.t(f"  Mapping chat: {chat}")
         title = self.resolve_chat_name(str(chat.id), chat.title, chat.username, chat.first_name, chat.last_name)
         language_code = message.from_user.language_code if message.from_user else None
-        return ChatConfigSave(
+        return ChatConfigRemoteData(
             external_id = str(chat.id),
             title = title,
             is_private = chat.type == "private",

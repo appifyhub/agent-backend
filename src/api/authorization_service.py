@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.platform_bot_sdk import ChatAccess
 from util import log
@@ -36,10 +36,10 @@ class AuthorizationService:
             chat_uuid = chat if isinstance(chat, UUID) else UUID(hex = chat)
         except ValueError as e:
             raise ValidationError(f"Malformed chat ID '{chat}'", MALFORMED_CHAT_ID) from e
-        chat_config_db = self.__di.chat_config_crud.get(chat_uuid)
-        if not chat_config_db:
+        chat_config = self.__di.chat_config_repo.get(chat_uuid)
+        if not chat_config:
             raise NotFoundError(f"Chat '{chat}' not found", CHAT_NOT_FOUND)
-        return ChatConfig.model_validate(chat_config_db)
+        return chat_config
 
     def validate_user(self, user: str | UUID | User) -> User:
         if isinstance(user, User):
@@ -60,11 +60,10 @@ class AuthorizationService:
 
         log.t("  Validating chat configurations")
         max_chats = config.max_users * 10  # assuming each user administers 10 chats
-        all_chat_configs_db = self.__di.chat_config_crud.get_all(limit = max_chats)
-        if not all_chat_configs_db:
+        all_chat_configs = self.__di.chat_config_repo.get_all(limit = max_chats)
+        if not all_chat_configs:
             log.t("  No chat configurations found in DB")
             return []
-        all_chat_configs = [ChatConfig.model_validate(chat_config_db) for chat_config_db in all_chat_configs_db]
         log.t(f"  Found {len(all_chat_configs)} chat configurations to check")
 
         log.t("  Checking admin status in each chat")

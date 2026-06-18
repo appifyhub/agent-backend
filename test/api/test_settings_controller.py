@@ -14,14 +14,14 @@ from api.model.settings_link_response import SettingsLinkResponse
 from api.model.user_chat_config_payload import UserChatConfigPayload
 from api.model.user_settings_payload import UserSettingsPayload
 from api.settings_controller import SettingsController
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig as ChatConfigDomain
+from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership import ChatMembership
 from features.chat.telegram.model.chat_member import ChatMemberAdministrator
 from features.chat.telegram.model.user import User as TelegramUser
@@ -43,10 +43,11 @@ class SettingsControllerTest(unittest.TestCase):
 
     invoker_user: User
     invoker_telegram_user: TelegramUser
-    chat_config: ChatConfig
+    chat_config: ChatConfigDomain
+    chat_config_domain: ChatConfigDomain
     mock_di: DI
     mock_user_dao: UserCRUD
-    mock_chat_config_dao: ChatConfigCRUD
+    mock_chat_config_repo: ChatConfigRepository
     mock_sponsorship_dao: SponsorshipCRUD
     mock_telegram_sdk: TelegramBotSDK
     mock_authorization_service: AuthorizationService
@@ -81,7 +82,7 @@ class SettingsControllerTest(unittest.TestCase):
             group = UserDB.Group.developer,
             created_at = datetime.now().date(),
         )
-        self.chat_config = ChatConfig(
+        self.chat_config = ChatConfigDomain(
             chat_id = UUID(int = 1),
             external_id = "test_chat_123",
             title = "Test Chat",
@@ -92,16 +93,18 @@ class SettingsControllerTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
+        self.chat_config_domain = self.chat_config
 
         # Create mocks
         self.mock_user_dao = MagicMock(spec = UserCRUD)
-        self.mock_chat_config_dao = MagicMock(spec = ChatConfigCRUD)
+        self.mock_chat_config_repo = MagicMock(spec = ChatConfigRepository)
         self.mock_sponsorship_dao = MagicMock(spec = SponsorshipCRUD)
         self.mock_telegram_sdk = MagicMock(spec = TelegramBotSDK)
 
         # Configure common mock returns
         self.mock_user_dao.get.return_value = self.invoker_user
-        self.mock_chat_config_dao.get.return_value = self.chat_config
+        self.mock_chat_config_repo.get.return_value = self.chat_config_domain
+        self.mock_chat_config_repo.save.return_value = self.chat_config_domain
         self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
 
         # Create mock DI container
@@ -115,7 +118,7 @@ class SettingsControllerTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = self.mock_user_dao
         # noinspection PyPropertyAccess
-        self.mock_di.chat_config_crud = self.mock_chat_config_dao
+        self.mock_di.chat_config_repo = self.mock_chat_config_repo
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_crud = self.mock_sponsorship_dao
         # noinspection PyPropertyAccess
@@ -426,7 +429,7 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn("Both language_name and language_iso_code must be non-empty", str(context.exception))
 
     def test_save_chat_settings_failure_reply_chance_private_chat(self):
-        private_chat_config = ChatConfig(
+        private_chat_config = ChatConfigDomain(
             chat_id = UUID(int = 123),
             external_id = "private_chat_123",
             title = "Private Chat",
@@ -473,19 +476,6 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn("Invalid release notifications setting value", str(context.exception))
 
     def test_save_chat_settings_success_chat_config(self):
-        saved_chat_config_db = ChatConfigDB(
-            chat_id = self.chat_config.chat_id,
-            title = self.chat_config.title,
-            language_iso_code = "es",
-            language_name = "Spanish",
-            reply_chance_percent = 75,
-            is_private = self.chat_config.is_private,
-            release_notifications = ChatConfigDB.ReleaseNotifications.major,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        self.mock_chat_config_dao.save.return_value = saved_chat_config_db
-
         controller = SettingsController(self.mock_di)
         payload = ChatSettingsPayload(
             chat_config = ChatConfigPayload(
@@ -500,7 +490,19 @@ class SettingsControllerTest(unittest.TestCase):
         controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
 
         # noinspection PyUnresolvedReferences
-        self.mock_chat_config_dao.save.assert_called_once()
+        self.mock_chat_config_repo.save.assert_called_once()
+        saved_chat_config = self.mock_chat_config_repo.save.call_args.args[0]
+        self.assertIsInstance(saved_chat_config, ChatConfigDomain)
+        self.assertEqual(saved_chat_config.chat_id, self.chat_config.chat_id)
+        self.assertEqual(saved_chat_config.external_id, self.chat_config.external_id)
+        self.assertEqual(saved_chat_config.title, self.chat_config.title)
+        self.assertEqual(saved_chat_config.language_name, "Spanish")
+        self.assertEqual(saved_chat_config.language_iso_code, "es")
+        self.assertEqual(saved_chat_config.reply_chance_percent, 75)
+        self.assertEqual(saved_chat_config.is_private, self.chat_config.is_private)
+        self.assertEqual(saved_chat_config.release_notifications, ChatConfigDB.ReleaseNotifications.major)
+        self.assertEqual(saved_chat_config.media_mode, ChatConfigDB.MediaMode.file)
+        self.assertEqual(saved_chat_config.chat_type, self.chat_config.chat_type)
 
     def test_save_chat_settings_success_user_chat_config(self):
         controller = SettingsController(self.mock_di)
@@ -554,7 +556,7 @@ class SettingsControllerTest(unittest.TestCase):
             controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
 
     def test_fetch_all_chat_settings_success(self):
-        own_chat_config = ChatConfig(
+        own_chat_config = ChatConfigDomain(
             chat_id = UUID(int = 2),
             external_id = str(self.invoker_user.telegram_chat_id),
             title = "My Notes",
@@ -572,19 +574,8 @@ class SettingsControllerTest(unittest.TestCase):
             use_about_me = True,
             use_custom_prompt = True,
         )
-        own_chat_db = ChatConfigDB(
-            chat_id = own_chat_config.chat_id,
-            external_id = own_chat_config.external_id,
-            title = own_chat_config.title,
-            language_iso_code = own_chat_config.language_iso_code,
-            reply_chance_percent = own_chat_config.reply_chance_percent,
-            is_private = own_chat_config.is_private,
-            release_notifications = own_chat_config.release_notifications,
-            media_mode = own_chat_config.media_mode,
-            chat_type = own_chat_config.chat_type,
-        )
         self.mock_authorization_service.update_all_chat_authorizations.return_value = [own_membership]
-        self.mock_chat_config_dao.get.return_value = own_chat_db
+        self.mock_chat_config_repo.get.return_value = own_chat_config
 
         controller = SettingsController(self.mock_di)
         result = controller.fetch_all_chat_settings()
@@ -597,7 +588,7 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIsNotNone(result[0].user_chat_config)
 
     def test_fetch_all_chat_settings_sort_order(self):
-        private_config = ChatConfig(
+        private_config = ChatConfigDomain(
             chat_id = UUID(int = 1),
             title = "Private",
             language_iso_code = "en",
@@ -607,7 +598,7 @@ class SettingsControllerTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        admin_config = ChatConfig(
+        admin_config = ChatConfigDomain(
             chat_id = UUID(int = 2),
             title = "Admin Group",
             language_iso_code = "en",
@@ -617,7 +608,7 @@ class SettingsControllerTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        member_config = ChatConfig(
+        member_config = ChatConfigDomain(
             chat_id = UUID(int = 3),
             title = "Member Group",
             language_iso_code = "en",
@@ -651,27 +642,12 @@ class SettingsControllerTest(unittest.TestCase):
         self.mock_authorization_service.update_all_chat_authorizations.return_value = [
             member_membership, admin_membership, private_membership,
         ]
-        config_db_map = {
-            private_config.chat_id: ChatConfigDB(
-                chat_id = private_config.chat_id, title = private_config.title,
-                language_iso_code = "en", reply_chance_percent = 100, is_private = True,
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                media_mode = ChatConfigDB.MediaMode.photo, chat_type = ChatConfigDB.ChatType.telegram,
-            ),
-            admin_config.chat_id: ChatConfigDB(
-                chat_id = admin_config.chat_id, title = admin_config.title,
-                language_iso_code = "en", reply_chance_percent = 50, is_private = False,
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                media_mode = ChatConfigDB.MediaMode.photo, chat_type = ChatConfigDB.ChatType.telegram,
-            ),
-            member_config.chat_id: ChatConfigDB(
-                chat_id = member_config.chat_id, title = member_config.title,
-                language_iso_code = "en", reply_chance_percent = 50, is_private = False,
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                media_mode = ChatConfigDB.MediaMode.photo, chat_type = ChatConfigDB.ChatType.telegram,
-            ),
+        config_map = {
+            private_config.chat_id: private_config,
+            admin_config.chat_id: admin_config,
+            member_config.chat_id: member_config,
         }
-        self.mock_chat_config_dao.get.side_effect = lambda chat_id: config_db_map[chat_id]
+        self.mock_chat_config_repo.get.side_effect = lambda chat_id: config_map[chat_id]
 
         controller = SettingsController(self.mock_di)
         result = controller.fetch_all_chat_settings()

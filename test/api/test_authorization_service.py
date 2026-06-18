@@ -6,13 +6,13 @@ from uuid import UUID
 from pydantic import SecretStr
 
 from api.authorization_service import AuthorizationService
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.user import User
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
+from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.platform_bot_sdk import ChatAccess
 from util.error_codes import NOT_CHAT_ADMIN, NOT_CHAT_MEMBER, WAITLIST_ACCOUNT_NOT_ACTIVE, WAITLIST_INVITED_POLICIES_REQUIRED
@@ -24,7 +24,7 @@ class AuthorizationServiceTest(unittest.TestCase):
     invoker_user: User
     chat_config: ChatConfig
     mock_user_dao: UserCRUD
-    mock_chat_config_dao: ChatConfigCRUD
+    mock_chat_config_repo: ChatConfigRepository
     mock_di: DI
 
     def setUp(self):
@@ -52,13 +52,13 @@ class AuthorizationServiceTest(unittest.TestCase):
         )
         self.mock_user_dao = Mock(spec = UserCRUD)
         self.mock_user_dao.get.return_value = self.invoker_user
-        self.mock_chat_config_dao = Mock(spec = ChatConfigCRUD)
-        self.mock_chat_config_dao.get.return_value = self.chat_config
+        self.mock_chat_config_repo = Mock(spec = ChatConfigRepository)
+        self.mock_chat_config_repo.get.return_value = self.chat_config
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = self.mock_user_dao
         # noinspection PyPropertyAccess
-        self.mock_di.chat_config_crud = self.mock_chat_config_dao
+        self.mock_di.chat_config_repo = self.mock_chat_config_repo
 
     def test_validate_chat_success_with_string(self):
         service = AuthorizationService(self.mock_di)
@@ -163,10 +163,10 @@ class AuthorizationServiceTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        self.mock_chat_config_dao.get_all.return_value = [
-            ChatConfigDB(**chat_config_1.model_dump()),
-            ChatConfigDB(**chat_config_2.model_dump()),
-            ChatConfigDB(**chat_config_3.model_dump()),
+        self.mock_chat_config_repo.get_all.return_value = [
+            chat_config_1,
+            chat_config_2,
+            chat_config_3,
         ]
         admin_ids = {chat_config_1.chat_id, chat_config_3.chat_id}
         self.mock_di.platform_bot_sdk.return_value.resolve_chat_access.side_effect = (
@@ -204,7 +204,7 @@ class AuthorizationServiceTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        self.mock_chat_config_dao.get_all.return_value = [chat_config1, chat_config2, chat_config3]
+        self.mock_chat_config_repo.get_all.return_value = [chat_config1, chat_config2, chat_config3]
         admin_ids = {chat_config1.chat_id, chat_config3.chat_id}
         self.mock_di.platform_bot_sdk.return_value.resolve_chat_access.side_effect = (
             lambda chat, user: ChatAccess.admin if chat.chat_id in admin_ids else None
@@ -231,8 +231,7 @@ class AuthorizationServiceTest(unittest.TestCase):
             created_at = datetime.now().date(),
         )
 
-        # Mock chat_config_crud.get_all to return empty list
-        self.mock_chat_config_dao.get_all.return_value = []
+        self.mock_chat_config_repo.get_all.return_value = []
 
         service = AuthorizationService(self.mock_di)
         admin_chats = service.get_authorized_chats(user_without_telegram_id)
@@ -281,11 +280,12 @@ class AuthorizationServiceTest(unittest.TestCase):
             chat_type = ChatConfigDB.ChatType.telegram,
         )
 
-        all_chats_db = [
-            ChatConfigDB(**chat.model_dump()) for chat in
-            [group_chat_z, private_chat, group_chat_no_title, group_chat_a]
+        self.mock_chat_config_repo.get_all.return_value = [
+            group_chat_z,
+            private_chat,
+            group_chat_no_title,
+            group_chat_a,
         ]
-        self.mock_chat_config_dao.get_all.return_value = all_chats_db
 
         self.mock_di.platform_bot_sdk.return_value.resolve_chat_access.return_value = ChatAccess.admin
 
@@ -475,8 +475,7 @@ class AuthorizationServiceTest(unittest.TestCase):
     # === update_all_chat_authorizations ===
 
     def test_update_all_chat_authorizations_delegates_to_membership_service(self):
-        chat_config_db = ChatConfigDB(**self.chat_config.model_dump())
-        self.mock_chat_config_dao.get_all.return_value = [chat_config_db]
+        self.mock_chat_config_repo.get_all.return_value = [self.chat_config]
         self.mock_di.platform_bot_sdk.return_value.resolve_chat_access.return_value = ChatAccess.admin
         updated_membership = ChatMembership(
             user_id = self.invoker_user.id,

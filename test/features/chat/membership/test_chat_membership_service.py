@@ -7,9 +7,9 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig, ChatConfigSave
 from db.schema.user import User, UserSave
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.chat.membership.chat_membership_service import ChatMembershipService
 from features.integrations.platform_bot_sdk import ChatAccess
@@ -40,13 +40,11 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 ),
             ),
         )
-        self.chat = ChatConfig.model_validate(
-            self.sql.chat_config_crud().create(
-                ChatConfigSave(
-                    external_id = "chat_ext_1",
-                    chat_type = ChatConfigDB.ChatType.telegram,
-                    is_private = True,
-                ),
+        self.chat = self.sql.chat_config_repo().save(
+            ChatConfig(
+                external_id = "chat_ext_1",
+                chat_type = ChatConfigDB.ChatType.telegram,
+                is_private = True,
             ),
         )
         self.mock_sdk = Mock()
@@ -97,9 +95,10 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertEqual(len(result), 0)
 
     def test_get_all_for_user_returns_all_rows(self):
-        second_chat = ChatConfig.model_validate(
-            self.sql.chat_config_crud().create(
-                ChatConfigSave(external_id = "chat_ext_2", chat_type = ChatConfigDB.ChatType.telegram),
+        second_chat = self.sql.chat_config_repo().save(
+            ChatConfig(
+                external_id = "chat_ext_2",
+                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         repo = self.sql.chat_membership_repo()
@@ -338,9 +337,10 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result[0].use_custom_prompt)
 
     def test_refresh_chat_memberships_handles_multiple_chats(self):
-        second_chat = ChatConfig.model_validate(
-            self.sql.chat_config_crud().create(
-                ChatConfigSave(external_id = "chat_ext_3", chat_type = ChatConfigDB.ChatType.telegram),
+        second_chat = self.sql.chat_config_repo().save(
+            ChatConfig(
+                external_id = "chat_ext_3",
+                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_membership_repo().save(

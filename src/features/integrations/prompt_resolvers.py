@@ -1,8 +1,8 @@
 from datetime import datetime
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig, ChatConfigSave
 from db.schema.user import User, UserSave
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.integrations import resolve_agent_user, resolve_allowed_reactions
 from features.prompting import prompt_composer, prompt_library
@@ -17,7 +17,7 @@ PLACEHOLDER_NO_DATA = "{undefined}"
 
 def chat(
     invoker: User | UserSave,
-    target_chat: ChatConfig | ChatConfigSave,
+    target_chat: ChatConfig,
     invoker_membership: ChatMembership | None,
     tools_list: str | None,
 ) -> str:
@@ -94,7 +94,7 @@ def chat(
 
 def copywriting_new_release_version(
     chat_type: ChatConfigDB.ChatType,
-    target_chat: ChatConfig | ChatConfigSave | None,
+    target_chat: ChatConfig | None,
 ) -> str:
     # add generic components to prepare the composer
     agent_user = resolve_agent_user(chat_type)
@@ -155,7 +155,7 @@ def copywriting_new_release_version(
     raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
 
-def copywriting_new_system_event(target_chat: ChatConfig | ChatConfigSave) -> str:
+def copywriting_new_system_event(target_chat: ChatConfig) -> str:
     # add generic components to prepare the composer
     agent_user = resolve_agent_user(target_chat.chat_type)
     composer = prompt_composer.build(
@@ -194,7 +194,7 @@ def copywriting_new_system_event(target_chat: ChatConfig | ChatConfigSave) -> st
 
 def copywriting_system_announcement(
     chat_type: ChatConfigDB.ChatType,
-    target_chat: ChatConfig | ChatConfigSave | None,
+    target_chat: ChatConfig | None,
 ) -> str:
     # prepare the correct message variant (broadcast vs personal)
     context_copywriting_variant: PromptFragment
@@ -244,7 +244,7 @@ def copywriting_system_announcement(
     raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
 
-def sentient_web_search(target_chat: ChatConfig | ChatConfigSave) -> str:
+def sentient_web_search(target_chat: ChatConfig) -> str:
     agent_user = resolve_agent_user(target_chat.chat_type)
     composer = prompt_composer.build(
         prompt_library.contexts.core,
@@ -307,7 +307,7 @@ def computer_vision(chat_type: ChatConfigDB.ChatType) -> str:
     ).render()
 
 
-def copywriting_computer_hearing(target_chat: ChatConfig | ChatConfigSave) -> str:
+def copywriting_computer_hearing(target_chat: ChatConfig) -> str:
     # add generic components to prepare the composer
     agent_user = resolve_agent_user(target_chat.chat_type)
     composer = prompt_composer.build(
@@ -345,7 +345,7 @@ def copywriting_computer_hearing(target_chat: ChatConfig | ChatConfigSave) -> st
 
 def document_search_and_response(
     query: str | None,
-    target_chat: ChatConfig | ChatConfigSave,
+    target_chat: ChatConfig,
 ) -> str:
     agent_user = resolve_agent_user(target_chat.chat_type)
     return prompt_composer.build(
