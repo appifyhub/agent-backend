@@ -87,6 +87,7 @@ if TYPE_CHECKING:
     from features.images.smart_image_generator import SmartImageGenerator
     from features.integrations.platform_bot_sdk import PlatformBotSDK
     from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
+    from features.sponsorships.sponsorship_repo import SponsorshipRepository
     from features.sponsorships.sponsorship_service import SponsorshipService
     from features.support.user_support_service import UserSupportService
     from features.web_browsing.ai_web_search import AIWebSearch
@@ -119,6 +120,7 @@ class DI:
     _chat_message_crud: "ChatMessageCRUD | None"
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
     _sponsorship_crud: "SponsorshipCRUD | None"
+    _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_crud: "ToolsCacheCRUD | None"
     _price_alert_crud: "PriceAlertCRUD | None"
     _usage_record_repo: "UsageRecordRepository | None"
@@ -178,6 +180,7 @@ class DI:
         self._chat_message_crud = None
         self._chat_message_attachment_crud = None
         self._sponsorship_crud = None
+        self._sponsorship_repo = None
         self._tools_cache_crud = None
         self._price_alert_crud = None
         self._usage_record_repo = None
@@ -390,6 +393,13 @@ class DI:
             from db.crud.sponsorship import SponsorshipCRUD
             self._sponsorship_crud = SponsorshipCRUD(self.db)
         return self._sponsorship_crud
+
+    @property
+    def sponsorship_repo(self) -> "SponsorshipRepository":
+        if self._sponsorship_repo is None:
+            from features.sponsorships.sponsorship_repo import SponsorshipRepository
+            self._sponsorship_repo = SponsorshipRepository(self.db)
+        return self._sponsorship_repo
 
     @property
     def tools_cache_crud(self) -> "ToolsCacheCRUD":
