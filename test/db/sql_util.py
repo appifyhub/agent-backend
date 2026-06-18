@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.chat_message import ChatMessageCRUD
 from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
 from db.crud.price_alert import PriceAlertCRUD
@@ -42,11 +41,6 @@ class SQLUtil:
     def end_session(self):
         self.__session.close()
         self.__is_session_active = False
-
-    def chat_config_crud(self) -> ChatConfigCRUD:
-        if not self.__is_session_active:
-            self.start_session()
-        return ChatConfigCRUD(self.__session)
 
     def chat_config_repo(self) -> ChatConfigRepository:
         if not self.__is_session_active:

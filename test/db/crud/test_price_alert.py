@@ -5,9 +5,9 @@ from uuid import UUID
 from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfigSave
 from db.schema.price_alert import PriceAlertSave
 from db.schema.user import UserSave
+from features.chat.config.chat_config import ChatConfig
 
 
 class PriceAlertCRUDTest(unittest.TestCase):
@@ -33,8 +33,8 @@ class PriceAlertCRUDTest(unittest.TestCase):
         return user_db.id
 
     def test_create_price_alert(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         user_id = self._create_test_user()
         price_alert_data = PriceAlertSave(
@@ -57,8 +57,8 @@ class PriceAlertCRUDTest(unittest.TestCase):
         self.assertEqual(price_alert.last_price_time, price_alert_data.last_price_time)
 
     def test_get_price_alert(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         user_id = self._create_test_user()
         price_alert_data = PriceAlertSave(
@@ -83,11 +83,11 @@ class PriceAlertCRUDTest(unittest.TestCase):
         self.assertEqual(fetched_price_alert.desired_currency, created_price_alert.desired_currency)
 
     def test_get_all_price_alerts(self):
-        chat1 = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat1 = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
-        chat2 = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat2", chat_type = ChatConfigDB.ChatType.background),
+        chat2 = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat2", chat_type = ChatConfigDB.ChatType.background),
         )
         user_id = self._create_test_user()
         price_alerts = [
@@ -116,11 +116,11 @@ class PriceAlertCRUDTest(unittest.TestCase):
             self.assertEqual(fetched_price_alerts[i].desired_currency, price_alerts[i].desired_currency)
 
     def test_get_chat_alerts(self):
-        chat1 = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat1 = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
-        chat2 = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat2", chat_type = ChatConfigDB.ChatType.background),
+        chat2 = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat2", chat_type = ChatConfigDB.ChatType.background),
         )
 
         user_id = self._create_test_user()
@@ -157,8 +157,8 @@ class PriceAlertCRUDTest(unittest.TestCase):
             self.assertEqual(fetched_chat1_alerts[i].desired_currency, chat1_alerts[i].desired_currency)
 
     def test_update_price_alert(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         user_id = self._create_test_user()
         price_alert_data = PriceAlertSave(
@@ -191,8 +191,8 @@ class PriceAlertCRUDTest(unittest.TestCase):
         self.assertEqual(updated_price_alert.last_price_time, update_data.last_price_time)
 
     def test_save_price_alert(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         user_id = self._create_test_user()
         price_alert_data = PriceAlertSave(
@@ -235,8 +235,8 @@ class PriceAlertCRUDTest(unittest.TestCase):
         self.assertEqual(updated_price_alert.last_price_time, update_data.last_price_time)
 
     def test_delete_price_alert(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         user_id = self._create_test_user()
         price_alert_data = PriceAlertSave(
@@ -268,8 +268,8 @@ class PriceAlertCRUDTest(unittest.TestCase):
         )
 
     def test_delete_stale(self):
-        chat = self.sql.chat_config_crud().create(
-            ChatConfigSave(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         user_id = self._create_test_user()
         stale_alert = self.sql.price_alert_crud().create(
