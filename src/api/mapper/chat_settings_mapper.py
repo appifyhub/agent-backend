@@ -1,7 +1,7 @@
 from api.model.chat_config_response import ChatConfigResponse
 from api.model.chat_settings_response import ChatSettingsResponse
 from api.model.user_chat_config_response import UserChatConfigResponse
-from db.schema.chat_config import ChatConfig
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 
 

@@ -8,9 +8,9 @@ from langchain_core.messages import AIMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User
+from features.chat.config.chat_config import ChatConfig
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
@@ -22,11 +22,16 @@ class TelegramUpdateResponderTest(unittest.TestCase):
     sql: SQLUtil
     update: Update
     di: Mock
+    mock_sleep: Mock
 
     def setUp(self):
         # create all the mocks
         self.sql = SQLUtil()
         self.update = Mock(spec = Update)
+
+        patcher_sleep = patch("features.chat.telegram.telegram_update_responder.sleep")
+        self.addCleanup(patcher_sleep.stop)
+        self.mock_sleep = patcher_sleep.start()
 
         # mock the DI container
         patcher_di = patch("features.chat.telegram.telegram_update_responder.DI")
@@ -102,6 +107,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         # Agent user creation logic was removed, so user_crud.save should not be called
         self.di.chat_agent.return_value.execute.assert_called_once()
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Test response")
+        self.mock_sleep.assert_called_once_with(0.1)
 
     def test_reaction_response(self):
         self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
@@ -133,6 +139,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.platform_bot_sdk.return_value.set_reaction.assert_called_once_with("123", "test-message-id", "👍")
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+        self.mock_sleep.assert_not_called()
         saved_message = self.di.chat_message_crud.save.call_args.args[0]
         self.assertIsInstance(saved_message, ChatMessageSave)
         self.assertEqual(saved_message.message_id, "reaction:test-message-id")
@@ -169,6 +176,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.platform_bot_sdk.return_value.set_reaction.assert_called_once_with("123", "test-message-id", "👍")
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+        self.mock_sleep.assert_not_called()
         saved_message = self.di.chat_message_crud.save.call_args.args[0]
         self.assertIsInstance(saved_message, ChatMessageSave)
         self.assertEqual(saved_message.message_id, "reaction:test-message-id")
@@ -245,6 +253,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
                 mock_error.return_value = "Error response"
                 result = respond_to_update(self.update)
 
-            self.assertFalse(result)
-            self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Error response")
-            self.di.chat_message_crud.save.assert_not_called()
+        self.assertFalse(result)
+        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Error response")
+        self.mock_sleep.assert_called_once_with(0.1)
+        self.di.chat_message_crud.save.assert_not_called()

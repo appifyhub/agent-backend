@@ -5,9 +5,9 @@ from uuid import UUID
 from langchain_core.messages import AIMessage, HumanMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
+from features.chat.config.chat_config import ChatConfig
 from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
 from features.integrations.integrations import resolve_agent_user
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER

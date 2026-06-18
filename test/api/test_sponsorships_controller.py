@@ -7,7 +7,6 @@ from pydantic import SecretStr
 
 from api.model.sponsorship_payload import SponsorshipPayload
 from api.sponsorships_controller import SponsorshipsController
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
@@ -81,8 +80,6 @@ class SponsorshipsControllerTest(unittest.TestCase):
         self.mock_di.user_crud = Mock(spec = UserCRUD)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_crud = Mock(spec = SponsorshipCRUD)
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_config_crud = Mock(spec = ChatConfigCRUD)
         # noinspection PyPropertyAccess
         self.mock_di.telegram_bot_sdk = Mock(spec = TelegramBotSDK)
         # noinspection PyPropertyAccess

@@ -4,7 +4,6 @@ from uuid import UUID
 import requests
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.chat_message_attachment import ChatMessageAttachment, ChatMessageAttachmentSave
 from di.di import DI
@@ -134,13 +133,12 @@ class WhatsAppBotSDK:
     ) -> ChatMessage:
         log.t("Storing API message data...")
         first_message = raw_api_response.messages[0]
-        chat_config_db = self.__di.chat_config_crud.get_by_external_identifiers(
+        chat_config = self.__di.chat_config_repo.get_by_external_identifiers(
             external_id = recipient_id,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
-        if not chat_config_db:
+        if not chat_config:
             raise NotFoundError(f"Chat config not found for WhatsApp recipient: {recipient_id}", CHAT_CONFIG_NOT_FOUND)
-        chat_config = ChatConfig.model_validate(chat_config_db)
         message_save = ChatMessageSave(
             message_id = first_message.id,
             chat_id = chat_config.chat_id,

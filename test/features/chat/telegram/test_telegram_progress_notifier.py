@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfig
 from features.chat.chat_progress_notifier import ChatProgressNotifier
+from features.chat.config.chat_config import ChatConfig
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 
 

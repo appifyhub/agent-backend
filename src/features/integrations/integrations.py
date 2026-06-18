@@ -5,11 +5,11 @@ from pydantic import SecretStr
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantInfo
+from features.chat.config.chat_config import ChatConfig
 from features.integrations.integration_config import (
     BACKGROUND_AGENT,
     TELEGRAM_REACTION_INITIAL_DELAY_S,
@@ -257,13 +257,9 @@ def _find_private_chat(user: User, chat_type: ChatConfigDB.ChatType, di: DI) -> 
     external_id = resolve_external_id(user, chat_type)
     if not external_id:
         return None
-    chat_db = di.chat_config_crud.get_by_external_identifiers(
-        external_id = external_id,
-        chat_type = chat_type,
-    )
-    if not chat_db:
+    chat = di.chat_config_repo.get_by_external_identifiers(external_id, chat_type)
+    if not chat:
         return None
-    chat = ChatConfig.model_validate(chat_db)
     return chat if chat.is_private else None
 
 

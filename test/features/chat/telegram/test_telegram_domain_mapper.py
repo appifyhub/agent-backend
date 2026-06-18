@@ -2,6 +2,7 @@ import re
 import unittest
 from datetime import datetime
 
+from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from features.chat.telegram.model.attachment.audio import Audio
 from features.chat.telegram.model.attachment.document import Document
@@ -246,9 +247,8 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.external_id, "10")
         self.assertEqual(result.title, "First · @chat_username")
         self.assertIsNone(result.language_iso_code)
-        self.assertIsNone(result.language_name)
         self.assertTrue(result.is_private)
-        self.assertEqual(result.reply_chance_percent, 100)
+        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.telegram)
 
     def test_map_chat_empty(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
@@ -267,9 +267,8 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.external_id, "10")
         self.assertEqual(result.title, "#10")
         self.assertEqual(result.language_iso_code, "de")
-        self.assertIsNone(result.language_name)
         self.assertFalse(result.is_private)
-        self.assertEqual(result.reply_chance_percent, 100)
+        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.telegram)
 
     def test_resolve_chat_name_filled(self):
         result = self.mapper.resolve_chat_name(

@@ -7,7 +7,6 @@ import requests_mock
 from pydantic import SecretStr
 from requests_mock.mocker import Mocker
 
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.tools_cache import ToolsCacheCRUD
 from db.crud.user import UserCRUD
 from db.model.user import UserDB
@@ -28,7 +27,6 @@ class ExchangeRateFetcherTest(unittest.TestCase):
     cache_entry: ToolsCache
     mock_user_crud: UserCRUD
     mock_cache_crud: ToolsCacheCRUD
-    mock_chat_config_dao: ChatConfigCRUD
     mock_telegram_sdk: TelegramBotSDK
 
     def setUp(self):
@@ -78,7 +76,6 @@ class ExchangeRateFetcherTest(unittest.TestCase):
         self.mock_di.tools_cache_crud.get.return_value = None
         self.mock_sponsorship_dao = MagicMock()
         self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
-        self.mock_chat_config_dao = MagicMock()
         self.mock_telegram_sdk = MagicMock()
 
     # noinspection PyUnusedLocal

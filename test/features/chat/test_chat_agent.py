@@ -10,13 +10,13 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_config import ChatConfig
 from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
 from features.chat.chat_progress_notifier import ChatProgressNotifier
 from features.chat.command_processor import CommandProcessor
+from features.chat.config.chat_config import ChatConfig
 from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
 from features.external_tools.tool_choice_resolver import ConfiguredTool
 from features.integrations.integrations import resolve_agent_user

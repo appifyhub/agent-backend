@@ -4,10 +4,10 @@ from typing import List
 from pydantic import BaseModel, SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_config import ChatConfigSave
 from db.schema.chat_message import ChatMessageSave
 from db.schema.chat_message_attachment import ChatMessageAttachmentSave
 from db.schema.user import UserSave
+from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.whatsapp.model.message import Message
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.model.value import Value
@@ -18,7 +18,7 @@ from util.functions import generate_deterministic_short_uuid, normalize_phone_nu
 class WhatsAppDomainMapper:
 
     class Result(BaseModel):
-        chat: ChatConfigSave
+        chat: ChatConfigRemoteData
         author: UserSave | None
         message: ChatMessageSave
         attachments: List[ChatMessageAttachmentSave]
@@ -108,14 +108,14 @@ class WhatsAppDomainMapper:
         log.t(f"  Mapping message text: {parts}")
         return "\n\n".join(parts)
 
-    def map_chat(self, message: Message, value: Value) -> ChatConfigSave:
+    def map_chat(self, message: Message, value: Value) -> ChatConfigRemoteData:
         log.t(f"  Mapping chat for message: {message}")
         external_id = message.from_
         contacts = value.contacts or []
         first_contact = contacts[0] if contacts else None
         profile_name = first_contact.profile.name if first_contact and first_contact.profile else None
         title = self.resolve_chat_name(external_id, profile_name)
-        return ChatConfigSave(
+        return ChatConfigRemoteData(
             external_id = external_id,
             title = title,
             is_private = True,  # WhatsApp only supports private chats

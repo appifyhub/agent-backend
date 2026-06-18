@@ -3,7 +3,6 @@ from datetime import datetime
 from unittest.mock import Mock
 from uuid import UUID
 
-from db.crud.chat_config import ChatConfigCRUD
 from db.crud.price_alert import PriceAlertCRUD
 from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.tools_cache import ToolsCacheCRUD
@@ -11,6 +10,8 @@ from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
+from features.chat.config.chat_config import ChatConfig
+from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.currency_alert_service import DATETIME_PRINT_FORMAT, CurrencyAlertService
 from features.chat.telegram.currency_alert_responder import respond_with_currency_alerts
 from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
@@ -33,21 +34,8 @@ class TelegramPriceAlertResponderTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = Mock(spec = UserCRUD)
 
-        # Set up chat_config_crud to return proper ChatConfigDB objects
-        # This is used in currency_alert_responder.py:21
-        self.mock_di.chat_config_crud = Mock(spec = ChatConfigCRUD)
-        self.mock_di.chat_config_crud.get = lambda chat_id: ChatConfigDB(
-            chat_id = chat_id,
-            external_id = str(chat_id.int),
-            title = "Test Chat",
-            is_private = False,
-            reply_chance_percent = 100,
-            release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            language_name = "English",
-            language_iso_code = "en",
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
+        self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
+        self.mock_di.chat_config_repo.get = self.__make_chat_config
 
         # noinspection PyPropertyAccess
         self.mock_di.price_alert_crud = Mock(spec = PriceAlertCRUD)
@@ -68,19 +56,6 @@ class TelegramPriceAlertResponderTest(unittest.TestCase):
         self.mock_scoped_di = Mock()
 
         # Set up scoped DI dependencies
-        self.mock_scoped_di.chat_config_crud = Mock()
-        self.mock_scoped_di.chat_config_crud.get = lambda chat_id: ChatConfigDB(
-            chat_id = chat_id,
-            external_id = str(chat_id.int),
-            title = "Test Chat",
-            is_private = False,
-            reply_chance_percent = 100,
-            release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            language_name = "English",
-            language_iso_code = "en",
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
 
         # noinspection PyPropertyAccess
         self.mock_scoped_di.translations_cache = Mock(spec = TranslationsCache)
@@ -98,6 +73,21 @@ class TelegramPriceAlertResponderTest(unittest.TestCase):
 
         # Configure clone to return the same scoped_di
         self.mock_di.clone.return_value = self.mock_scoped_di
+
+    @staticmethod
+    def __make_chat_config(chat_id: UUID) -> ChatConfig:
+        return ChatConfig(
+            chat_id = chat_id,
+            external_id = str(chat_id.int),
+            title = "Test Chat",
+            is_private = False,
+            reply_chance_percent = 100,
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+            language_name = "English",
+            language_iso_code = "en",
+            media_mode = ChatConfigDB.MediaMode.photo,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
 
     # noinspection PyUnusedLocal
     def test_successful_announcements(self):
