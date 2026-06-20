@@ -11,6 +11,7 @@ from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
+from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 
 
 class SQLUtil:
@@ -71,6 +72,11 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return ToolsCacheCRUD(self.__session)
+
+    def tools_cache_repo(self) -> ToolsCacheRepository:
+        if not self.__is_session_active:
+            self.start_session()
+        return ToolsCacheRepository(self.__session)
 
     def user_crud(self) -> UserCRUD:
         if not self.__is_session_active:

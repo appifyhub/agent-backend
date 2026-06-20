@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from features.sponsorships.sponsorship_repo import SponsorshipRepository
     from features.sponsorships.sponsorship_service import SponsorshipService
     from features.support.user_support_service import UserSupportService
+    from features.tools_cache.tools_cache_repo import ToolsCacheRepository
     from features.web_browsing.ai_web_search import AIWebSearch
     from features.web_browsing.html_content_cleaner import HTMLContentCleaner
     from features.web_browsing.photo_downloader import PhotoDownloader
@@ -120,6 +121,7 @@ class DI:
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_crud: "ToolsCacheCRUD | None"
+    _tools_cache_repo: "ToolsCacheRepository | None"
     _price_alert_crud: "PriceAlertCRUD | None"
     _usage_record_repo: "UsageRecordRepository | None"
     _purchase_record_repo: "PurchaseRecordRepository | None"
@@ -179,6 +181,7 @@ class DI:
         self._chat_message_attachment_crud = None
         self._sponsorship_repo = None
         self._tools_cache_crud = None
+        self._tools_cache_repo = None
         self._price_alert_crud = None
         self._usage_record_repo = None
         self._purchase_record_repo = None
@@ -397,6 +400,13 @@ class DI:
             from db.crud.tools_cache import ToolsCacheCRUD
             self._tools_cache_crud = ToolsCacheCRUD(self.db)
         return self._tools_cache_crud
+
+    @property
+    def tools_cache_repo(self) -> "ToolsCacheRepository":
+        if self._tools_cache_repo is None:
+            from features.tools_cache.tools_cache_repo import ToolsCacheRepository
+            self._tools_cache_repo = ToolsCacheRepository(self.db)
+        return self._tools_cache_repo
 
     @property
     def price_alert_crud(self) -> "PriceAlertCRUD":
