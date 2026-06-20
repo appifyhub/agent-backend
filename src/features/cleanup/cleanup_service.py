@@ -54,7 +54,7 @@ class CleanupService:
 
         try:
             sponsorship_cutoff = datetime.now() - timedelta(days = config.cleanup_sponsorship_staleness_days)
-            result.sponsorships_deleted = self.__di.sponsorship_crud.delete_unaccepted_older_than(sponsorship_cutoff)
+            result.sponsorships_deleted = self.__di.sponsorship_repo.delete_unaccepted_older_than(sponsorship_cutoff)
             log.i(f"  Cleanup phase 5: deleted {result.sponsorships_deleted} sponsorships")
         except Exception as e:
             log.e(f"  Cleanup phase 5 (sponsorships) failed: {e}")

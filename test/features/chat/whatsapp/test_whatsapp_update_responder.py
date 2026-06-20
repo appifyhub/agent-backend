@@ -103,8 +103,6 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
             Mock(chat_id = "123", text = "Test response"),
         ]
 
-        self.di.sponsorship_crud.get_by_receiver_id.return_value = []
-
         result = respond_to_update(self.update)
 
         self.assertTrue(result)

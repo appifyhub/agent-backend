@@ -8,7 +8,6 @@ from uuid import UUID
 from langchain_core.messages import AIMessage
 
 from api.model.release_output_payload import ReleaseOutputPayload
-from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
@@ -31,6 +30,7 @@ from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver
 from features.integrations.integrations import resolve_agent_user
 from features.integrations.platform_bot_sdk import PlatformBotSDK
+from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from util.translations_cache import TranslationsCache
 
 
@@ -49,7 +49,7 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
         # noinspection PyPropertyAccess
-        self.mock_di.sponsorship_crud = Mock(spec = SponsorshipCRUD)
+        self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
         # noinspection PyPropertyAccess
         self.mock_di.telegram_bot_sdk = Mock(spec = TelegramBotSDK)
         self.mock_di.telegram_bot_sdk.api = Mock(spec = TelegramBotAPI)
