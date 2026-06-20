@@ -6,7 +6,6 @@ from uuid import UUID
 from pydantic import SecretStr
 
 from db.crud.price_alert import PriceAlertCRUD
-from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.tools_cache import ToolsCacheCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
@@ -18,6 +17,7 @@ from features.chat.config.chat_config import ChatConfig
 from features.chat.currency_alert_service import CurrencyAlertService
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
+from features.sponsorships.sponsorship_repo import SponsorshipRepository
 
 
 class CurrencyAlertServiceTest(unittest.TestCase):
@@ -25,7 +25,7 @@ class CurrencyAlertServiceTest(unittest.TestCase):
     mock_user_dao: UserCRUD
     mock_price_alert_dao: PriceAlertCRUD
     mock_tools_cache_dao: ToolsCacheCRUD
-    mock_sponsorship_dao: SponsorshipCRUD
+    mock_sponsorship_repo: SponsorshipRepository
     mock_telegram_bot_sdk: TelegramBotSDK
     mock_exchange_rate_fetcher: ExchangeRateFetcher
 
@@ -43,7 +43,7 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         self.mock_di.price_alert_crud = self.mock_price_alert_dao = MagicMock(spec = PriceAlertCRUD)
         self.mock_di.user_crud = self.mock_user_dao = MagicMock(spec = UserCRUD)
         self.mock_di.tools_cache_crud = self.mock_tools_cache_dao = MagicMock(spec = ToolsCacheCRUD)
-        self.mock_di.sponsorship_crud = self.mock_sponsorship_dao = MagicMock(spec = SponsorshipCRUD)
+        self.mock_di.sponsorship_repo = self.mock_sponsorship_repo = MagicMock(spec = SponsorshipRepository)
         self.mock_di.telegram_bot_sdk = self.mock_telegram_bot_sdk = MagicMock(spec = TelegramBotSDK)
         self.mock_di.exchange_rate_fetcher = self.mock_exchange_rate_fetcher = MagicMock(spec = ExchangeRateFetcher)
         self.mock_di.invoker = self.user = User(

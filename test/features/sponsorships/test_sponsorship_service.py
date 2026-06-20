@@ -6,13 +6,13 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
-from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.sponsorship import Sponsorship
 from db.schema.user import User
 from di.di import DI
+from features.sponsorships.sponsorship import Sponsorship
+from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.sponsorships.sponsorship_service import SponsorshipService
 from util.config import config
 
@@ -21,7 +21,7 @@ class SponsorshipServiceTest(unittest.TestCase):
 
     user: User
     mock_user_dao: UserCRUD
-    mock_sponsorship_dao: SponsorshipCRUD
+    mock_sponsorship_repo: SponsorshipRepository
     mock_di: DI
     service: SponsorshipService
 
@@ -42,12 +42,12 @@ class SponsorshipServiceTest(unittest.TestCase):
             created_at = datetime.now().date(),
         )
         self.mock_user_dao = Mock(spec = UserCRUD)
-        self.mock_sponsorship_dao = Mock(spec = SponsorshipCRUD)
+        self.mock_sponsorship_repo = Mock(spec = SponsorshipRepository)
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = self.mock_user_dao
         # noinspection PyPropertyAccess
-        self.mock_di.sponsorship_crud = self.mock_sponsorship_dao
+        self.mock_di.sponsorship_repo = self.mock_sponsorship_repo
         self.service = SponsorshipService(self.mock_di)
 
     def test_accept_sponsorship_success(self):
@@ -63,25 +63,28 @@ class SponsorshipServiceTest(unittest.TestCase):
             },
         )
 
-        mock_sponsorship = Mock(
+        mock_sponsorship = Sponsorship(
             accepted_at = None,
             sponsor_id = self.user.id,
             receiver_id = user_without_keys.id,
             sponsored_at = datetime.now() - timedelta(days = 1),
         )
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [mock_sponsorship]
-        self.mock_sponsorship_dao.save.return_value = {
-            "sponsor_id": mock_sponsorship.sponsor_id,
-            "receiver_id": mock_sponsorship.receiver_id,
-            "sponsored_at": mock_sponsorship.sponsored_at,
-            "accepted_at": datetime.now(),
-        }
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [mock_sponsorship]
+        self.mock_sponsorship_repo.save.return_value = Sponsorship(
+            sponsor_id = mock_sponsorship.sponsor_id,
+            receiver_id = mock_sponsorship.receiver_id,
+            sponsored_at = mock_sponsorship.sponsored_at,
+            accepted_at = datetime.now(),
+        )
 
         result = self.service.accept_sponsorship(user_without_keys)
 
         self.assertTrue(result)
         # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_dao.save.assert_called()
+        self.mock_sponsorship_repo.save.assert_called()
+        saved_sponsorship = self.mock_sponsorship_repo.save.call_args.args[0]
+        self.assertEqual(saved_sponsorship.sponsored_at, mock_sponsorship.sponsored_at)
+        self.assertIsNotNone(saved_sponsorship.accepted_at)
 
     def test_sponsor_user_success(self):
         sponsor_user_id_hex = self.user.id.hex
@@ -105,17 +108,15 @@ class SponsorshipServiceTest(unittest.TestCase):
         receiver_user_db = UserDB(**receiver_user.model_dump())
 
         self.mock_user_dao.get.return_value = self.user
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []  # Ensure sponsor has no received sponsorships
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []  # Ensure sponsor has no received sponsorships
         self.mock_user_dao.get_by_telegram_username.return_value = None
         self.mock_user_dao.count.return_value = 0
         self.mock_user_dao.save.return_value = receiver_user_db
-        self.mock_sponsorship_dao.save.return_value = {
-            "sponsor_id": self.user.id,
-            "receiver_id": receiver_user_db.id,
-            "sponsored_at": datetime.now(),
-            "accepted_at": None,
-        }
+        self.mock_sponsorship_repo.save.return_value = Sponsorship(
+            sponsor_id = self.user.id,
+            receiver_id = receiver_user_db.id,
+        )
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -153,8 +154,8 @@ class SponsorshipServiceTest(unittest.TestCase):
         receiver_telegram_username = "receiver_username"
 
         self.mock_user_dao.get.return_value = self.user
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = [Mock()] * (config.max_sponsorships_per_user + 1)
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = [Mock()] * (config.max_sponsorships_per_user + 1)
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -167,8 +168,8 @@ class SponsorshipServiceTest(unittest.TestCase):
 
         developer_user = self.user.model_copy(update = {"group": UserDB.Group.developer})
         self.mock_user_dao.get.return_value = developer_user
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = [Mock()] * (config.max_sponsorships_per_user + 1)
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = [Mock()] * (config.max_sponsorships_per_user + 1)
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
         self.mock_user_dao.get_by_telegram_username.return_value = None
         self.mock_user_dao.count.return_value = 0
 
@@ -191,14 +192,10 @@ class SponsorshipServiceTest(unittest.TestCase):
 
         self.mock_user_dao.save.return_value = new_user
 
-        # Create a more specific mock for the new sponsorship
-        mock_sponsorship: Sponsorship = Mock(spec = Sponsorship)
-        mock_sponsorship.sponsor_id = developer_user.id
-        mock_sponsorship.receiver_id = new_user.id
-        mock_sponsorship.sponsored_at = datetime.now()
-        mock_sponsorship.accepted_at = None
-
-        self.mock_sponsorship_dao.save.return_value = mock_sponsorship
+        self.mock_sponsorship_repo.save.return_value = Sponsorship(
+            sponsor_id = developer_user.id,
+            receiver_id = new_user.id,
+        )
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -223,17 +220,15 @@ class SponsorshipServiceTest(unittest.TestCase):
             are_policies_accepted = False,
         )
         self.mock_user_dao.get.return_value = self.user
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
         self.mock_user_dao.get_by_telegram_username.return_value = None
         self.mock_user_dao.count.return_value = config.max_users
         self.mock_user_dao.save.return_value = receiver_user_db
-        self.mock_sponsorship_dao.save.return_value = {
-            "sponsor_id": self.user.id,
-            "receiver_id": receiver_user_db.id,
-            "sponsored_at": datetime.now(),
-            "accepted_at": None,
-        }
+        self.mock_sponsorship_repo.save.return_value = Sponsorship(
+            sponsor_id = self.user.id,
+            receiver_id = receiver_user_db.id,
+        )
 
         result, _ = self.service.sponsor_user(
             sponsor_user_id_hex,
@@ -265,8 +260,8 @@ class SponsorshipServiceTest(unittest.TestCase):
 
         self.mock_user_dao.get.return_value = sponsor_without_keys
         # Mock the sponsorship checks that come before API key validation
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -278,8 +273,8 @@ class SponsorshipServiceTest(unittest.TestCase):
         receiver_telegram_username = "receiver_username"
 
         self.mock_user_dao.get.return_value = self.user
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [Mock()]
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [Mock()]
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -301,11 +296,8 @@ class SponsorshipServiceTest(unittest.TestCase):
         )
         self.mock_user_dao.get.return_value = self.user
         self.mock_user_dao.get_by_telegram_username.return_value = receiver_user
-        self.mock_sponsorship_dao.get_all_by_receiver.side_effect = [
-            [],
-            [Mock(spec = Sponsorship)],
-        ]
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.side_effect = [[], [Mock(spec = Sponsorship)]]
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -333,8 +325,8 @@ class SponsorshipServiceTest(unittest.TestCase):
         )
 
         self.mock_user_dao.get.return_value = self.user
-        self.mock_sponsorship_dao.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []  # No transitive sponsoring
+        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []  # No transitive sponsoring
         self.mock_user_dao.get_by_telegram_username.return_value = receiver_user
 
         result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
@@ -365,7 +357,7 @@ class SponsorshipServiceTest(unittest.TestCase):
         receiver_user_db = UserDB(**receiver_user.model_dump())
 
         # Create a mock sponsorship
-        sponsorship_db = Sponsorship(
+        sponsorship = Sponsorship(
             sponsor_id = sponsor_user_db.id,
             receiver_id = receiver_user_db.id,
             sponsored_at = datetime.now(),
@@ -374,14 +366,14 @@ class SponsorshipServiceTest(unittest.TestCase):
 
         self.mock_user_dao.get.side_effect = [sponsor_user_db, receiver_user_db]
         self.mock_user_dao.get_by_telegram_username.return_value = receiver_user_db
-        self.mock_sponsorship_dao.get.return_value = Mock(**sponsorship_db.model_dump())
+        self.mock_sponsorship_repo.get.return_value = sponsorship
 
         result, msg = self.service.unsponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
         self.assertEqual(result, SponsorshipService.Result.success)
         self.assertIn("Sponsorship revoked", msg)
         # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_dao.delete.assert_called_once_with(sponsor_user_db.id, receiver_user_db.id)
+        self.mock_sponsorship_repo.delete.assert_called_once_with(sponsor_user_db.id, receiver_user_db.id)
         # Token removal is no longer handled by SponsorshipService
         # noinspection PyUnresolvedReferences
         self.mock_user_dao.save.assert_not_called()
@@ -421,7 +413,7 @@ class SponsorshipServiceTest(unittest.TestCase):
 
         self.mock_user_dao.get.side_effect = [sponsor_user_db, receiver_user_db]
         self.mock_user_dao.get_by_telegram_username.return_value = receiver_user_db
-        self.mock_sponsorship_dao.get.return_value = None
+        self.mock_sponsorship_repo.get.return_value = None
 
         result, msg = self.service.unsponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
@@ -429,7 +421,7 @@ class SponsorshipServiceTest(unittest.TestCase):
         self.assertIn("No sponsorship", msg)
 
     def test_accept_sponsorship_failure_no_sponsorship(self):
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
         result = self.service.accept_sponsorship(self.user)
 
@@ -463,12 +455,20 @@ class SponsorshipServiceTest(unittest.TestCase):
             sponsored_at = datetime.now(),
             accepted_at = None,
         )
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [pending_sponsorship]
-        self.mock_sponsorship_dao.save.return_value = pending_sponsorship
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [pending_sponsorship]
+        self.mock_sponsorship_repo.save.return_value = Sponsorship(
+            sponsor_id = pending_sponsorship.sponsor_id,
+            receiver_id = pending_sponsorship.receiver_id,
+            sponsored_at = pending_sponsorship.sponsored_at,
+            accepted_at = datetime.now(),
+        )
 
         result = self.service.accept_sponsorship(user_without_keys)
 
         self.assertTrue(result)
+        saved_sponsorship = self.mock_sponsorship_repo.save.call_args.args[0]
+        self.assertEqual(saved_sponsorship.sponsored_at, pending_sponsorship.sponsored_at)
+        self.assertIsNotNone(saved_sponsorship.accepted_at)
 
     # === unsponsor_by_user_id ===
 
@@ -480,24 +480,24 @@ class SponsorshipServiceTest(unittest.TestCase):
             sponsored_at = datetime.now(),
             accepted_at = datetime.now(),
         )
-        self.mock_sponsorship_dao.get.return_value = sponsorship_db
+        self.mock_sponsorship_repo.get.return_value = sponsorship_db
 
         result, msg = self.service.unsponsor_by_user_id(sponsor_id.hex, self.user.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.success)
         self.assertIn("Sponsorship revoked", msg)
         # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_dao.delete.assert_called_once_with(sponsor_id, self.user.id)
+        self.mock_sponsorship_repo.delete.assert_called_once_with(sponsor_id, self.user.id)
 
     def test_unsponsor_by_user_id_failure_no_sponsorship(self):
-        self.mock_sponsorship_dao.get.return_value = None
+        self.mock_sponsorship_repo.get.return_value = None
 
         result, msg = self.service.unsponsor_by_user_id(UUID(int = 2).hex, self.user.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.failure)
         self.assertIn("No sponsorship", msg)
         # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_dao.delete.assert_not_called()
+        self.mock_sponsorship_repo.delete.assert_not_called()
 
     # === unsponsor_self ===
 
@@ -512,15 +512,15 @@ class SponsorshipServiceTest(unittest.TestCase):
             accepted_at = datetime.now(),
         )
         self.mock_user_dao.get.return_value = user_db
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [sponsorship_db]
-        self.mock_sponsorship_dao.get.return_value = sponsorship_db
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship_db]
+        self.mock_sponsorship_repo.get.return_value = sponsorship_db
 
         result, msg = self.service.unsponsor_self(user_id_hex)
 
         self.assertEqual(result, SponsorshipService.Result.success)
         self.assertIn("Sponsorship revoked", msg)
         # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_dao.delete.assert_called_once_with(sponsor_id, self.user.id)
+        self.mock_sponsorship_repo.delete.assert_called_once_with(sponsor_id, self.user.id)
 
     def test_unsponsor_self_failure_user_not_found(self):
         self.mock_user_dao.get.return_value = None
@@ -532,7 +532,7 @@ class SponsorshipServiceTest(unittest.TestCase):
 
     def test_unsponsor_self_failure_no_sponsorships(self):
         self.mock_user_dao.get.return_value = UserDB(**self.user.model_dump())
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
         result, msg = self.service.unsponsor_self(self.user.id.hex)
 
@@ -549,7 +549,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             accepted_at = datetime.now(),
         )
         self.mock_user_dao.get.return_value = user_db
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [sponsorship_db]
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship_db]
 
         with unittest.mock.patch.object(self.service, "unsponsor_by_user_id") as mock_method:
             mock_method.return_value = (SponsorshipService.Result.success, "Revoked")

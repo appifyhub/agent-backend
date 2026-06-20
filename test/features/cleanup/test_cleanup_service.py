@@ -21,7 +21,7 @@ class CleanupServiceTest(unittest.TestCase):
         di.tools_cache_crud.delete_expired.return_value = cache_cleared
         di.usage_record_repo.delete_older_than.return_value = usage_deleted
         di.price_alert_crud.delete_stale.return_value = alerts_deleted
-        di.sponsorship_crud.delete_unaccepted_older_than.return_value = sponsorships_deleted
+        di.sponsorship_repo.delete_unaccepted_older_than.return_value = sponsorships_deleted
         return CleanupService(di)
 
     @patch("features.cleanup.cleanup_service.log")

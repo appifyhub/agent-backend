@@ -148,10 +148,10 @@ class CreditTransferService:
         if sender_user.id == receiver_user.id:
             raise ValidationError("Cannot transfer credits to yourself", SELF_TRANSFER_NOT_ALLOWED)
 
-        if self.__di.sponsorship_crud.get_all_by_receiver(sender_user.id, limit = 1):
+        if self.__di.sponsorship_repo.get_all_by_receiver(sender_user.id, limit = 1):
             raise ValidationError("Sponsored users cannot transfer credits", SPONSORED_USER_TRANSFER_NOT_ALLOWED)
 
-        if self.__di.sponsorship_crud.get_all_by_receiver(receiver_user.id, limit = 1):
+        if self.__di.sponsorship_repo.get_all_by_receiver(receiver_user.id, limit = 1):
             raise ValidationError("Cannot transfer credits to a sponsored user", SPONSORED_USER_TRANSFER_NOT_ALLOWED)
 
         return sender_user, receiver_user

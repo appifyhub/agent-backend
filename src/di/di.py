@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from db.crud.chat_message import ChatMessageCRUD
     from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
     from db.crud.price_alert import PriceAlertCRUD
-    from db.crud.sponsorship import SponsorshipCRUD
     from db.crud.tools_cache import ToolsCacheCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
@@ -119,7 +118,6 @@ class DI:
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_crud: "ChatMessageCRUD | None"
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
-    _sponsorship_crud: "SponsorshipCRUD | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_crud: "ToolsCacheCRUD | None"
     _price_alert_crud: "PriceAlertCRUD | None"
@@ -179,7 +177,6 @@ class DI:
         self._chat_membership_service = None
         self._chat_message_crud = None
         self._chat_message_attachment_crud = None
-        self._sponsorship_crud = None
         self._sponsorship_repo = None
         self._tools_cache_crud = None
         self._price_alert_crud = None
@@ -386,13 +383,6 @@ class DI:
             from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
             self._chat_message_attachment_crud = ChatMessageAttachmentCRUD(self.db)
         return self._chat_message_attachment_crud
-
-    @property
-    def sponsorship_crud(self) -> "SponsorshipCRUD":
-        if self._sponsorship_crud is None:
-            from db.crud.sponsorship import SponsorshipCRUD
-            self._sponsorship_crud = SponsorshipCRUD(self.db)
-        return self._sponsorship_crud
 
     @property
     def sponsorship_repo(self) -> "SponsorshipRepository":
