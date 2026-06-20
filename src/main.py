@@ -47,12 +47,12 @@ from features.accounting.purchases.purchase_aggregates import PurchaseAggregates
 from features.accounting.purchases.purchase_record import PurchaseRecord
 from features.accounting.usage.usage_aggregates import UsageAggregates
 from features.accounting.usage.usage_record import UsageRecord
-from features.chat.telegram.currency_alert_responder import respond_with_currency_alerts
 from features.chat.telegram.model.update import Update as TelegramUpdate
 from features.chat.telegram.release_summary_responder import respond_with_summary
 from features.chat.telegram.telegram_update_responder import respond_to_update
 from features.chat.whatsapp.model.update import Update as WhatsAppUpdate
 from features.chat.whatsapp.whatsapp_update_responder import respond_to_update as respond_to_whatsapp_update
+from features.currencies.currency_alert_responder import respond_with_currency_alerts
 from features.integrations.integrations import resolve_agent_user
 from util import log
 from util.config import Config, config

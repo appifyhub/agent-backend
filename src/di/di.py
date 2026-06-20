@@ -56,7 +56,6 @@ if TYPE_CHECKING:
     from features.chat.chat_progress_notifier import ChatProgressNotifier
     from features.chat.command_processor import CommandProcessor
     from features.chat.config.chat_config_repo import ChatConfigRepository
-    from features.chat.currency_alert_service import CurrencyAlertService
     from features.chat.dev_announcements_service import DevAnnouncementsService
     from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
     from features.chat.membership.chat_membership_repo import ChatMembershipRepository
@@ -73,6 +72,7 @@ if TYPE_CHECKING:
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
     from features.connect.profile_connect_service import ProfileConnectService
+    from features.currencies.currency_alert_service import CurrencyAlertService
     from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
@@ -878,7 +878,7 @@ class DI:
         return AIWebSearch(search_query, configured_tool, self)
 
     def currency_alert_service(self, target_chat_id: str | None) -> "CurrencyAlertService":
-        from features.chat.currency_alert_service import CurrencyAlertService
+        from features.currencies.currency_alert_service import CurrencyAlertService
         return CurrencyAlertService(target_chat_id, self)
 
     def smart_image_generator(

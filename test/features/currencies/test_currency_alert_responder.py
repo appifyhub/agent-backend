@@ -10,17 +10,15 @@ from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_repo import ChatConfigRepository
-from features.chat.currency_alert_service import DATETIME_PRINT_FORMAT, CurrencyAlertService
-from features.chat.telegram.currency_alert_responder import respond_with_currency_alerts
-from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
-from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
+from features.currencies.currency_alert_responder import respond_with_currency_alerts
+from features.currencies.currency_alert_service import DATETIME_PRINT_FORMAT, CurrencyAlertService
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from util.translations_cache import TranslationsCache
 
 
-class TelegramPriceAlertResponderTest(unittest.TestCase):
+class CurrencyAlertResponderTest(unittest.TestCase):
 
     mock_di: DI
     mock_scoped_di: DI
@@ -40,9 +38,6 @@ class TelegramPriceAlertResponderTest(unittest.TestCase):
         self.mock_di.price_alert_crud = Mock(spec = PriceAlertCRUD)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
-        # noinspection PyPropertyAccess
-        self.mock_di.telegram_bot_sdk = Mock(spec = TelegramBotSDK)
-        self.mock_di.telegram_bot_sdk.api = Mock(spec = TelegramBotAPI)
 
         # Mock the currency_alert_service method to return a mock service
         self.mock_currency_alert_service = Mock(spec = CurrencyAlertService)

@@ -13,8 +13,8 @@ from db.schema.price_alert import PriceAlert
 from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
-from features.chat.currency_alert_service import CurrencyAlertService
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
+from features.currencies.currency_alert_service import CurrencyAlertService
 from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 
