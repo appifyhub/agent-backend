@@ -14,7 +14,6 @@ from api.model.settings_link_response import SettingsLinkResponse
 from api.model.user_chat_config_payload import UserChatConfigPayload
 from api.model.user_settings_payload import UserSettingsPayload
 from api.settings_controller import SettingsController
-from db.crud.sponsorship import SponsorshipCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
@@ -29,6 +28,7 @@ from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.external_tools.access_token_resolver import AccessTokenResolver
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
 from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET, GPT_4O, IMAGE_GEN_FLUX_1_1, SONAR
+from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from util.config import ConfiguredProduct
 from util.error_codes import (
     NOT_CHAT_ADMIN,
@@ -48,7 +48,7 @@ class SettingsControllerTest(unittest.TestCase):
     mock_di: DI
     mock_user_dao: UserCRUD
     mock_chat_config_repo: ChatConfigRepository
-    mock_sponsorship_dao: SponsorshipCRUD
+    mock_sponsorship_repo: SponsorshipRepository
     mock_telegram_sdk: TelegramBotSDK
     mock_authorization_service: AuthorizationService
     mock_access_token_resolver: AccessTokenResolver
@@ -98,14 +98,14 @@ class SettingsControllerTest(unittest.TestCase):
         # Create mocks
         self.mock_user_dao = MagicMock(spec = UserCRUD)
         self.mock_chat_config_repo = MagicMock(spec = ChatConfigRepository)
-        self.mock_sponsorship_dao = MagicMock(spec = SponsorshipCRUD)
+        self.mock_sponsorship_repo = MagicMock(spec = SponsorshipRepository)
         self.mock_telegram_sdk = MagicMock(spec = TelegramBotSDK)
 
         # Configure common mock returns
         self.mock_user_dao.get.return_value = self.invoker_user
         self.mock_chat_config_repo.get.return_value = self.chat_config_domain
         self.mock_chat_config_repo.save.return_value = self.chat_config_domain
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
         # Create mock DI container
         self.mock_di = MagicMock(spec = DI)
@@ -120,7 +120,7 @@ class SettingsControllerTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_config_repo = self.mock_chat_config_repo
         # noinspection PyPropertyAccess
-        self.mock_di.sponsorship_crud = self.mock_sponsorship_dao
+        self.mock_di.sponsorship_repo = self.mock_sponsorship_repo
         # noinspection PyPropertyAccess
         self.mock_di.telegram_bot_sdk = self.mock_telegram_sdk
 
@@ -261,7 +261,7 @@ class SettingsControllerTest(unittest.TestCase):
     def test_fetch_user_settings_is_sponsored_true(self):
         mock_sponsorship = MagicMock()
         mock_sponsorship.receiver_id = self.invoker_user.id
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [mock_sponsorship]
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [mock_sponsorship]
 
         controller = SettingsController(self.mock_di)
         result = controller.fetch_user_settings(self.invoker_user.id.hex)
@@ -682,7 +682,7 @@ class SettingsControllerTest(unittest.TestCase):
         mock_sponsorship_db = MagicMock()
         mock_sponsorship_db.receiver_id = self.invoker_user.id
 
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = [mock_sponsorship_db]
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [mock_sponsorship_db]
 
         controller = SettingsController(self.mock_di)
         link_response = controller.create_settings_link()

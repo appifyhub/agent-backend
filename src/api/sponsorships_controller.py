@@ -3,7 +3,6 @@ from typing import Any
 from api.model.sponsorship_payload import SponsorshipPayload
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.sponsorship import Sponsorship
 from db.schema.user import User
 from di.di import DI
 from features.integrations.integrations import lookup_user_by_handle, resolve_any_external_handle
@@ -24,20 +23,19 @@ class SponsorshipsController:
     def fetch_sponsorships(self, user_id_hex: str) -> dict[str, Any]:
         log.d(f"Fetching sponsorships for user '{user_id_hex}'")
         user = self.__di.authorization_service.authorize_for_user(self.__di.invoker, user_id_hex)
-        sponsorships_db = self.__di.sponsorship_crud.get_all_by_sponsor(user.id)
+        sponsorships = self.__di.sponsorship_repo.get_all_by_sponsor(user.id)
         max_sponsorships = (
             config.max_sponsorships_per_user
             if self.__di.invoker.group != UserDB.Group.developer
             else config.max_users
         )
-        if not sponsorships_db:
+        if not sponsorships:
             log.d("  No sponsorships found")
             return {
                 "sponsorships": [],
                 "max_sponsorships": max_sponsorships,
             }
 
-        sponsorships = [Sponsorship.model_validate(sponsorship_db) for sponsorship_db in sponsorships_db]
         output_sponsorships: list[dict[str, Any]] = []
         for sponsorship in sponsorships:
             receiver_user_db = self.__di.user_crud.get(sponsorship.receiver_id)
@@ -83,10 +81,9 @@ class SponsorshipsController:
         if not receiver_user_db:
             raise InternalError("Sponsored receiver user not found after sponsorship creation", SPONSORSHIP_OPERATION_FAILED)
         receiver_user = User.model_validate(receiver_user_db)
-        sponsorship_db = self.__di.sponsorship_crud.get(user.id, receiver_user.id)
-        if not sponsorship_db:
+        sponsorship = self.__di.sponsorship_repo.get(user.id, receiver_user.id)
+        if not sponsorship:
             raise InternalError("Sponsorship row not found after sponsorship creation", SPONSORSHIP_OPERATION_FAILED)
-        sponsorship = Sponsorship.model_validate(sponsorship_db)
         platform_handle, platform_type = resolve_any_external_handle(receiver_user)
         log.i(f"  Successfully sponsored '@{payload.platform_handle}'")
         return {

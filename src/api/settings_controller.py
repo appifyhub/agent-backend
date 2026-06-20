@@ -316,7 +316,7 @@ class SettingsController:
         log.i("User settings saved")
 
     def __is_sponsored(self, user_id: UUID) -> bool:
-        return bool(self.__di.sponsorship_crud.get_all_by_receiver(user_id))
+        return bool(self.__di.sponsorship_repo.get_all_by_receiver(user_id))
 
     def __create_jwt_token(self, chat_type: ChatConfigDB.ChatType) -> str:
         external_id = resolve_external_id(self.__di.invoker, chat_type)

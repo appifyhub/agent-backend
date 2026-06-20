@@ -55,7 +55,7 @@ class CreditTransferServiceTest(unittest.TestCase):
         )
         self.mock_di.user_crud.get_by_telegram_username.return_value = self.receiver.model_dump()
         self.mock_di.user_crud.update_locked_pair.return_value = None
-        self.mock_di.sponsorship_crud.get_all_by_receiver.return_value = []
+        self.mock_di.sponsorship_repo.get_all_by_receiver.return_value = []
         self.mock_di.usage_record_repo.create.return_value = None
         self.mock_di.clone.side_effect = Exception("notification not configured in test")
 
@@ -167,7 +167,7 @@ class CreditTransferServiceTest(unittest.TestCase):
         self.mock_di.user_crud.update_locked_pair.assert_not_called()
 
     def test_sponsored_sender_not_allowed(self):
-        self.mock_di.sponsorship_crud.get_all_by_receiver.side_effect = lambda uid, limit = 1: (
+        self.mock_di.sponsorship_repo.get_all_by_receiver.side_effect = lambda uid, limit = 1: (
             [Mock()] if uid == self.sender.id else []
         )
 
@@ -183,7 +183,7 @@ class CreditTransferServiceTest(unittest.TestCase):
         self.mock_di.user_crud.update_locked_pair.assert_not_called()
 
     def test_sponsored_receiver_not_allowed(self):
-        self.mock_di.sponsorship_crud.get_all_by_receiver.side_effect = lambda uid, limit = 1: (
+        self.mock_di.sponsorship_repo.get_all_by_receiver.side_effect = lambda uid, limit = 1: (
             [Mock()] if uid == self.receiver.id else []
         )
 
