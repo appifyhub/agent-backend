@@ -4,7 +4,6 @@ from unittest.mock import Mock
 from uuid import UUID
 
 from db.crud.price_alert import PriceAlertCRUD
-from db.crud.tools_cache import ToolsCacheCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
@@ -39,8 +38,6 @@ class TelegramPriceAlertResponderTest(unittest.TestCase):
 
         # noinspection PyPropertyAccess
         self.mock_di.price_alert_crud = Mock(spec = PriceAlertCRUD)
-        # noinspection PyPropertyAccess
-        self.mock_di.tools_cache_crud = Mock(spec = ToolsCacheCRUD)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
         # noinspection PyPropertyAccess

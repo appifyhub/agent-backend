@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 
 from readabilipy import simple_json_from_html_string
 
-from db.schema.tools_cache import ToolsCache, ToolsCacheSave
 from di.di import DI
+from features.tools_cache.tools_cache import ToolsCache
 from util import log
 from util.functions import digest_md5
 
@@ -30,10 +30,9 @@ class HTMLContentCleaner:
     def clean_up(self) -> str:
         self.plain_text = ""  # reset value
 
-        cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX, digest_md5(self.raw_html))
-        cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_key = ToolsCache.create_key(CACHE_PREFIX, digest_md5(self.raw_html))
+        cache_entry = self.__di.tools_cache_repo.get(cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for '{cache_key}'")
                 self.plain_text = cache_entry.value
@@ -66,8 +65,8 @@ class HTMLContentCleaner:
         if image_markdowns:
             self.plain_text += "\n" + "\n".join(image_markdowns)
         # finally cache the cleaned content for future use
-        self.__di.tools_cache_crud.save(
-            ToolsCacheSave(
+        self.__di.tools_cache_repo.save(
+            ToolsCache(
                 key = cache_key,
                 value = self.plain_text,
                 expires_at = datetime.now() + CACHE_TTL,
@@ -111,9 +110,12 @@ class HTMLContentCleaner:
             return True
         # analytics and tracking domains
         noise_domains = [
-            "google-analytics.com", "googletagmanager.com", "facebook.com/tr",
-            "doubleclick.net", "adservice.google", "analytics.", "pixel.",
-            "bat.bing.com", "tr.snapchat.com", "ads.linkedin.com",
+            "google-analytics.com", "googletagmanager.com", "googlesyndication.com", "googleadservices.com",
+            "doubleclick.net", "adservice.google",
+            "facebook.com/tr", "facebook.net", "analytics.", "pixel.",
+            "ads.linkedin.com", "cloudflareinsights.com", "bat.bing.com", "tr.snapchat.com",
+            "quantserve.com", "scorecardresearch.com",
+            "adnxs.com", "adsrvr.org", "openx.net", "demdex.net",
         ]
         src_lower = src.lower()
         if any(d in src_lower for d in noise_domains):

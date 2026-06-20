@@ -8,9 +8,10 @@ import requests_mock
 from pydantic import SecretStr
 from requests_mock import Mocker
 
-from db.schema.tools_cache import ToolsCache
 from di.di import DI
 from features.external_tools.tool_choice_resolver import ConfiguredTool
+from features.tools_cache.tools_cache import ToolsCache
+from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 from features.web_browsing.twitter_status_fetcher import TweetData, TweetLinkPreview, TweetMediaItem, TwitterStatusFetcher
 from util.config import config
 
@@ -37,9 +38,8 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         # Set up DI container
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
-        self.mock_di.tools_cache_crud = MagicMock()
-        self.mock_di.tools_cache_crud.create_key.return_value = "test_cache_key"
-        self.mock_di.tools_cache_crud.save.return_value = None
+        self.mock_di.tools_cache_repo = MagicMock(spec = ToolsCacheRepository)
+        self.mock_di.tools_cache_repo.save.return_value = None
         self.mock_di.computer_vision_analyzer = MagicMock()
 
         # Mock invoker and chat for usage tracking
@@ -81,7 +81,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_execute_cache_hit(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_crud.get.return_value = self.cache_entry.model_dump()
+        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry
 
         fetcher = TwitterStatusFetcher(
             tweet_id = "123456789",
@@ -95,8 +95,37 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     # noinspection PyUnusedLocal
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_execute_expired_cache_refreshes(self, m: Mocker, mock_sleep):
+        expired = ToolsCache(
+            key = "expired",
+            value = "Expired tweet content",
+            expires_at = datetime.now() - timedelta(seconds = 1),
+        )
+        self.mock_di.tools_cache_repo.get.side_effect = [expired, None]
+        m.get(
+            self.api_url,
+            json = {
+                "data": {"text": "Fresh tweet content", "lang": "en"},
+                "includes": {"users": [{"username": "testuser", "name": "Test User"}]},
+            },
+        )
+
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+        result = fetcher.execute()
+
+        self.assertIn("Fresh tweet content", result)
+        self.assertEqual(self.mock_di.tools_cache_repo.save.call_count, 2)
+
+    # noinspection PyUnusedLocal
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_execute_cache_miss(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
 
         # Mock the X API v2 response
         m.get(
@@ -135,7 +164,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_execute_api_error(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
 
         # Mock API error response
         m.get(self.api_url, status_code = 500)
@@ -153,7 +182,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_api_call_parameters(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
 
         # Mock the X API v2 response
         m.get(
@@ -196,7 +225,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_resolve_photo_contents(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
 
         # Mock computer vision analyzer
         mock_analyzer_instance = MagicMock()
@@ -250,7 +279,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_format_tweet_content_handles_missing_data(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
 
         # Mock X API v2 response with missing data
         m.get(
@@ -287,7 +316,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_returns_typed_data(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -355,7 +384,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_uses_structured_cache_prefix(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {"data": {"text": "Test", "lang": "en"}, "includes": {"users": [{"username": "u"}]}},
@@ -368,15 +397,13 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         )
         fetcher.as_structured()
 
-        create_key_calls = self.mock_di.tools_cache_crud.create_key.call_args_list
-        prefixes_used = [call.args[0] for call in create_key_calls]
-        self.assertIn("twitter-status-fetcher-json", prefixes_used)
-        self.assertNotIn("twitter-status-fetcher", prefixes_used)
+        expected_key = ToolsCache.create_key("twitter-status-fetcher-json", self.tweet_id)
+        self.mock_di.tools_cache_repo.get.assert_called_once_with(expected_key)
 
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_does_not_invoke_cv(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -401,7 +428,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_extracts_quoted_tweet_id(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -434,7 +461,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_no_quoted_tweet_for_self_media(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -466,7 +493,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_extracts_link_previews(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -508,7 +535,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_unescapes_html_entities(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -532,7 +559,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_referenced_tweets_quoted(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -559,7 +586,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_referenced_tweets_reply(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {
@@ -586,7 +613,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_referenced_tweets_both(self, m: Mocker, _):
-        self.mock_di.tools_cache_crud.get.return_value = None
+        self.mock_di.tools_cache_repo.get.return_value = None
         m.get(
             self.api_url,
             json = {

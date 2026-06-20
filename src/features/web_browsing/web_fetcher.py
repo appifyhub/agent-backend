@@ -7,9 +7,9 @@ from typing import Any
 import requests
 from requests.exceptions import RequestException, Timeout
 
-from db.schema.tools_cache import ToolsCache, ToolsCacheSave
 from di.di import DI
 from features.external_tools.intelligence_presets import default_tool_for
+from features.tools_cache.tools_cache import ToolsCache
 from features.web_browsing.twitter_status_fetcher import TwitterStatusFetcher
 from features.web_browsing.twitter_utils import resolve_tweet_id
 from features.web_browsing.uri_cleanup import simplify_url
@@ -83,14 +83,13 @@ class WebFetcher:
         headers_str = json.dumps(self.__headers, sort_keys = True)
         params_str = json.dumps(self.__params, sort_keys = True)
         key_components = f"{simplify_url(self.url)}|{headers_str}|{params_str}"
-        return self.__di.tools_cache_crud.create_key(CACHE_PREFIX, key_components)
+        return ToolsCache.create_key(CACHE_PREFIX, key_components)
 
     def fetch_html(self) -> str | None:
         self.html = None  # reset value
 
-        cache_entry_db = self.__di.tools_cache_crud.get(self.__cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_entry = self.__di.tools_cache_repo.get(self.__cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for '{self.__cache_key}'")
                 self.html = cache_entry.value
@@ -125,8 +124,8 @@ class WebFetcher:
                         self.html = None
                         break
                     self.html = content_text
-                self.__di.tools_cache_crud.save(
-                    ToolsCacheSave(
+                self.__di.tools_cache_repo.save(
+                    ToolsCache(
                         key = self.__cache_key,
                         value = self.html or "",
                         expires_at = datetime.now() + self.__cache_ttl_html,
@@ -143,9 +142,8 @@ class WebFetcher:
     def fetch_json(self) -> dict | None:
         self.json = None  # reset value
 
-        cache_entry_db = self.__di.tools_cache_crud.get(self.__cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_entry = self.__di.tools_cache_repo.get(self.__cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for '{self.__cache_key}'")
                 self.json = json.loads(cache_entry.value)
@@ -168,8 +166,8 @@ class WebFetcher:
                     )
                     response.raise_for_status()
                     self.json = response.json()
-                self.__di.tools_cache_crud.save(
-                    ToolsCacheSave(
+                self.__di.tools_cache_repo.save(
+                    ToolsCache(
                         key = self.__cache_key,
                         value = json.dumps(self.json),
                         expires_at = datetime.now() + self.__cache_ttl_json,

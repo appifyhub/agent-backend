@@ -6,7 +6,6 @@ from uuid import UUID
 from pydantic import SecretStr
 
 from db.crud.price_alert import PriceAlertCRUD
-from db.crud.tools_cache import ToolsCacheCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
@@ -24,7 +23,6 @@ class CurrencyAlertServiceTest(unittest.TestCase):
 
     mock_user_dao: UserCRUD
     mock_price_alert_dao: PriceAlertCRUD
-    mock_tools_cache_dao: ToolsCacheCRUD
     mock_sponsorship_repo: SponsorshipRepository
     mock_telegram_bot_sdk: TelegramBotSDK
     mock_exchange_rate_fetcher: ExchangeRateFetcher
@@ -42,7 +40,6 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         self.mock_di.authorization_service = MagicMock()
         self.mock_di.price_alert_crud = self.mock_price_alert_dao = MagicMock(spec = PriceAlertCRUD)
         self.mock_di.user_crud = self.mock_user_dao = MagicMock(spec = UserCRUD)
-        self.mock_di.tools_cache_crud = self.mock_tools_cache_dao = MagicMock(spec = ToolsCacheCRUD)
         self.mock_di.sponsorship_repo = self.mock_sponsorship_repo = MagicMock(spec = SponsorshipRepository)
         self.mock_di.telegram_bot_sdk = self.mock_telegram_bot_sdk = MagicMock(spec = TelegramBotSDK)
         self.mock_di.exchange_rate_fetcher = self.mock_exchange_rate_fetcher = MagicMock(spec = ExchangeRateFetcher)
@@ -153,7 +150,6 @@ class CurrencyAlertServiceTest(unittest.TestCase):
             ),
         ]
         self.mock_di.price_alert_crud.get_alerts_by_chat.return_value = mock_alerts
-        self.mock_di.tools_cache_crud.get.return_value = None
         with patch.object(CurrencyAlertService, "get_triggered_alerts") as mock_get:
             mock_get.return_value = [
                 CurrencyAlertService.TriggeredAlert(
@@ -189,8 +185,6 @@ class CurrencyAlertServiceTest(unittest.TestCase):
             ),
         ]
         self.mock_di.price_alert_crud.get_alerts_by_chat.return_value = mock_alerts
-        self.mock_di.tools_cache_crud.get.return_value = None
-
         with patch.object(CurrencyAlertService, "get_triggered_alerts") as mock_get:
             mock_get.return_value = [
                 CurrencyAlertService.TriggeredAlert(
