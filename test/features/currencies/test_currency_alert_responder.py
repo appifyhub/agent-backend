@@ -3,7 +3,6 @@ from datetime import datetime
 from unittest.mock import Mock
 from uuid import UUID
 
-from db.crud.price_alert import PriceAlertCRUD
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
@@ -34,8 +33,6 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
         self.mock_di.chat_config_repo.get = self.__make_chat_config
 
-        # noinspection PyPropertyAccess
-        self.mock_di.price_alert_crud = Mock(spec = PriceAlertCRUD)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
 

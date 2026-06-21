@@ -16,7 +16,10 @@ class SponsorshipRepository:
         self._db = db_session
 
     def get(self, sponsor_id: UUID, receiver_id: UUID) -> Sponsorship | None:
-        db_model = self._get_db_model(sponsor_id, receiver_id)
+        db_model = self._db.query(SponsorshipDB).filter(
+            SponsorshipDB.sponsor_id == sponsor_id,
+            SponsorshipDB.receiver_id == receiver_id,
+        ).first()
         return domain(db_model)
 
     def get_all_by_sponsor(
@@ -50,7 +53,10 @@ class SponsorshipRepository:
         return [domain(m) for m in db_models if m is not None]
 
     def save(self, sponsorship: Sponsorship) -> Sponsorship:
-        existing = self._get_db_model(sponsorship.sponsor_id, sponsorship.receiver_id)
+        existing = self._db.query(SponsorshipDB).filter(
+            SponsorshipDB.sponsor_id == sponsorship.sponsor_id,
+            SponsorshipDB.receiver_id == sponsorship.receiver_id,
+        ).first()
         if existing is not None:
             self.__copy_to_db_model(sponsorship, existing)
             self._db.commit()
@@ -64,7 +70,10 @@ class SponsorshipRepository:
         return domain(db_model)
 
     def delete(self, sponsor_id: UUID, receiver_id: UUID) -> Sponsorship | None:
-        db_model = self._get_db_model(sponsor_id, receiver_id)
+        db_model = self._db.query(SponsorshipDB).filter(
+            SponsorshipDB.sponsor_id == sponsor_id,
+            SponsorshipDB.receiver_id == receiver_id,
+        ).first()
         if db_model is None:
             return None
         snapshot = domain(db_model)
@@ -86,12 +95,6 @@ class SponsorshipRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def _get_db_model(self, sponsor_id: UUID, receiver_id: UUID) -> SponsorshipDB | None:
-        return self._db.query(SponsorshipDB).filter(
-            SponsorshipDB.sponsor_id == sponsor_id,
-            SponsorshipDB.receiver_id == receiver_id,
-        ).first()
 
     def __copy_to_db_model(self, source: Sponsorship, target: SponsorshipDB):
         target.sponsored_at = source.sponsored_at

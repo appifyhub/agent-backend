@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from api.usage_controller import UsageController
     from db.crud.chat_message import ChatMessageCRUD
     from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
-    from db.crud.price_alert import PriceAlertCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
@@ -73,6 +72,7 @@ if TYPE_CHECKING:
     from features.connect.profile_connect_service import ProfileConnectService
     from features.currencies.currency_alert_service import CurrencyAlertService
     from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
+    from features.currencies.price_alert_repo import PriceAlertRepository
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
     from features.external_tools.access_token_resolver import AccessTokenResolver
@@ -120,7 +120,7 @@ class DI:
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
-    _price_alert_crud: "PriceAlertCRUD | None"
+    _price_alert_repo: "PriceAlertRepository | None"
     _usage_record_repo: "UsageRecordRepository | None"
     _purchase_record_repo: "PurchaseRecordRepository | None"
     # Services
@@ -179,7 +179,7 @@ class DI:
         self._chat_message_attachment_crud = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
-        self._price_alert_crud = None
+        self._price_alert_repo = None
         self._usage_record_repo = None
         self._purchase_record_repo = None
         # Services
@@ -399,11 +399,11 @@ class DI:
         return self._tools_cache_repo
 
     @property
-    def price_alert_crud(self) -> "PriceAlertCRUD":
-        if self._price_alert_crud is None:
-            from db.crud.price_alert import PriceAlertCRUD
-            self._price_alert_crud = PriceAlertCRUD(self.db)
-        return self._price_alert_crud
+    def price_alert_repo(self) -> "PriceAlertRepository":
+        if self._price_alert_repo is None:
+            from features.currencies.price_alert_repo import PriceAlertRepository
+            self._price_alert_repo = PriceAlertRepository(self.db)
+        return self._price_alert_repo
 
     @property
     def usage_record_repo(self) -> "UsageRecordRepository":
