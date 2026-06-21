@@ -34,7 +34,7 @@ class CleanupService:
             log.e(f"  Cleanup phase 1 (messages / attachments) failed: {e}")
 
         try:
-            result.cache_entries_cleared = self.__di.tools_cache_crud.delete_expired()
+            result.cache_entries_cleared = self.__di.tools_cache_repo.delete_expired()
             log.i(f"  Cleanup phase 2: cleared {result.cache_entries_cleared} cache entries")
         except Exception as e:
             log.e(f"  Cleanup phase 2 (cache) failed: {e}")

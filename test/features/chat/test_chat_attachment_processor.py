@@ -9,16 +9,18 @@ from pydantic import SecretStr
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from db.schema.chat_message_attachment import ChatMessageAttachment
-from db.schema.tools_cache import ToolsCache
 from db.schema.user import User
-from features.chat.chat_attachment_processor import CACHE_TTL, SEARCH_THRESHOLD_TOKENS, ChatAttachmentProcessor
+from features.chat.chat_attachment_processor import CACHE_PREFIX, CACHE_TTL, SEARCH_THRESHOLD_TOKENS, ChatAttachmentProcessor
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.url_attachment_resolver import UrlAttachmentResolver
 from features.documents.docx_loader import DocxLoader
 from features.documents.plain_text_loader import PlainTextLoader
 from features.integrations.platform_bot_sdk import PlatformBotSDK
+from features.tools_cache.tools_cache import ToolsCache
+from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 from util.config import config
 from util.errors import NotFoundError, ValidationError
+from util.functions import digest_md5
 
 
 def _make_attachment(
@@ -47,11 +49,11 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         config.web_timeout_s = 1
 
         self.mock_di = MagicMock()
-        self.mock_cache_crud = MagicMock()
+        self.mock_cache_repo = MagicMock(spec = ToolsCacheRepository)
         self.mock_user_crud = MagicMock()
         self.mock_chat_message_attachment_crud = MagicMock()
         self.mock_access_token_resolver = MagicMock()
-        self.mock_di.tools_cache_crud = self.mock_cache_crud
+        self.mock_di.tools_cache_repo = self.mock_cache_repo
         self.mock_di.user_crud = self.mock_user_crud
         self.mock_di.chat_message_attachment_crud = self.mock_chat_message_attachment_crud
         self.mock_di.access_token_resolver = self.mock_access_token_resolver
@@ -91,7 +93,6 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.mock_user_crud.get.return_value = self.invoker_user.model_dump()
         self.mock_chat_message_attachment_crud.get.return_value = self.attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = self.attachment.model_dump()
-        self.mock_cache_crud.create_key.return_value = "test_cache_key"
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
 
         self.mock_di.telegram_bot_sdk = TelegramBotSDK(self.mock_di)
@@ -105,7 +106,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
     @requests_mock.Mocker()
     def test_execute_with_cache_hit(self, m: requests_mock.Mocker):
         m.get(str(self.attachment.last_url), content = b"image data", status_code = 200)
-        self.mock_cache_crud.get.return_value = self.cache_entry.model_dump()
+        self.mock_cache_repo.get.return_value = self.cache_entry
 
         mock_cv_instance = MagicMock()
         mock_cv_instance.execute.return_value = self.cached_content
@@ -128,7 +129,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
     @requests_mock.Mocker()
     def test_execute_with_cache_miss(self, m: requests_mock.Mocker):
         m.get(str(self.attachment.last_url), content = b"image data", status_code = 200)
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
 
         mock_cv_instance = MagicMock()
         mock_cv_instance.execute.return_value = self.cached_content
@@ -148,7 +149,34 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.assertEqual(len(resolver.result), 1)
         self.assertEqual(resolver.result[0]["text_content"], self.cached_content)
         mock_cv_instance.execute.assert_called_once()
-        self.mock_cache_crud.save.assert_called_once()
+        self.mock_cache_repo.save.assert_called_once()
+
+    @requests_mock.Mocker()
+    def test_execute_with_expired_cache_entry_refreshes_content(self, m: requests_mock.Mocker):
+        m.get(str(self.attachment.last_url), content = b"image data", status_code = 200)
+        self.mock_cache_repo.get.return_value = ToolsCache(
+            key = "expired_cache_key",
+            value = "expired content",
+            expires_at = datetime.now() - timedelta(seconds = 1),
+        )
+
+        mock_cv_instance = MagicMock()
+        mock_cv_instance.execute.return_value = self.cached_content
+        self.mock_di.computer_vision_analyzer.return_value = mock_cv_instance
+        self.mock_di.tool_choice_resolver.require_tool.return_value = MagicMock()
+
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["1"],
+            urls = None,
+            di = self.mock_di,
+        )
+        result = resolver.execute()
+
+        self.assertEqual(result, ChatAttachmentProcessor.Result.success)
+        self.assertEqual(resolver.result[0]["text_content"], self.cached_content)
+        mock_cv_instance.execute.assert_called_once()
+        self.mock_cache_repo.save.assert_called_once()
 
     # ── Validation / not-found tests (unchanged behavior) ─────────────────
 
@@ -229,7 +257,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         txt_attachment = _make_attachment(id = "5", mime_type = "text/plain", extension = "txt", url = "http://test.com/notes.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         small_text = "Hello world"
         m.get(str(txt_attachment.last_url), content = small_text.encode("utf-8"), status_code = 200)
 
@@ -251,7 +279,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         md_attachment = _make_attachment(id = "6", mime_type = "text/markdown", extension = "md", url = "http://test.com/readme.md")
         self.mock_chat_message_attachment_crud.get.return_value = md_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = md_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         m.get(str(md_attachment.last_url), content = b"# Title\n\nSome content.", status_code = 200)
 
         resolver = ChatAttachmentProcessor(
@@ -273,7 +301,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         txt_attachment = _make_attachment(id = "7", mime_type = "text/plain", extension = "txt", url = "http://test.com/large.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         large_text = "x" * (SEARCH_THRESHOLD_TOKENS * 3 + 3)
         m.get(str(txt_attachment.last_url), content = large_text.encode("utf-8"), status_code = 200)
 
@@ -298,7 +326,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         txt_attachment = _make_attachment(id = "8", mime_type = "text/plain", extension = "txt", url = "http://test.com/border.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         # exactly at threshold (tokens = threshold, so raw applies)
         at_threshold_text = "x" * (SEARCH_THRESHOLD_TOKENS * 3)
         m.get(str(txt_attachment.last_url), content = at_threshold_text.encode("utf-8"), status_code = 200)
@@ -322,7 +350,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         txt_attachment = _make_attachment(id = "9", mime_type = "text/plain", extension = "txt", url = "http://test.com/empty.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         m.get(str(txt_attachment.last_url), content = b"   \n\n  ", status_code = 200)
 
         resolver = ChatAttachmentProcessor(
@@ -349,7 +377,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         )
         self.mock_chat_message_attachment_crud.get.return_value = bad_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = bad_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         m.get(str(bad_attachment.last_url), content = b"not a zip", status_code = 200)
 
         resolver = ChatAttachmentProcessor(
@@ -390,7 +418,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
         self.mock_chat_message_attachment_crud.get.side_effect = get_by_id
         self.mock_chat_message_attachment_crud.save.side_effect = save_by_model
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         m.get(str(image_attachment.last_url), content = b"img data", status_code = 200)
         m.get(str(bad_attachment.last_url), content = b"not a zip", status_code = 200)
 
@@ -418,7 +446,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         txt_attachment = _make_attachment(id = "12", mime_type = "text/plain", extension = "txt", url = "http://test.com/doc.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         m.get(str(txt_attachment.last_url), content = b"Short content", status_code = 200)
 
         resolver = ChatAttachmentProcessor(
@@ -429,27 +457,18 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         )
         resolver.execute()
 
-        create_key_calls = [str(call) for call in self.mock_cache_crud.create_key.call_args_list]
-        self.assertTrue(
-            any("raw" in call for call in create_key_calls),
-            f"Expected '{'raw'}' in cache key call args: {create_key_calls}",
-        )
+        context_hash = digest_md5("ctx")
+        expected_key = ToolsCache.create_key(CACHE_PREFIX, f"12-raw-{context_hash}")
+        saved_entry = self.mock_cache_repo.save.call_args.args[0]
+        self.assertEqual(saved_entry.key, expected_key)
 
     @requests_mock.Mocker()
     def test_raw_and_search_cache_keys_do_not_collide(self, m: requests_mock.Mocker):
         txt_attachment = _make_attachment(id = "13", mime_type = "text/plain", extension = "txt", url = "http://test.com/small.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         m.get(str(txt_attachment.last_url), content = b"Small text", status_code = 200)
-
-        captured_keys: list[str] = []
-
-        def capture_key(prefix, identifier):
-            captured_keys.append(identifier)
-            return f"{prefix}-{identifier}"
-
-        self.mock_cache_crud.create_key.side_effect = capture_key
 
         resolver = ChatAttachmentProcessor(
             additional_context = "ctx",
@@ -459,13 +478,12 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         )
         resolver.execute()
 
-        raw_keys = [k for k in captured_keys if "raw" in k]
-        search_keys = [k for k in captured_keys if "search" in k]
-        # save uses raw; lookup probes both - no raw key should equal a search key
-        self.assertTrue(len(raw_keys) > 0)
-        for rk in raw_keys:
-            for sk in search_keys:
-                self.assertNotEqual(rk, sk)
+        context_hash = digest_md5("ctx")
+        raw_key = ToolsCache.create_key(CACHE_PREFIX, f"13-raw-{context_hash}")
+        search_key = ToolsCache.create_key(CACHE_PREFIX, f"13-search-{context_hash}")
+        self.assertNotEqual(raw_key, search_key)
+        self.mock_cache_repo.get.assert_any_call(raw_key)
+        self.mock_cache_repo.get.assert_any_call(search_key)
 
     # ── Encoding fallback ─────────────────────────────────────────────────
 
@@ -474,7 +492,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         txt_attachment = _make_attachment(id = "14", mime_type = "text/plain", extension = "txt", url = "http://test.com/latin1.txt")
         self.mock_chat_message_attachment_crud.get.return_value = txt_attachment.model_dump()
         self.mock_chat_message_attachment_crud.save.return_value = txt_attachment.model_dump()
-        self.mock_cache_crud.get.return_value = None
+        self.mock_cache_repo.get.return_value = None
         latin1_bytes = "Héllo Wörld".encode("latin-1")
         m.get(str(txt_attachment.last_url), content = latin1_bytes, status_code = 200)
 
@@ -498,7 +516,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         virtual_url = "https://example.com/image.png"
         m.head(virtual_url, exc = ConnectionError("timeout"))
         m.get(virtual_url, content = b"image data", status_code = 200)
-        self.mock_cache_crud.get.return_value = self.cache_entry.model_dump()
+        self.mock_cache_repo.get.return_value = self.cache_entry
 
         mock_cv_instance = MagicMock()
         mock_cv_instance.execute.return_value = self.cached_content
@@ -523,7 +541,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         m.head(virtual_url, exc = ConnectionError("timeout"))
         m.get(virtual_url, content = b"image data", status_code = 200)
         m.get(str(self.attachment.last_url), content = b"image data", status_code = 200)
-        self.mock_cache_crud.get.return_value = self.cache_entry.model_dump()
+        self.mock_cache_repo.get.return_value = self.cache_entry
 
         mock_cv_instance = MagicMock()
         mock_cv_instance.execute.return_value = self.cached_content

@@ -6,7 +6,6 @@ import requests
 from langchain_core.documents import Document
 
 from db.schema.chat_message_attachment import ChatMessageAttachment
-from db.schema.tools_cache import ToolsCache, ToolsCacheSave
 from di.di import DI
 from features.audio.audio_transcriber import AudioTranscriber
 from features.chat.chat_attachment_utils import resolve_all_attachments
@@ -14,6 +13,7 @@ from features.chat.supported_files import KNOWN_AUDIO_FORMATS, KNOWN_DOCS_FORMAT
 from features.documents.document_search import DocumentSearch
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
+from features.tools_cache.tools_cache import ToolsCache
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util import log
 from util.functions import digest_md5
@@ -113,10 +113,9 @@ class ChatAttachmentProcessor:
         # use a group cache key based on sorted attachment IDs + context
         sorted_ids = ",".join(sorted(a.id for a in image_attachments))
         additional_content_hash = digest_md5(self.__additional_context) if self.__additional_context else "*"
-        cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX, f"{sorted_ids}-{additional_content_hash}")
-        cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_key = ToolsCache.create_key(CACHE_PREFIX, f"{sorted_ids}-{additional_content_hash}")
+        cache_entry = self.__di.tools_cache_repo.get(cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for image group '{cache_key}'")
                 for i in indices:
@@ -143,8 +142,8 @@ class ChatAttachmentProcessor:
                 additional_context = self.__additional_context,
             ).execute()
             if content is not None:
-                self.__di.tools_cache_crud.save(
-                    ToolsCacheSave(
+                self.__di.tools_cache_repo.save(
+                    ToolsCache(
                         key = cache_key,
                         value = content,
                         expires_at = datetime.now() + CACHE_TTL,
@@ -167,13 +166,12 @@ class ChatAttachmentProcessor:
         if is_document:
             # processing strategy is determined during extraction, so we probe both possible cache keys
             for strategy in ("raw", "search"):
-                cache_key = self.__di.tools_cache_crud.create_key(
+                cache_key = ToolsCache.create_key(
                     CACHE_PREFIX,
                     f"{attachment.id}-{strategy}-{additional_content_hash}",
                 )
-                cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-                if cache_entry_db:
-                    cache_entry = ToolsCache.model_validate(cache_entry_db)
+                cache_entry = self.__di.tools_cache_repo.get(cache_key)
+                if cache_entry:
                     if not cache_entry.is_expired():
                         log.t(f"Cache hit for '{cache_key}'")
                         self.__contents[index] = cache_entry.value
@@ -185,12 +183,12 @@ class ChatAttachmentProcessor:
             try:
                 strategy, content = self.__fetch_document_content(attachment)
                 if content is not None:
-                    cache_key = self.__di.tools_cache_crud.create_key(
+                    cache_key = ToolsCache.create_key(
                         CACHE_PREFIX,
                         f"{attachment.id}-{strategy}-{additional_content_hash}",
                     )
-                    self.__di.tools_cache_crud.save(
-                        ToolsCacheSave(
+                    self.__di.tools_cache_repo.save(
+                        ToolsCache(
                             key = cache_key,
                             value = content,
                             expires_at = datetime.now() + CACHE_TTL,
@@ -203,10 +201,9 @@ class ChatAttachmentProcessor:
         else:
             # non-document attachment - let's try cache again
             unique_identifier = f"{attachment.id}-{additional_content_hash}"
-            cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX, unique_identifier)
-            cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-            if cache_entry_db:
-                cache_entry = ToolsCache.model_validate(cache_entry_db)
+            cache_key = ToolsCache.create_key(CACHE_PREFIX, unique_identifier)
+            cache_entry = self.__di.tools_cache_repo.get(cache_key)
+            if cache_entry:
                 if not cache_entry.is_expired():
                     log.t(f"Cache hit for '{cache_key}'")
                     self.__contents[index] = cache_entry.value
@@ -218,8 +215,8 @@ class ChatAttachmentProcessor:
             try:
                 content = self.fetch_text_content(attachment)
                 if content is not None:
-                    self.__di.tools_cache_crud.save(
-                        ToolsCacheSave(
+                    self.__di.tools_cache_repo.save(
+                        ToolsCache(
                             key = cache_key,
                             value = content,
                             expires_at = datetime.now() + CACHE_TTL,

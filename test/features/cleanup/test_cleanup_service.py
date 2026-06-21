@@ -18,7 +18,7 @@ class CleanupServiceTest(unittest.TestCase):
         di = MagicMock()
         di.chat_message_attachment_crud.delete_by_old_messages.return_value = attachments_deleted
         di.chat_message_crud.delete_older_than.return_value = messages_deleted
-        di.tools_cache_crud.delete_expired.return_value = cache_cleared
+        di.tools_cache_repo.delete_expired.return_value = cache_cleared
         di.usage_record_repo.delete_older_than.return_value = usage_deleted
         di.price_alert_crud.delete_stale.return_value = alerts_deleted
         di.sponsorship_repo.delete_unaccepted_older_than.return_value = sponsorships_deleted

@@ -7,12 +7,12 @@ from time import sleep
 from typing import Any
 from urllib.parse import urlparse
 
-from db.schema.tools_cache import ToolsCache, ToolsCacheSave
 from di.di import DI
 from features.accounting.usage.decorators.http_usage_tracking_decorator import HTTPUsageTrackingDecorator
 from features.chat.supported_files import KNOWN_IMAGE_FORMATS
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
+from features.tools_cache.tools_cache import ToolsCache
 from util import log
 from util.config import config
 from util.error_codes import EXTERNAL_EMPTY_RESPONSE
@@ -90,14 +90,14 @@ class TwitterStatusFetcher:
 
     def as_text(self) -> str:
         log.t(f"Fetching text content for tweet ID: {self.__tweet_id}")
-        text_cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX, self.__tweet_id)
+        text_cache_key = ToolsCache.create_key(CACHE_PREFIX, self.__tweet_id)
         cached = self.__get_cached_string(text_cache_key)
         if cached:
             return cached
         raw = self.__fetch_raw()
         resolved = self.__resolve_content(raw)
-        self.__di.tools_cache_crud.save(
-            ToolsCacheSave(
+        self.__di.tools_cache_repo.save(
+            ToolsCache(
                 key = text_cache_key,
                 value = resolved,
                 expires_at = datetime.now() + CACHE_TTL,
@@ -112,7 +112,7 @@ class TwitterStatusFetcher:
         return self.__parse_structured(raw)
 
     def __fetch_raw(self) -> dict[str, Any]:
-        raw_cache_key = self.__di.tools_cache_crud.create_key(CACHE_PREFIX_STRUCTURED, self.__tweet_id)
+        raw_cache_key = ToolsCache.create_key(CACHE_PREFIX_STRUCTURED, self.__tweet_id)
         cached_json = self.__get_cached_string(raw_cache_key)
         if cached_json:
             return json.loads(cached_json)
@@ -133,8 +133,8 @@ class TwitterStatusFetcher:
         response.raise_for_status()
         response_json = response.json() or {}
 
-        self.__di.tools_cache_crud.save(
-            ToolsCacheSave(
+        self.__di.tools_cache_repo.save(
+            ToolsCache(
                 key = raw_cache_key,
                 value = json.dumps(response_json),
                 expires_at = datetime.now() + CACHE_TTL,
@@ -145,9 +145,8 @@ class TwitterStatusFetcher:
 
     def __get_cached_string(self, cache_key: str) -> str | None:
         log.t(f"Checking cache for key: '{cache_key}'")
-        cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_entry = self.__di.tools_cache_repo.get(cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for key '{cache_key}'")
                 return cache_entry.value
