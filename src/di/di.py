@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from api.usage_controller import UsageController
     from db.crud.chat_message import ChatMessageCRUD
     from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
-    from db.crud.price_alert import PriceAlertCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
@@ -121,7 +120,6 @@ class DI:
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
-    _price_alert_crud: "PriceAlertCRUD | None"
     _price_alert_repo: "PriceAlertRepository | None"
     _usage_record_repo: "UsageRecordRepository | None"
     _purchase_record_repo: "PurchaseRecordRepository | None"
@@ -181,7 +179,6 @@ class DI:
         self._chat_message_attachment_crud = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
-        self._price_alert_crud = None
         self._price_alert_repo = None
         self._usage_record_repo = None
         self._purchase_record_repo = None
@@ -400,13 +397,6 @@ class DI:
             from features.tools_cache.tools_cache_repo import ToolsCacheRepository
             self._tools_cache_repo = ToolsCacheRepository(self.db)
         return self._tools_cache_repo
-
-    @property
-    def price_alert_crud(self) -> "PriceAlertCRUD":
-        if self._price_alert_crud is None:
-            from db.crud.price_alert import PriceAlertCRUD
-            self._price_alert_crud = PriceAlertCRUD(self.db)
-        return self._price_alert_crud
 
     @property
     def price_alert_repo(self) -> "PriceAlertRepository":
