@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from features.announcements.release_summary_service import ReleaseSummaryService
     from features.announcements.sys_announcements_service import SysAnnouncementsService
     from features.audio.audio_transcriber import AudioTranscriber
+    from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
     from features.chat.chat_image_edit_service import ChatImageEditService
@@ -118,6 +119,7 @@ class DI:
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_crud: "ChatMessageCRUD | None"
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
+    _chat_message_attachment_repo: "ChatMessageAttachmentRepository | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
     _price_alert_repo: "PriceAlertRepository | None"
@@ -177,6 +179,7 @@ class DI:
         self._chat_membership_service = None
         self._chat_message_crud = None
         self._chat_message_attachment_crud = None
+        self._chat_message_attachment_repo = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
         self._price_alert_repo = None
@@ -383,6 +386,13 @@ class DI:
             from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
             self._chat_message_attachment_crud = ChatMessageAttachmentCRUD(self.db)
         return self._chat_message_attachment_crud
+
+    @property
+    def chat_message_attachment_repo(self) -> "ChatMessageAttachmentRepository":
+        if self._chat_message_attachment_repo is None:
+            from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
+            self._chat_message_attachment_repo = ChatMessageAttachmentRepository(self.db)
+        return self._chat_message_attachment_repo
 
     @property
     def sponsorship_repo(self) -> "SponsorshipRepository":
