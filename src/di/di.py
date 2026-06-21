@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from features.connect.profile_connect_service import ProfileConnectService
     from features.currencies.currency_alert_service import CurrencyAlertService
     from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
+    from features.currencies.price_alert_repo import PriceAlertRepository
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
     from features.external_tools.access_token_resolver import AccessTokenResolver
@@ -121,6 +122,7 @@ class DI:
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
     _price_alert_crud: "PriceAlertCRUD | None"
+    _price_alert_repo: "PriceAlertRepository | None"
     _usage_record_repo: "UsageRecordRepository | None"
     _purchase_record_repo: "PurchaseRecordRepository | None"
     # Services
@@ -180,6 +182,7 @@ class DI:
         self._sponsorship_repo = None
         self._tools_cache_repo = None
         self._price_alert_crud = None
+        self._price_alert_repo = None
         self._usage_record_repo = None
         self._purchase_record_repo = None
         # Services
@@ -404,6 +407,13 @@ class DI:
             from db.crud.price_alert import PriceAlertCRUD
             self._price_alert_crud = PriceAlertCRUD(self.db)
         return self._price_alert_crud
+
+    @property
+    def price_alert_repo(self) -> "PriceAlertRepository":
+        if self._price_alert_repo is None:
+            from features.currencies.price_alert_repo import PriceAlertRepository
+            self._price_alert_repo = PriceAlertRepository(self.db)
+        return self._price_alert_repo
 
     @property
     def usage_record_repo(self) -> "UsageRecordRepository":

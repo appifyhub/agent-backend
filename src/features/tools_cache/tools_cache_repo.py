@@ -15,7 +15,10 @@ class ToolsCacheRepository:
         self._db = db_session
 
     def get(self, key: str) -> ToolsCache | None:
-        return domain(self._get_db_model(key))
+        db_model = self._db.query(ToolsCacheDB).filter(
+            ToolsCacheDB.key == key,
+        ).first()
+        return domain(db_model)
 
     def get_all(
         self,
@@ -26,7 +29,9 @@ class ToolsCacheRepository:
         return [domain(db_model) for db_model in db_models if db_model is not None]
 
     def save(self, tools_cache: ToolsCache) -> ToolsCache:
-        existing = self._get_db_model(tools_cache.key)
+        existing = self._db.query(ToolsCacheDB).filter(
+            ToolsCacheDB.key == tools_cache.key,
+        ).first()
         if existing is not None:
             self.__copy_to_db_model(tools_cache, existing)
             self._db.commit()
@@ -40,7 +45,9 @@ class ToolsCacheRepository:
         return domain(db_model)
 
     def delete(self, key: str) -> ToolsCache | None:
-        db_model = self._get_db_model(key)
+        db_model = self._db.query(ToolsCacheDB).filter(
+            ToolsCacheDB.key == key,
+        ).first()
         if db_model is None:
             return None
         snapshot = domain(db_model)
@@ -54,11 +61,6 @@ class ToolsCacheRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def _get_db_model(self, key: str) -> ToolsCacheDB | None:
-        return self._db.query(ToolsCacheDB).filter(
-            ToolsCacheDB.key == key,
-        ).first()
 
     def __copy_to_db_model(self, source: ToolsCache, target: ToolsCacheDB):
         target.value = source.value
