@@ -47,7 +47,7 @@ class CleanupService:
 
         try:
             price_alert_cutoff = datetime.now() - timedelta(days = config.cleanup_price_alert_staleness_days)
-            result.price_alerts_deleted = self.__di.price_alert_crud.delete_stale(price_alert_cutoff)
+            result.price_alerts_deleted = self.__di.price_alert_repo.delete_stale(price_alert_cutoff)
             log.i(f"  Cleanup phase 4: deleted {result.price_alerts_deleted} price alerts")
         except Exception as e:
             log.e(f"  Cleanup phase 4 (price alerts) failed: {e}")

@@ -20,7 +20,7 @@ class CleanupServiceTest(unittest.TestCase):
         di.chat_message_crud.delete_older_than.return_value = messages_deleted
         di.tools_cache_repo.delete_expired.return_value = cache_cleared
         di.usage_record_repo.delete_older_than.return_value = usage_deleted
-        di.price_alert_crud.delete_stale.return_value = alerts_deleted
+        di.price_alert_repo.delete_stale.return_value = alerts_deleted
         di.sponsorship_repo.delete_unaccepted_older_than.return_value = sponsorships_deleted
         return CleanupService(di)
 

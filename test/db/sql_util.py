@@ -2,13 +2,13 @@ from sqlalchemy.orm import Session
 
 from db.crud.chat_message import ChatMessageCRUD
 from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
-from db.crud.price_alert import PriceAlertCRUD
 from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
+from features.currencies.price_alert_repo import PriceAlertRepository
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 
@@ -77,10 +77,10 @@ class SQLUtil:
             self.start_session()
         return UserCRUD(self.__session)
 
-    def price_alert_crud(self) -> PriceAlertCRUD:
+    def price_alert_repo(self) -> PriceAlertRepository:
         if not self.__is_session_active:
             self.start_session()
-        return PriceAlertCRUD(self.__session)
+        return PriceAlertRepository(self.__session)
 
     def usage_record_repo(self) -> UsageRecordRepository:
         if not self.__is_session_active:
