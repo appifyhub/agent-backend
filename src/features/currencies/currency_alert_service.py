@@ -1,14 +1,14 @@
 import math
+from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.model.price_alert import PriceAlertDB
-from db.schema.price_alert import PriceAlert, PriceAlertSave
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
+from features.currencies.price_alert import PriceAlert
 from features.integrations.integrations import resolve_agent_user
 from util import log
 from util.error_codes import BOT_CANNOT_SET_ALERTS, NO_PRIVATE_CHAT
@@ -60,8 +60,8 @@ class CurrencyAlertService:
             raise AuthorizationError("Bot cannot set price alerts", BOT_CANNOT_SET_ALERTS)
 
         current_rate: float = self.__di.exchange_rate_fetcher.execute(base_currency, desired_currency)["rate"]
-        price_alert_db = self.__di.price_alert_crud.save(
-            PriceAlertSave(
+        price_alert = self.__di.price_alert_repo.save(
+            PriceAlert(
                 chat_id = self.__target_chat_config.chat_id,
                 owner_id = self.__di.invoker.id,
                 base_currency = base_currency,
@@ -71,7 +71,6 @@ class CurrencyAlertService:
                 last_price_time = datetime.now(),
             ),
         )
-        price_alert = PriceAlert.model_validate(price_alert_db)
         return CurrencyAlertService.ActiveAlert(
             chat_id = price_alert.chat_id,
             owner_id = price_alert.owner_id,
@@ -87,11 +86,10 @@ class CurrencyAlertService:
         if not self.__target_chat_config:
             raise AuthorizationError("Target chat is not set", NO_PRIVATE_CHAT)
 
-        deleted_alert_db = self.__di.price_alert_crud.delete(
+        deleted_alert = self.__di.price_alert_repo.delete(
             self.__target_chat_config.chat_id, base_currency, desired_currency,
         )
-        if deleted_alert_db:
-            deleted_alert = PriceAlert.model_validate(deleted_alert_db)
+        if deleted_alert:
             return CurrencyAlertService.ActiveAlert(
                 chat_id = deleted_alert.chat_id,
                 owner_id = deleted_alert.owner_id,
@@ -104,14 +102,13 @@ class CurrencyAlertService:
         return None
 
     def get_active_alerts(self) -> list[ActiveAlert]:
-        price_alerts_db: list[PriceAlertDB]
+        price_alerts: list[PriceAlert]
         if self.__target_chat_config:
             log.d(f"Listing price alerts for chat '{self.__target_chat_config.chat_id}'")
-            price_alerts_db = self.__di.price_alert_crud.get_alerts_by_chat(self.__target_chat_config.chat_id)
+            price_alerts = self.__di.price_alert_repo.get_all_by_chat(self.__target_chat_config.chat_id)
         else:
             log.d("Listing all price alerts")
-            price_alerts_db = self.__di.price_alert_crud.get_all()
-        price_alerts = [PriceAlert.model_validate(price_alert_db) for price_alert_db in price_alerts_db]
+            price_alerts = self.__di.price_alert_repo.get_all()
         return [
             CurrencyAlertService.ActiveAlert(
                 chat_id = price_alert.chat_id,
@@ -128,9 +125,13 @@ class CurrencyAlertService:
     def get_triggered_alerts(self) -> list[TriggeredAlert]:
         log.d("Checking triggered price alerts")
 
-        active_alerts = self.get_active_alerts()
+        price_alerts: list[PriceAlert]
+        if self.__target_chat_config:
+            price_alerts = self.__di.price_alert_repo.get_all_by_chat(self.__target_chat_config.chat_id)
+        else:
+            price_alerts = self.__di.price_alert_repo.get_all()
         triggered_alerts: list[CurrencyAlertService.TriggeredAlert] = []
-        for alert in active_alerts:
+        for alert in price_alerts:
             try:
                 scoped_di = self.__di.clone(invoker_id = alert.owner_id.hex, invoker_chat_id = alert.chat_id.hex)
                 current_rate: float = scoped_di.exchange_rate_fetcher.execute(alert.base_currency, alert.desired_currency)["rate"]
@@ -142,6 +143,7 @@ class CurrencyAlertService:
                     price_change_percent = int(math.ceil(change_ratio * 100))
 
                 if abs(price_change_percent) >= alert.threshold_percent:
+                    last_price_time = datetime.now()
                     triggered_alerts.append(
                         CurrencyAlertService.TriggeredAlert(
                             chat_id = alert.chat_id,
@@ -150,22 +152,14 @@ class CurrencyAlertService:
                             desired_currency = alert.desired_currency,
                             threshold_percent = alert.threshold_percent,
                             old_rate = alert.last_price,
-                            old_rate_time = alert.last_price_time,
+                            old_rate_time = alert.last_price_time.strftime(DATETIME_PRINT_FORMAT),
                             new_rate = current_rate,
-                            new_rate_time = datetime.now().strftime(DATETIME_PRINT_FORMAT),
+                            new_rate_time = last_price_time.strftime(DATETIME_PRINT_FORMAT),
                             price_change_percent = price_change_percent,
                         ),
                     )
-                    self.__di.price_alert_crud.update(
-                        PriceAlertSave(
-                            chat_id = alert.chat_id,
-                            owner_id = alert.owner_id,
-                            base_currency = alert.base_currency,
-                            desired_currency = alert.desired_currency,
-                            threshold_percent = alert.threshold_percent,
-                            last_price = current_rate,
-                            last_price_time = datetime.now(),
-                        ),
+                    self.__di.price_alert_repo.save(
+                        replace(alert, last_price = current_rate, last_price_time = last_price_time),
                     )
             except Exception as e:
                 currency_pair = f"{alert.base_currency}/{alert.desired_currency}"
