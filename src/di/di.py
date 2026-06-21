@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from db.crud.chat_message import ChatMessageCRUD
     from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
     from db.crud.price_alert import PriceAlertCRUD
-    from db.crud.tools_cache import ToolsCacheCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
@@ -56,7 +55,6 @@ if TYPE_CHECKING:
     from features.chat.chat_progress_notifier import ChatProgressNotifier
     from features.chat.command_processor import CommandProcessor
     from features.chat.config.chat_config_repo import ChatConfigRepository
-    from features.chat.currency_alert_service import CurrencyAlertService
     from features.chat.dev_announcements_service import DevAnnouncementsService
     from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
     from features.chat.membership.chat_membership_repo import ChatMembershipRepository
@@ -73,6 +71,7 @@ if TYPE_CHECKING:
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
     from features.connect.profile_connect_service import ProfileConnectService
+    from features.currencies.currency_alert_service import CurrencyAlertService
     from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
@@ -89,6 +88,7 @@ if TYPE_CHECKING:
     from features.sponsorships.sponsorship_repo import SponsorshipRepository
     from features.sponsorships.sponsorship_service import SponsorshipService
     from features.support.user_support_service import UserSupportService
+    from features.tools_cache.tools_cache_repo import ToolsCacheRepository
     from features.web_browsing.ai_web_search import AIWebSearch
     from features.web_browsing.html_content_cleaner import HTMLContentCleaner
     from features.web_browsing.photo_downloader import PhotoDownloader
@@ -119,7 +119,7 @@ class DI:
     _chat_message_crud: "ChatMessageCRUD | None"
     _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
     _sponsorship_repo: "SponsorshipRepository | None"
-    _tools_cache_crud: "ToolsCacheCRUD | None"
+    _tools_cache_repo: "ToolsCacheRepository | None"
     _price_alert_crud: "PriceAlertCRUD | None"
     _usage_record_repo: "UsageRecordRepository | None"
     _purchase_record_repo: "PurchaseRecordRepository | None"
@@ -178,7 +178,7 @@ class DI:
         self._chat_message_crud = None
         self._chat_message_attachment_crud = None
         self._sponsorship_repo = None
-        self._tools_cache_crud = None
+        self._tools_cache_repo = None
         self._price_alert_crud = None
         self._usage_record_repo = None
         self._purchase_record_repo = None
@@ -392,11 +392,11 @@ class DI:
         return self._sponsorship_repo
 
     @property
-    def tools_cache_crud(self) -> "ToolsCacheCRUD":
-        if self._tools_cache_crud is None:
-            from db.crud.tools_cache import ToolsCacheCRUD
-            self._tools_cache_crud = ToolsCacheCRUD(self.db)
-        return self._tools_cache_crud
+    def tools_cache_repo(self) -> "ToolsCacheRepository":
+        if self._tools_cache_repo is None:
+            from features.tools_cache.tools_cache_repo import ToolsCacheRepository
+            self._tools_cache_repo = ToolsCacheRepository(self.db)
+        return self._tools_cache_repo
 
     @property
     def price_alert_crud(self) -> "PriceAlertCRUD":
@@ -868,7 +868,7 @@ class DI:
         return AIWebSearch(search_query, configured_tool, self)
 
     def currency_alert_service(self, target_chat_id: str | None) -> "CurrencyAlertService":
-        from features.chat.currency_alert_service import CurrencyAlertService
+        from features.currencies.currency_alert_service import CurrencyAlertService
         return CurrencyAlertService(target_chat_id, self)
 
     def smart_image_generator(

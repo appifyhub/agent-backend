@@ -3,12 +3,12 @@ from datetime import datetime, timedelta
 from time import sleep
 from typing import Any, Dict
 
-from db.schema.tools_cache import ToolsCache, ToolsCacheSave
 from di.di import DI
 from features.currencies.supported_currencies import SUPPORTED_CRYPTO, SUPPORTED_FIAT
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import CRYPTO_CURRENCY_EXCHANGE, FIAT_CURRENCY_EXCHANGE
+from features.tools_cache.tools_cache import ToolsCache
 from util import log
 from util.error_codes import EXCHANGE_RATE_NOT_FOUND, INVALID_CURRENCY, UNSUPPORTED_CURRENCY_PAIR
 from util.errors import NotFoundError, ValidationError
@@ -76,18 +76,14 @@ class ExchangeRateFetcher:
         else:
             raise ValidationError(f"Unsupported currency conversion: {base_currency_code}/{desired_currency_code}", UNSUPPORTED_CURRENCY_PAIR)  # noqa: E501
 
-    def __cache_key_of(self, a: str, b: str) -> str:
-        return self.__di.tools_cache_crud.create_key(CACHE_PREFIX, f"{a}-{b}")
-
     # when converting exchange rates, the inverse rule applies:  A / B = 1 / (B / A)
     def __get_cached_rate_of_one(self, base_currency_code: str, desired_currency_code: str) -> float | None:
         # let's check the direct requested conversion rate first
         log.t(f"Fetching cached rate for {base_currency_code}/{desired_currency_code}")
-        cache_key = self.__cache_key_of(base_currency_code, desired_currency_code)
+        cache_key = ToolsCache.create_key(CACHE_PREFIX, f"{base_currency_code}-{desired_currency_code}")
         log.t(f"    Cache key: '{cache_key}'")
-        cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_entry = self.__di.tools_cache_repo.get(cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for direct conversion and key '{cache_key}'")
                 return float(cache_entry.value)
@@ -96,11 +92,10 @@ class ExchangeRateFetcher:
 
         # now let's check for the inverse conversion rate
         log.t(f"Fetching cached inverse rate for {base_currency_code}/{desired_currency_code}")
-        cache_key = self.__cache_key_of(desired_currency_code, base_currency_code)
+        cache_key = ToolsCache.create_key(CACHE_PREFIX, f"{desired_currency_code}-{base_currency_code}")
         log.t(f"    Cache key: '{cache_key}'")
-        cache_entry_db = self.__di.tools_cache_crud.get(cache_key)
-        if cache_entry_db:
-            cache_entry = ToolsCache.model_validate(cache_entry_db)
+        cache_entry = self.__di.tools_cache_repo.get(cache_key)
+        if cache_entry:
             if not cache_entry.is_expired():
                 log.t(f"Cache hit for inverse conversion and key '{cache_key}'")
                 return 1.0 / float(cache_entry.value)
@@ -109,8 +104,12 @@ class ExchangeRateFetcher:
         return None
 
     def __save_rate_to_cache(self, a: str, b: str, rate: float) -> None:
-        key = self.__cache_key_of(a, b)
-        self.__di.tools_cache_crud.save(ToolsCacheSave(key = key, value = str(rate), expires_at = datetime.now() + CACHE_TTL))
+        key = ToolsCache.create_key(CACHE_PREFIX, f"{a}-{b}")
+        self.__di.tools_cache_repo.save(ToolsCache(
+            key = key,
+            value = str(rate),
+            expires_at = datetime.now() + CACHE_TTL,
+        ))
         log.t(f"Cache updated for {a}/{b} and key '{key}'")
 
     def get_crypto_conversion_rate(self, base_currency_code: str, desired_currency_code: str) -> float:

@@ -27,20 +27,18 @@ def db(domain_model: ChatConfig | None) -> ChatConfigDB | None:
     if domain_model is None:
         return None
 
-    data = {
-        "external_id": domain_model.external_id,
-        "language_iso_code": domain_model.language_iso_code,
-        "language_name": domain_model.language_name,
-        "title": domain_model.title,
-        "is_private": domain_model.is_private,
-        "reply_chance_percent": domain_model.reply_chance_percent,
-        "release_notifications": domain_model.release_notifications,
-        "media_mode": domain_model.media_mode,
-        "chat_type": domain_model.chat_type,
-    }
-    if domain_model.chat_id is not None:
-        data["chat_id"] = domain_model.chat_id
-    return ChatConfigDB(**data)
+    return ChatConfigDB(
+        chat_id = domain_model.chat_id,
+        external_id = domain_model.external_id,
+        language_iso_code = domain_model.language_iso_code,
+        language_name = domain_model.language_name,
+        title = domain_model.title,
+        is_private = domain_model.is_private,
+        reply_chance_percent = domain_model.reply_chance_percent,
+        release_notifications = domain_model.release_notifications,
+        media_mode = domain_model.media_mode,
+        chat_type = domain_model.chat_type,
+    )
 
 
 def from_remote_data(remote_data: ChatConfigRemoteData) -> ChatConfig:

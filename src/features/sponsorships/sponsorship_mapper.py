@@ -18,11 +18,9 @@ def db(domain_model: Sponsorship | None) -> SponsorshipDB | None:
     if domain_model is None:
         return None
 
-    values = {
-        "sponsor_id": domain_model.sponsor_id,
-        "receiver_id": domain_model.receiver_id,
-        "sponsored_at": domain_model.sponsored_at,
-        "accepted_at": domain_model.accepted_at,
-    }
-
-    return SponsorshipDB(**values)
+    return SponsorshipDB(
+        sponsor_id = domain_model.sponsor_id,
+        receiver_id = domain_model.receiver_id,
+        sponsored_at = domain_model.sponsored_at,
+        accepted_at = domain_model.accepted_at,
+    )
