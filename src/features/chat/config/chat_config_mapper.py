@@ -41,6 +41,21 @@ def db(domain_model: ChatConfig | None) -> ChatConfigDB | None:
     )
 
 
+def apply_to_db_model(
+    domain_model: ChatConfig,
+    db_model: ChatConfigDB,
+) -> None:
+    db_model.external_id = domain_model.external_id
+    db_model.language_iso_code = domain_model.language_iso_code
+    db_model.language_name = domain_model.language_name
+    db_model.title = domain_model.title
+    db_model.is_private = domain_model.is_private
+    db_model.reply_chance_percent = domain_model.reply_chance_percent
+    db_model.release_notifications = domain_model.release_notifications
+    db_model.media_mode = domain_model.media_mode
+    db_model.chat_type = domain_model.chat_type
+
+
 def from_remote_data(remote_data: ChatConfigRemoteData) -> ChatConfig:
     is_private = remote_data.is_private if remote_data.is_private is not None else True
     return ChatConfig(

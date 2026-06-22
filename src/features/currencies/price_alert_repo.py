@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from db.model.price_alert import PriceAlertDB
 from features.currencies.price_alert import PriceAlert
-from features.currencies.price_alert_mapper import db, domain
+from features.currencies.price_alert_mapper import apply_to_db_model, db, domain
 
 
 class PriceAlertRepository:
@@ -49,7 +49,7 @@ class PriceAlertRepository:
             PriceAlertDB.desired_currency == price_alert.desired_currency,
         ).first()
         if existing is not None:
-            self.__copy_to_db_model(price_alert, existing)
+            apply_to_db_model(price_alert, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
@@ -84,9 +84,3 @@ class PriceAlertRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def __copy_to_db_model(self, source: PriceAlert, target: PriceAlertDB):
-        target.owner_id = source.owner_id
-        target.threshold_percent = source.threshold_percent
-        target.last_price = source.last_price
-        target.last_price_time = source.last_price_time

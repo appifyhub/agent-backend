@@ -4,7 +4,7 @@ from uuid import UUID
 
 from db.model.chat_message import ChatMessageDB
 from features.chat.message.chat_message import ChatMessage
-from features.chat.message.chat_message_mapper import apply_remote_data, db, domain, from_remote_data
+from features.chat.message.chat_message_mapper import apply_remote_data, apply_to_db_model, db, domain, from_remote_data
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 
 
@@ -60,6 +60,23 @@ class ChatMessageMapperTest(unittest.TestCase):
         result = domain(db(self.domain_model))
 
         self.assertEqual(result, self.domain_model)
+
+    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
+        domain_model = ChatMessage(
+            chat_id = UUID("33333333-3333-3333-3333-333333333333"),
+            message_id = "message2",
+            author_id = None,
+            sent_at = self.sent_at + timedelta(minutes = 1),
+            text = "Replacement",
+        )
+
+        apply_to_db_model(domain_model, self.db_model)
+
+        self.assertEqual(self.db_model.chat_id, self.chat_id)
+        self.assertEqual(self.db_model.message_id, "message1")
+        self.assertIsNone(self.db_model.author_id)
+        self.assertEqual(self.db_model.sent_at, domain_model.sent_at)
+        self.assertEqual(self.db_model.text, domain_model.text)
 
     def test_from_remote_data_creates_complete_domain_state(self):
         remote_data = ChatMessageRemoteData(

@@ -32,6 +32,15 @@ def db(domain_model: ChatMessage | None) -> ChatMessageDB | None:
     )
 
 
+def apply_to_db_model(
+    domain_model: ChatMessage,
+    db_model: ChatMessageDB,
+) -> None:
+    db_model.author_id = domain_model.author_id
+    db_model.sent_at = domain_model.sent_at
+    db_model.text = domain_model.text
+
+
 def from_remote_data(
     remote_data: ChatMessageRemoteData,
     chat_id: UUID,

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from db.model.price_alert import PriceAlertDB
 from features.currencies.price_alert import PriceAlert
-from features.currencies.price_alert_mapper import db, domain
+from features.currencies.price_alert_mapper import apply_to_db_model, db, domain
 
 
 class PriceAlertMapperTest(unittest.TestCase):
@@ -82,3 +82,33 @@ class PriceAlertMapperTest(unittest.TestCase):
         result = domain(db(original))
 
         self.assertEqual(result, original)
+
+    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
+        db_model = PriceAlertDB(
+            chat_id = self.chat_id,
+            owner_id = self.owner_id,
+            base_currency = "USD",
+            desired_currency = "EUR",
+            threshold_percent = 5,
+            last_price = 0.85,
+            last_price_time = self.last_price_time,
+        )
+        domain_model = PriceAlert(
+            chat_id = UUID("33333333-3333-3333-3333-333333333333"),
+            owner_id = UUID("44444444-4444-4444-4444-444444444444"),
+            base_currency = "GBP",
+            desired_currency = "CHF",
+            threshold_percent = 10,
+            last_price = 1.15,
+            last_price_time = datetime(2026, 1, 2, 12, 0, 0),
+        )
+
+        apply_to_db_model(domain_model, db_model)
+
+        self.assertEqual(db_model.chat_id, self.chat_id)
+        self.assertEqual(db_model.base_currency, "USD")
+        self.assertEqual(db_model.desired_currency, "EUR")
+        self.assertEqual(db_model.owner_id, domain_model.owner_id)
+        self.assertEqual(db_model.threshold_percent, domain_model.threshold_percent)
+        self.assertEqual(db_model.last_price, domain_model.last_price)
+        self.assertEqual(db_model.last_price_time, domain_model.last_price_time)

@@ -5,6 +5,7 @@ from db.model.chat_message_attachment import ChatMessageAttachmentDB
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_mapper import (
     apply_remote_data,
+    apply_to_db_model,
     db,
     domain,
     from_remote_data,
@@ -72,6 +73,31 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         result = domain(db(self.domain_model))
 
         self.assertEqual(result, self.domain_model)
+
+    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
+        domain_model = ChatMessageAttachment(
+            id = "different-id",
+            external_id = None,
+            chat_id = UUID("33333333-3333-3333-3333-333333333333"),
+            message_id = "message2",
+            size = None,
+            last_url = None,
+            last_url_until = None,
+            extension = "png",
+            mime_type = "image/png",
+        )
+
+        apply_to_db_model(domain_model, self.db_model)
+
+        self.assertEqual(self.db_model.id, "attach1")
+        self.assertIsNone(self.db_model.external_id)
+        self.assertEqual(self.db_model.chat_id, domain_model.chat_id)
+        self.assertEqual(self.db_model.message_id, domain_model.message_id)
+        self.assertIsNone(self.db_model.size)
+        self.assertIsNone(self.db_model.last_url)
+        self.assertIsNone(self.db_model.last_url_until)
+        self.assertEqual(self.db_model.extension, domain_model.extension)
+        self.assertEqual(self.db_model.mime_type, domain_model.mime_type)
 
     def test_db_leaves_missing_id_for_database_generation(self):
         self.domain_model.id = None

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from db.model.chat_message import ChatMessageDB
 from features.chat.message.chat_message import ChatMessage
-from features.chat.message.chat_message_mapper import db, domain
+from features.chat.message.chat_message_mapper import apply_to_db_model, db, domain
 
 
 class ChatMessageRepository:
@@ -59,7 +59,7 @@ class ChatMessageRepository:
         ).first()
 
         if existing is not None:
-            self.__copy_to_db_model(message, existing)
+            apply_to_db_model(message, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
@@ -92,12 +92,3 @@ class ChatMessageRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def __copy_to_db_model(
-        self,
-        source: ChatMessage,
-        target: ChatMessageDB,
-    ) -> None:
-        target.author_id = source.author_id
-        target.sent_at = source.sent_at
-        target.text = source.text

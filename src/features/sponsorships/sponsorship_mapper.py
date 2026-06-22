@@ -24,3 +24,11 @@ def db(domain_model: Sponsorship | None) -> SponsorshipDB | None:
         sponsored_at = domain_model.sponsored_at,
         accepted_at = domain_model.accepted_at,
     )
+
+
+def apply_to_db_model(
+    domain_model: Sponsorship,
+    db_model: SponsorshipDB,
+) -> None:
+    db_model.sponsored_at = domain_model.sponsored_at
+    db_model.accepted_at = domain_model.accepted_at
