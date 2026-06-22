@@ -1,12 +1,15 @@
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
 
+@dataclass(kw_only = True)
+class ChatMessageAttachment:
 
-class ChatMessageAttachmentBase(BaseModel):
-    external_id: str | None = None
+    chat_id: UUID
     message_id: str
+    id: str | None = None
+    external_id: str | None = None
     size: int | None = None
     last_url: str | None = None
     last_url_until: int | None = None
@@ -19,14 +22,3 @@ class ChatMessageAttachmentBase(BaseModel):
         expiration_timestamp = self.last_url_until or 0
         is_url_expired = expiration_timestamp <= int(datetime.now().timestamp())
         return is_missing_url or is_url_expired
-
-
-class ChatMessageAttachmentSave(ChatMessageAttachmentBase):
-    id: str | None = None
-    chat_id: UUID | None = None
-
-
-class ChatMessageAttachment(ChatMessageAttachmentBase):
-    id: str
-    chat_id: UUID
-    model_config = ConfigDict(from_attributes = True)

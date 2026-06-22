@@ -40,6 +40,24 @@ def first_key_with_value(source: dict[K, V], value: V) -> K | None:
     return None
 
 
+def detect_image_format(content: bytes) -> str | None:
+    if len(content) < 8:
+        return None
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if content[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if content[:2] == b"BM":
+        return "bmp"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    if content[:4] in (b"II*\x00", b"MM\x00*"):
+        return "tiff"
+    return None
+
+
 def mask_secret(secret: str | SecretStr | None = None, mask: str = "*") -> str | None:
     if secret is None:
         return None

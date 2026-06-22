@@ -1,7 +1,7 @@
 from enum import Enum
 
-from db.schema.chat_message_attachment import ChatMessageAttachment
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.chat_attachment_utils import resolve_all_attachments
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.image_editor import ImageEditor

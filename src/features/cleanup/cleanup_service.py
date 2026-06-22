@@ -26,7 +26,7 @@ class CleanupService:
 
         message_cutoff = datetime.now() - timedelta(days = config.cleanup_message_retention_days)
         try:
-            result.attachments_deleted = self.__di.chat_message_attachment_crud.delete_by_old_messages(message_cutoff)
+            result.attachments_deleted = self.__di.chat_message_attachment_repo.delete_by_old_messages(message_cutoff)
             log.i(f"  Cleanup phase 1A: deleted {result.attachments_deleted} attachments")
             result.messages_deleted = self.__di.chat_message_crud.delete_older_than(message_cutoff)
             log.i(f"  Cleanup phase 1B: deleted {result.messages_deleted} messages")

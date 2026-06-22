@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import List
 
 from pydantic import BaseModel, SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.schema.chat_message import ChatMessageSave
-from db.schema.chat_message_attachment import ChatMessageAttachmentSave
 from db.schema.user import UserSave
+from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.whatsapp.model.message import Message
 from features.chat.whatsapp.model.update import Update
@@ -21,17 +20,17 @@ class WhatsAppDomainMapper:
         chat: ChatConfigRemoteData
         author: UserSave | None
         message: ChatMessageSave
-        attachments: List[ChatMessageAttachmentSave]
+        attachments: list[ChatMessageAttachmentRemoteData]
         replied_to_message_id: str | None = None
 
-    def map_update(self, update: Update) -> List[Result]:
+    def map_update(self, update: Update) -> list[Result]:
         log.t(f"Mapping WhatsApp update: {update}")
         if not update.entry:
             log.w(f"  No entries found in update: {update}")
             return []
 
         # Collect and map all messages from all entries/changes
-        results: List[WhatsAppDomainMapper.Result] = []
+        results: list[WhatsAppDomainMapper.Result] = []
         for entry in update.entry:
             log.t(f"  Processing update entry '{entry.id}'...")
             if not entry.changes:
@@ -137,16 +136,16 @@ class WhatsAppDomainMapper:
         if not attachments:
             return None
         formatted_attachments = [
-            f"{attachment.id} ({attachment.mime_type})"
+            f"{generate_deterministic_short_uuid(attachment.external_id)} ({attachment.mime_type})"
             if attachment.mime_type
-            else f"{attachment.id}"
+            else generate_deterministic_short_uuid(attachment.external_id)
             for attachment in attachments
         ]
         log.t(f"  Mapping attachments: {formatted_attachments}")
         return f"[ {', '.join(formatted_attachments)} ]"
 
-    def map_attachments(self, message: Message) -> List[ChatMessageAttachmentSave]:
-        attachments: List[ChatMessageAttachmentSave] = []
+    def map_attachments(self, message: Message) -> list[ChatMessageAttachmentRemoteData]:
+        attachments: list[ChatMessageAttachmentRemoteData] = []
         for media_type, media in [
             ("audio", message.audio),
             ("document", message.document),
@@ -170,10 +169,9 @@ class WhatsAppDomainMapper:
         media_id: str,
         message_id: str,
         mime_type: str | None,
-    ) -> ChatMessageAttachmentSave:
+    ) -> ChatMessageAttachmentRemoteData:
         log.t(f"    Creating attachment from media_id: {media_id}")
-        return ChatMessageAttachmentSave(
-            id = generate_deterministic_short_uuid(media_id),
+        return ChatMessageAttachmentRemoteData(
             external_id = media_id,
             message_id = message_id,
             size = None,  # filled after refresh

@@ -7,9 +7,9 @@ import requests
 
 from db.model.chat_config import ChatConfigDB
 from db.schema.chat_message import ChatMessage
-from db.schema.chat_message_attachment import ChatMessageAttachment
 from db.schema.user import User
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.images.image_size_utils import resize_file
 from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYTES, WHATSAPP_MAX_PHOTO_SIZE_BYTES

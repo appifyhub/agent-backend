@@ -7,10 +7,9 @@ import requests_mock
 from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from db.model.chat_message_attachment import ChatMessageAttachmentDB
 from db.model.user import UserDB
-from db.schema.chat_message_attachment import ChatMessageAttachment
 from db.schema.user import User
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.chat_image_edit_service import ChatImageEditService
 from features.chat.url_attachment_resolver import UrlAttachmentResolver
 from util.config import config
@@ -27,7 +26,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
         self.mock_di.telegram_bot_api = MagicMock()
         self.mock_di.user_dao = MagicMock()
-        self.mock_di.chat_message_attachment_crud = MagicMock()
+        self.mock_di.chat_message_attachment_repo = MagicMock()
         self.mock_di.access_token_resolver = MagicMock()
         mock_chat = MagicMock()
         mock_chat.external_id = "test_chat_id"
@@ -51,7 +50,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         )
         self.mock_di.user_dao.get.return_value = self.user
 
-        self.mock_attachment_db = ChatMessageAttachmentDB(
+        self.attachment = ChatMessageAttachment(
             id = "attachment1",
             external_id = "telegram_file_1",
             chat_id = UUID(int = 1),
@@ -62,10 +61,9 @@ class ChatImageEditServiceTest(unittest.TestCase):
             extension = "png",
             mime_type = "image/png",
         )
-        self.mock_di.chat_message_attachment_crud.get.return_value = self.mock_attachment_db
-        self.attachment = ChatMessageAttachment.model_validate(self.mock_attachment_db)
+        self.mock_di.chat_message_attachment_repo.get.return_value = self.attachment
 
-        self.mock_attachment_db2 = ChatMessageAttachmentDB(
+        self.attachment2 = ChatMessageAttachment(
             id = "attachment2",
             external_id = "telegram_file_2",
             chat_id = UUID(int = 1),
@@ -76,9 +74,8 @@ class ChatImageEditServiceTest(unittest.TestCase):
             extension = "png",
             mime_type = "image/png",
         )
-        self.attachment2 = ChatMessageAttachment.model_validate(self.mock_attachment_db2)
 
-        self.mock_attachment_no_url_db = ChatMessageAttachmentDB(
+        self.attachment_no_url = ChatMessageAttachment(
             id = "attachment_no_url",
             external_id = "telegram_file_3",
             chat_id = UUID(int = 1),
@@ -89,7 +86,6 @@ class ChatImageEditServiceTest(unittest.TestCase):
             extension = "png",
             mime_type = "image/png",
         )
-        self.attachment_no_url = ChatMessageAttachment.model_validate(self.mock_attachment_no_url_db)
 
         self.mock_di.url_attachment_resolver.side_effect = lambda url: UrlAttachmentResolver(url, self.mock_di)
 
