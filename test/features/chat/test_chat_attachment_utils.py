@@ -3,8 +3,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 from uuid import UUID
 
-from db.model.chat_message_attachment import ChatMessageAttachmentDB
-from db.schema.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.chat_attachment_utils import resolve_all_attachments, resolve_local_attachments
 from util.errors import NotFoundError, ValidationError
 
@@ -33,7 +32,7 @@ class FetchAttachmentsTest(unittest.TestCase):
 
     def setUp(self):
         self.mock_di = MagicMock()
-        self.attachment_db = ChatMessageAttachmentDB(
+        self.attachment = ChatMessageAttachment(
             id = "att1",
             external_id = "ext1",
             chat_id = UUID(int = 1),
@@ -44,13 +43,13 @@ class FetchAttachmentsTest(unittest.TestCase):
             extension = "png",
             mime_type = "image/png",
         )
-        self.mock_di.chat_message_attachment_crud.get.return_value = self.attachment_db
+        self.mock_di.chat_message_attachment_repo.get.return_value = self.attachment
         self.mock_di.platform_bot_sdk.return_value.refresh_attachment_instances.side_effect = lambda x: x
 
     def test_empty_ids_returns_empty(self):
         result = resolve_local_attachments([], self.mock_di)
         self.assertEqual(result, [])
-        self.mock_di.chat_message_attachment_crud.get.assert_not_called()
+        self.mock_di.chat_message_attachment_repo.get.assert_not_called()
 
     def test_valid_id_returns_attachment(self):
         result = resolve_local_attachments(["att1"], self.mock_di)
@@ -64,7 +63,7 @@ class FetchAttachmentsTest(unittest.TestCase):
         self.assertIn("Attachment ID cannot be empty", str(ctx.exception))
 
     def test_not_found_raises(self):
-        self.mock_di.chat_message_attachment_crud.get.return_value = None
+        self.mock_di.chat_message_attachment_repo.get.return_value = None
         with self.assertRaises(NotFoundError) as ctx:
             resolve_local_attachments(["missing"], self.mock_di)
         self.assertIn("not found in DB", str(ctx.exception))
@@ -78,7 +77,7 @@ class ResolveAllAttachmentsTest(unittest.TestCase):
 
     def setUp(self):
         self.mock_di = MagicMock()
-        self.attachment_db = ChatMessageAttachmentDB(
+        self.attachment = ChatMessageAttachment(
             id = "att1",
             external_id = "ext1",
             chat_id = UUID(int = 1),
@@ -89,8 +88,7 @@ class ResolveAllAttachmentsTest(unittest.TestCase):
             extension = "png",
             mime_type = "image/png",
         )
-        self.attachment = ChatMessageAttachment.model_validate(self.attachment_db)
-        self.mock_di.chat_message_attachment_crud.get.return_value = self.attachment_db
+        self.mock_di.chat_message_attachment_repo.get.return_value = self.attachment
 
         self.mock_platform_sdk = MagicMock()
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)

@@ -1,11 +1,11 @@
 from sqlalchemy.orm import Session
 
 from db.crud.chat_message import ChatMessageCRUD
-from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
 from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
+from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
 from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
 from features.currencies.price_alert_repo import PriceAlertRepository
@@ -57,10 +57,10 @@ class SQLUtil:
             self.start_session()
         return ChatMessageCRUD(self.__session)
 
-    def chat_message_attachment_crud(self) -> ChatMessageAttachmentCRUD:
+    def chat_message_attachment_repo(self) -> ChatMessageAttachmentRepository:
         if not self.__is_session_active:
             self.start_session()
-        return ChatMessageAttachmentCRUD(self.__session)
+        return ChatMessageAttachmentRepository(self.__session)
 
     def sponsorship_repo(self) -> SponsorshipRepository:
         if not self.__is_session_active:

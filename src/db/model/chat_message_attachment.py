@@ -2,12 +2,13 @@ from sqlalchemy import Column, ForeignKeyConstraint, Index, Integer, PrimaryKeyC
 from sqlalchemy.dialects.postgresql import UUID
 
 from db.model.base import BaseModel
+from util.functions import generate_short_uuid
 
 
 class ChatMessageAttachmentDB(BaseModel):
     __tablename__ = "chat_message_attachments"
 
-    id = Column(String, primary_key = True)
+    id = Column(String, primary_key = True, default = generate_short_uuid)
     external_id = Column(String, nullable = True)
     chat_id = Column(UUID(as_uuid = True), nullable = False)
     message_id = Column(String, nullable = False)

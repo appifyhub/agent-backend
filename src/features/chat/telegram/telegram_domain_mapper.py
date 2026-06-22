@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import List
 
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
 from db.schema.chat_message import ChatMessageSave
-from db.schema.chat_message_attachment import ChatMessageAttachmentSave
 from db.schema.user import UserSave
+from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.message import Message
@@ -22,7 +21,7 @@ class TelegramDomainMapper:
         chat: ChatConfigRemoteData
         author: UserSave | None
         message: ChatMessageSave
-        attachments: List[ChatMessageAttachmentSave]
+        attachments: list[ChatMessageAttachmentRemoteData]
 
     def map_update(self, update: Update) -> Result | None:
         log.t(f"Mapping Telegram update: {update}")
@@ -136,16 +135,16 @@ class TelegramDomainMapper:
         if not attachments:
             return None
         formatted_attachments = [
-            f"{attachment.id} ({attachment.mime_type})"
+            f"{generate_deterministic_short_uuid(attachment.external_id)} ({attachment.mime_type})"
             if attachment.mime_type
-            else f"{attachment.id}"
+            else generate_deterministic_short_uuid(attachment.external_id)
             for attachment in attachments
         ]
         log.t(f"  Mapping attachments: {formatted_attachments}")
         return f"[ {', '.join(formatted_attachments)} ]"
 
-    def map_attachments(self, message: Message) -> List[ChatMessageAttachmentSave]:
-        attachments: List[ChatMessageAttachmentSave] = []
+    def map_attachments(self, message: Message) -> list[ChatMessageAttachmentRemoteData]:
+        attachments: list[ChatMessageAttachmentRemoteData] = []
         if message.audio:
             log.t(f"  Mapping audio: {message.audio}")
             dummy_file = File(
@@ -211,12 +210,11 @@ class TelegramDomainMapper:
         file: File,
         message_id: str,
         mime_type: str | None,
-    ) -> ChatMessageAttachmentSave:
+    ) -> ChatMessageAttachmentRemoteData:
         log.t(f"    Creating attachment from file: {file}")
         bot_token = config.telegram_bot_token.get_secret_value()
         last_url = f"{config.telegram_api_base_url}/file/bot{bot_token}/{file.file_path}"
-        return ChatMessageAttachmentSave(
-            id = generate_deterministic_short_uuid(file.file_id),
+        return ChatMessageAttachmentRemoteData(
             external_id = file.file_id,
             message_id = message_id,
             size = file.file_size,

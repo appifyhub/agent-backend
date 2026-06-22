@@ -1,12 +1,14 @@
-from typing import List
+from uuid import UUID
 
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
 from db.schema.chat_message import ChatMessage, ChatMessageSave
-from db.schema.chat_message_attachment import ChatMessageAttachment, ChatMessageAttachmentSave
 from db.schema.user import User, UserSave
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_message_attachment_mapper import apply_remote_data, from_remote_data
+from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config import ChatConfig
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import is_the_agent
@@ -26,7 +28,7 @@ class TelegramDataResolver:
         chat: ChatConfig
         author: User | None
         message: ChatMessage
-        attachments: List[ChatMessageAttachment]
+        attachments: list[ChatMessageAttachment]
 
     __di: DI
 
@@ -48,12 +50,13 @@ class TelegramDataResolver:
         # ensure a membership row exists for real users (skip the agent itself)
         if resolved_author and not is_author_the_agent:
             self.__di.chat_membership_service.sync(resolved_author, resolved_chat_config)
-        # we need to set the resolved chat's UUID to the message and attachments
+        # we need to set the resolved chat's UUID to the message
         mapping_result.message.chat_id = resolved_chat_config.chat_id
-        for attachment in mapping_result.attachments:
-            attachment.chat_id = resolved_chat_config.chat_id
         resolved_chat_message = self.resolve_chat_message(mapping_result.message)
-        resolved_attachments = [self.resolve_chat_message_attachment(attachment) for attachment in mapping_result.attachments]
+        resolved_attachments = [
+            self.resolve_chat_message_attachment(attachment, resolved_chat_message.chat_id)
+            for attachment in mapping_result.attachments
+        ]
         return TelegramDataResolver.Result(
             chat = resolved_chat_config,
             author = resolved_author,
@@ -130,21 +133,12 @@ class TelegramDataResolver:
             mapped_data.sent_at = mapped_data.sent_at or old_chat_message.sent_at
         return ChatMessage.model_validate(self.__di.chat_message_crud.save(mapped_data))
 
-    def resolve_chat_message_attachment(self, mapped_data: ChatMessageAttachmentSave) -> ChatMessageAttachment:
+    def resolve_chat_message_attachment(
+        self,
+        mapped_data: ChatMessageAttachmentRemoteData,
+        chat_id: UUID,
+    ) -> ChatMessageAttachment:
         log.t(f"  Resolving chat message attachment: {mapped_data}")
-        old_attachment_db = None
-        if mapped_data.external_id:
-            old_attachment_db = self.__di.chat_message_attachment_crud.get_by_external_id(mapped_data.external_id)
-
-        if old_attachment_db:
-            old_attachment = ChatMessageAttachment.model_validate(old_attachment_db)
-            # reset the attributes that are not normally changed through the Telegram API
-            mapped_data.id = old_attachment.id
-            mapped_data.chat_id = old_attachment.chat_id
-            mapped_data.size = mapped_data.size or old_attachment.size
-            mapped_data.last_url = mapped_data.last_url or old_attachment.last_url
-            mapped_data.last_url_until = mapped_data.last_url_until or old_attachment.last_url_until
-            mapped_data.extension = mapped_data.extension or old_attachment.extension
-            mapped_data.mime_type = mapped_data.mime_type or old_attachment.mime_type
-
-        return self.__di.telegram_bot_sdk.refresh_attachment(attachment_save = mapped_data)
+        old_attachment = self.__di.chat_message_attachment_repo.get_by_external_id(mapped_data.external_id)
+        attachment = apply_remote_data(old_attachment, mapped_data) if old_attachment else from_remote_data(mapped_data, chat_id)
+        return self.__di.telegram_bot_sdk.refresh_attachment(attachment)

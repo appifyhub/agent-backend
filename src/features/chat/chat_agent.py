@@ -11,7 +11,6 @@ from langchain_core.runnables import Runnable
 
 from db.model.chat_config import ChatConfigDB
 from db.schema.chat_message import ChatMessage
-from db.schema.chat_message_attachment import ChatMessageAttachment
 from db.schema.user import User
 from di.di import DI
 from features.chat.command_processor import is_known_command
@@ -79,9 +78,9 @@ class ChatAgent:
         past_messages = [ChatMessage.model_validate(message_db) for message_db in past_messages_db]
         langchain_messages = [self.__map_to_langchain(di, message, chat_type) for message in past_messages][::-1]
         self.__attachment_ids = [
-            ChatMessageAttachment.model_validate(attachment_db).id
-            for attachment_db in chain.from_iterable(
-                di.chat_message_attachment_crud.get_by_message(message.chat_id, message.message_id)
+            attachment.id
+            for attachment in chain.from_iterable(
+                di.chat_message_attachment_repo.get_all_by_message(message.chat_id, message.message_id)
                 for message in past_messages
             )
         ]
