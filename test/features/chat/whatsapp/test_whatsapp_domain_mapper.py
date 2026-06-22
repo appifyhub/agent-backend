@@ -13,6 +13,7 @@ from features.chat.whatsapp.model.profile import Profile
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.model.value import Value
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
+from util.functions import generate_deterministic_short_uuid
 
 
 class WhatsAppDomainMapperTest(unittest.TestCase):
@@ -116,6 +117,7 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(len(result.attachments), 1)
         self.assertEqual(result.attachments[0].external_id, "image_id_123")
         self.assertEqual(result.attachments[0].mime_type, "image/jpeg")
+        self.assertIn(generate_deterministic_short_uuid("image_id_123"), result.message.text)
 
     def test_map_message_filled(self):
         message = Message(

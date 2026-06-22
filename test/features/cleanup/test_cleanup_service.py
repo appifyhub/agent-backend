@@ -16,7 +16,7 @@ class CleanupServiceTest(unittest.TestCase):
         sponsorships_deleted = 0,
     ) -> CleanupService:
         di = MagicMock()
-        di.chat_message_attachment_crud.delete_by_old_messages.return_value = attachments_deleted
+        di.chat_message_attachment_repo.delete_by_old_messages.return_value = attachments_deleted
         di.chat_message_crud.delete_older_than.return_value = messages_deleted
         di.tools_cache_repo.delete_expired.return_value = cache_cleared
         di.usage_record_repo.delete_older_than.return_value = usage_deleted
@@ -45,10 +45,18 @@ class CleanupServiceTest(unittest.TestCase):
         self.assertEqual(result.price_alerts_deleted, 2)
         self.assertEqual(result.sponsorships_deleted, 1)
 
+        calls = service._CleanupService__di.mock_calls
+        attachment_delete = "chat_message_attachment_repo.delete_by_old_messages"
+        message_delete = "chat_message_crud.delete_older_than"
+        self.assertLess(
+            next(i for i, call in enumerate(calls) if call[0] == attachment_delete),
+            next(i for i, call in enumerate(calls) if call[0] == message_delete),
+        )
+
     @patch("features.cleanup.cleanup_service.log")
     def test_attachment_failure_skips_message_deletion(self, _):
         service = self._make_service()
-        service._CleanupService__di.chat_message_attachment_crud.delete_by_old_messages.side_effect = RuntimeError("DB error")
+        service._CleanupService__di.chat_message_attachment_repo.delete_by_old_messages.side_effect = RuntimeError("DB error")
 
         result = service.run()
 

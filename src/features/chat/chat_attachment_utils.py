@@ -1,5 +1,5 @@
-from db.schema.chat_message_attachment import ChatMessageAttachment
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from util.error_codes import ATTACHMENT_NOT_FOUND, MALFORMED_ATTACHMENT_ID, MISSING_ATTACHMENT_IDS
 from util.errors import NotFoundError, ValidationError
 
@@ -23,8 +23,8 @@ def resolve_local_attachments(attachment_ids: list[str], di: DI) -> list[ChatMes
     for attachment_id in attachment_ids:
         if not attachment_id:
             raise ValidationError("Malformed LLM Input Error: Attachment ID cannot be empty. You may retry only once!", MALFORMED_ATTACHMENT_ID)  # noqa: E501
-        attachment_db = di.chat_message_attachment_crud.get(attachment_id)
-        if not attachment_db:
+        attachment = di.chat_message_attachment_repo.get(attachment_id)
+        if not attachment:
             raise NotFoundError(f"Malformed LLM Input Error: Attachment '{attachment_id}' not found in DB. You may retry only once!", ATTACHMENT_NOT_FOUND)  # noqa: E501
-        stale.append(ChatMessageAttachment.model_validate(attachment_db))
+        stale.append(attachment)
     return di.platform_bot_sdk().refresh_attachment_instances(stale)

@@ -105,7 +105,7 @@ class ChatAgentTest(unittest.TestCase):
             chat_id = self.chat_config.chat_id,
         )
         self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [mock_latest_message]
-        self.mock_di.chat_message_attachment_crud.get_by_message.return_value = []
+        self.mock_di.chat_message_attachment_repo.get_all_by_message.return_value = []
         self.mock_di.user_crud.get.return_value = None
         self.mock_di.domain_langchain_mapper.map_to_langchain.return_value = HumanMessage("Test message")
 
@@ -125,6 +125,12 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.chat_membership_service.get.assert_called_once_with(
             self.user.id,
             self.chat_config.chat_id,
+        )
+
+    def test_init_fetches_message_attachments_from_repository(self):
+        self.mock_di.chat_message_attachment_repo.get_all_by_message.assert_called_once_with(
+            self.chat_config.chat_id,
+            "msg_123",
         )
 
     def test_process_commands_no_api_key(self):
@@ -679,14 +685,14 @@ class ChatAgentTest(unittest.TestCase):
             message_id = "msg_002",
             author_id = self.user.id,
             sent_at = datetime.now() - timedelta(seconds = 5),
-            text = f"@{self.agent_user.telegram_username} ova poruka treba da triggeruje odgovor",
+            text = f"@{self.agent_user.telegram_username} this message should trigger a response",
             chat_id = self.chat_config.chat_id,
         )
         earlier_untagged = ChatMessage(
             message_id = "msg_001",
             author_id = self.user.id,
             sent_at = datetime.now() - timedelta(seconds = 60),
-            text = "Mislim da sam popravio",
+            text = "I think I fixed it",
             chat_id = self.chat_config.chat_id,
         )
         current = ChatMessage(

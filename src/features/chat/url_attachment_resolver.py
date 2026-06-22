@@ -3,8 +3,8 @@ from uuid import UUID
 
 import requests
 
-from db.schema.chat_message_attachment import ChatMessageAttachment
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.supported_files import KNOWN_FILE_FORMATS
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util.config import config

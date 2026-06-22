@@ -46,7 +46,7 @@ def from_remote_data(
     chat_id: UUID,
 ) -> ChatMessageAttachment:
     return ChatMessageAttachment(
-        id = id_from_remote_data(remote_data),
+        id = generate_deterministic_short_uuid(remote_data.external_id),
         external_id = remote_data.external_id,
         chat_id = chat_id,
         message_id = remote_data.message_id,
@@ -56,10 +56,6 @@ def from_remote_data(
         extension = remote_data.extension,
         mime_type = remote_data.mime_type,
     )
-
-
-def id_from_remote_data(remote_data: ChatMessageAttachmentRemoteData) -> str:
-    return generate_deterministic_short_uuid(remote_data.external_id)
 
 
 def apply_remote_data(

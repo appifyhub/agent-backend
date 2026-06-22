@@ -15,6 +15,7 @@ from features.chat.telegram.model.text_quote import TextQuote
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.model.user import User
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
+from util.functions import generate_deterministic_short_uuid
 
 
 class TelegramDomainMapperTest(unittest.TestCase):
@@ -66,6 +67,8 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(len(result.attachments), 2)
         self.assertEqual(result.attachments[0].external_id, "a1")
         self.assertEqual(result.attachments[1].external_id, "d2")
+        self.assertIn(generate_deterministic_short_uuid("a1"), result.message.text)
+        self.assertIn(generate_deterministic_short_uuid("d2"), result.message.text)
 
     def test_map_update_empty(self):
         update = Update(update_id = 1)
@@ -354,9 +357,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(len(result), 4)
         # audio
         self.assertEqual(result[0].message_id, str(message.message_id))
-        self.assertIsNotNone(result[0].id)
         self.assertEqual(result[0].external_id, message.audio.file_id)
-        self.assertIsNone(result[0].chat_id)
         self.assertEqual(result[0].size, message.audio.file_size)
         self.assertEqual(result[0].mime_type, message.audio.mime_type)
         self.assertIsNone(result[0].extension)
@@ -364,9 +365,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result[0].last_url_until)
         # document
         self.assertEqual(result[1].message_id, str(message.message_id))
-        self.assertIsNotNone(result[1].id)
         self.assertEqual(result[1].external_id, message.document.file_id)
-        self.assertIsNone(result[1].chat_id)
         self.assertEqual(result[1].size, message.document.file_size)
         self.assertEqual(result[1].mime_type, message.document.mime_type)
         self.assertIsNone(result[1].extension)
@@ -374,9 +373,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result[1].last_url_until)
         # photo
         self.assertEqual(result[2].message_id, str(message.message_id))
-        self.assertIsNotNone(result[2].id)
         self.assertEqual(result[2].external_id, message.photo[1].file_id)
-        self.assertIsNone(result[2].chat_id)
         self.assertEqual(result[2].size, message.photo[1].file_size)
         self.assertIsNone(result[2].mime_type)
         self.assertIsNone(result[2].extension)
@@ -384,9 +381,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result[2].last_url_until)
         # voice
         self.assertEqual(result[3].message_id, str(message.message_id))
-        self.assertIsNotNone(result[3].id)
         self.assertEqual(result[3].external_id, message.voice.file_id)
-        self.assertIsNone(result[3].chat_id)
         self.assertEqual(result[3].size, message.voice.file_size)
         self.assertEqual(result[3].mime_type, message.voice.mime_type)
         self.assertIsNone(result[3].extension)
@@ -418,9 +413,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         result = self.mapper.map_to_attachment(file = file, message_id = message_id, mime_type = mime_type)
 
-        self.assertIsNotNone(result.id)
         self.assertEqual(result.external_id, file.file_id)
-        self.assertIsNone(result.chat_id)
         self.assertEqual(result.message_id, message_id)
         self.assertEqual(result.size, file.file_size)
         self.assertTrue(result.last_url.endswith(file.file_path))
@@ -439,9 +432,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         result = self.mapper.map_to_attachment(file = file, message_id = message_id, mime_type = None)
 
-        self.assertIsNotNone(result.id)
         self.assertEqual(result.external_id, file.file_id)
-        self.assertIsNone(result.chat_id)
         self.assertEqual(result.message_id, message_id)
         self.assertEqual(result.size, file.file_size)
         self.assertTrue(result.last_url.endswith(file.file_path))
@@ -458,9 +449,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         result = self.mapper.map_to_attachment(file = file, message_id = message_id, mime_type = None)
 
-        self.assertIsNotNone(result.id)
         self.assertEqual(result.external_id, file.file_id)
-        self.assertIsNone(result.chat_id)
         self.assertEqual(result.message_id, message_id)
         self.assertEqual(result.size, file.file_size)
         self.assertIsNone(result.last_url)

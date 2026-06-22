@@ -8,7 +8,6 @@ from features.chat.attachment.chat_message_attachment_mapper import (
     db,
     domain,
     from_remote_data,
-    id_from_remote_data,
 )
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 
@@ -149,15 +148,3 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.last_url_until, self.domain_model.last_url_until)
         self.assertEqual(result.extension, self.domain_model.extension)
         self.assertEqual(result.mime_type, self.domain_model.mime_type)
-
-    def test_id_from_remote_data_is_deterministic(self):
-        remote_data = ChatMessageAttachmentRemoteData(
-            external_id = "external2",
-            message_id = "message2",
-        )
-
-        first = id_from_remote_data(remote_data)
-        second = id_from_remote_data(remote_data)
-
-        self.assertEqual(first, "778202be")
-        self.assertEqual(second, first)
