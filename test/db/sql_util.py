@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 
 from db.crud.chat_message import ChatMessageCRUD
-from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
 from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
@@ -57,11 +56,6 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return ChatMessageCRUD(self.__session)
-
-    def chat_message_attachment_crud(self) -> ChatMessageAttachmentCRUD:
-        if not self.__is_session_active:
-            self.start_session()
-        return ChatMessageAttachmentCRUD(self.__session)
 
     def chat_message_attachment_repo(self) -> ChatMessageAttachmentRepository:
         if not self.__is_session_active:

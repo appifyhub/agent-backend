@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from api.transfers_controller import TransfersController
     from api.usage_controller import UsageController
     from db.crud.chat_message import ChatMessageCRUD
-    from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
@@ -118,7 +117,6 @@ class DI:
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_crud: "ChatMessageCRUD | None"
-    _chat_message_attachment_crud: "ChatMessageAttachmentCRUD | None"
     _chat_message_attachment_repo: "ChatMessageAttachmentRepository | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
@@ -178,7 +176,6 @@ class DI:
         self._chat_membership_repo = None
         self._chat_membership_service = None
         self._chat_message_crud = None
-        self._chat_message_attachment_crud = None
         self._chat_message_attachment_repo = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
@@ -379,13 +376,6 @@ class DI:
             from db.crud.chat_message import ChatMessageCRUD
             self._chat_message_crud = ChatMessageCRUD(self.db)
         return self._chat_message_crud
-
-    @property
-    def chat_message_attachment_crud(self) -> "ChatMessageAttachmentCRUD":
-        if self._chat_message_attachment_crud is None:
-            from db.crud.chat_message_attachment import ChatMessageAttachmentCRUD
-            self._chat_message_attachment_crud = ChatMessageAttachmentCRUD(self.db)
-        return self._chat_message_attachment_crud
 
     @property
     def chat_message_attachment_repo(self) -> "ChatMessageAttachmentRepository":
