@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from api.sponsorships_controller import SponsorshipsController
     from api.transfers_controller import TransfersController
     from api.usage_controller import UsageController
-    from db.crud.chat_message import ChatMessageCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
@@ -55,10 +54,11 @@ if TYPE_CHECKING:
     from features.chat.command_processor import CommandProcessor
     from features.chat.config.chat_config_repo import ChatConfigRepository
     from features.chat.dev_announcements_service import DevAnnouncementsService
+    from features.chat.domain_langchain_mapper import DomainLangchainMapper
     from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
     from features.chat.membership.chat_membership_repo import ChatMembershipRepository
     from features.chat.membership.chat_membership_service import ChatMembershipService
-    from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper
+    from features.chat.message.chat_message_repo import ChatMessageRepository
     from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
     from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
     from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
@@ -116,7 +116,7 @@ class DI:
     _chat_config_repo: "ChatConfigRepository | None"
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
-    _chat_message_crud: "ChatMessageCRUD | None"
+    _chat_message_repo: "ChatMessageRepository | None"
     _chat_message_attachment_repo: "ChatMessageAttachmentRepository | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
@@ -175,7 +175,7 @@ class DI:
         self._chat_config_repo = None
         self._chat_membership_repo = None
         self._chat_membership_service = None
-        self._chat_message_crud = None
+        self._chat_message_repo = None
         self._chat_message_attachment_repo = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
@@ -371,11 +371,11 @@ class DI:
         return self._chat_membership_service
 
     @property
-    def chat_message_crud(self) -> "ChatMessageCRUD":
-        if self._chat_message_crud is None:
-            from db.crud.chat_message import ChatMessageCRUD
-            self._chat_message_crud = ChatMessageCRUD(self.db)
-        return self._chat_message_crud
+    def chat_message_repo(self) -> "ChatMessageRepository":
+        if self._chat_message_repo is None:
+            from features.chat.message.chat_message_repo import ChatMessageRepository
+            self._chat_message_repo = ChatMessageRepository(self.db)
+        return self._chat_message_repo
 
     @property
     def chat_message_attachment_repo(self) -> "ChatMessageAttachmentRepository":
@@ -552,7 +552,7 @@ class DI:
     @property
     def domain_langchain_mapper(self) -> "DomainLangchainMapper":
         if self._domain_langchain_mapper is None:
-            from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper
+            from features.chat.domain_langchain_mapper import DomainLangchainMapper
             self._domain_langchain_mapper = DomainLangchainMapper()
         return self._domain_langchain_mapper
 

@@ -5,7 +5,6 @@ from pydantic import SecretStr
 from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantInfo
@@ -264,9 +263,8 @@ def _find_private_chat(user: User, chat_type: ChatConfigDB.ChatType, di: DI) -> 
 
 
 def _get_last_user_message_time(chat: ChatConfig, user: User, di: DI) -> datetime | None:
-    messages_db = di.chat_message_crud.get_latest_chat_messages(chat.chat_id, limit = 30)
-    for message_db in messages_db:
-        message = ChatMessage.model_validate(message_db)
+    messages = di.chat_message_repo.get_latest_by_chat(chat.chat_id, limit = 30)
+    for message in messages:
         if message.author_id == user.id:
             return message.sent_at
     return None

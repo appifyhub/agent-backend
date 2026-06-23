@@ -3,10 +3,10 @@ from datetime import datetime
 from pydantic import BaseModel, SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessageSave
 from db.schema.user import UserSave
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
+from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.whatsapp.model.message import Message
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.model.value import Value
@@ -19,7 +19,7 @@ class WhatsAppDomainMapper:
     class Result(BaseModel):
         chat: ChatConfigRemoteData
         author: UserSave | None
-        message: ChatMessageSave
+        message: ChatMessageRemoteData
         attachments: list[ChatMessageAttachmentRemoteData]
         replied_to_message_id: str | None = None
 
@@ -61,9 +61,9 @@ class WhatsAppDomainMapper:
             log.w(f"  No messages found in update: {update}")
         return results
 
-    def map_message(self, message: Message) -> ChatMessageSave:
+    def map_message(self, message: Message) -> ChatMessageRemoteData:
         log.t(f"  Mapping message: {message}")
-        return ChatMessageSave(
+        return ChatMessageRemoteData(
             message_id = message.id,
             sent_at = datetime.fromtimestamp(int(message.timestamp)),
             text = self.map_text(message),

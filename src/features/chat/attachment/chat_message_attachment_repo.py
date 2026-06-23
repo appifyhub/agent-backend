@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from db.model.chat_message import ChatMessageDB
 from db.model.chat_message_attachment import ChatMessageAttachmentDB
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_mapper import db, domain
+from features.chat.attachment.chat_message_attachment_mapper import apply_to_db_model, db, domain
 
 
 class ChatMessageAttachmentRepository:
@@ -56,7 +56,7 @@ class ChatMessageAttachmentRepository:
             ).first()
 
         if existing is not None:
-            self.__copy_to_db_model(attachment, existing)
+            apply_to_db_model(attachment, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
@@ -90,17 +90,3 @@ class ChatMessageAttachmentRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def __copy_to_db_model(
-        self,
-        source: ChatMessageAttachment,
-        target: ChatMessageAttachmentDB,
-    ) -> None:
-        target.external_id = source.external_id
-        target.chat_id = source.chat_id
-        target.message_id = source.message_id
-        target.size = source.size
-        target.last_url = source.last_url
-        target.last_url_until = source.last_url_until
-        target.extension = source.extension
-        target.mime_type = source.mime_type

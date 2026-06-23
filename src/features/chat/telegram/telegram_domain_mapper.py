@@ -3,10 +3,10 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessageSave
 from db.schema.user import UserSave
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
+from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.update import Update
@@ -20,7 +20,7 @@ class TelegramDomainMapper:
     class Result(BaseModel):
         chat: ChatConfigRemoteData
         author: UserSave | None
-        message: ChatMessageSave
+        message: ChatMessageRemoteData
         attachments: list[ChatMessageAttachmentRemoteData]
 
     def map_update(self, update: Update) -> Result | None:
@@ -40,9 +40,9 @@ class TelegramDomainMapper:
             attachments = result_attachments,
         )
 
-    def map_message(self, message: Message) -> ChatMessageSave:
+    def map_message(self, message: Message) -> ChatMessageRemoteData:
         log.t(f"  Mapping message: {message}")
-        return ChatMessageSave(
+        return ChatMessageRemoteData(
             message_id = str(message.message_id),
             sent_at = datetime.fromtimestamp(message.edit_date or message.date),
             text = self.map_text(message),

@@ -30,3 +30,13 @@ def db(domain_model: PriceAlert | None) -> PriceAlertDB | None:
         last_price = domain_model.last_price,
         last_price_time = domain_model.last_price_time,
     )
+
+
+def apply_to_db_model(
+    domain_model: PriceAlert,
+    db_model: PriceAlertDB,
+) -> None:
+    db_model.owner_id = domain_model.owner_id
+    db_model.threshold_percent = domain_model.threshold_percent
+    db_model.last_price = domain_model.last_price
+    db_model.last_price_time = domain_model.last_price_time

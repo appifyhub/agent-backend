@@ -4,10 +4,10 @@ from time import sleep
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage
 
-from db.schema.chat_message import ChatMessageSave
 from db.sql import get_detached_session
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
+from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.external_tools.intelligence_presets import default_tool_for
@@ -58,8 +58,8 @@ def respond_to_update(update: Update) -> bool:
             agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
             as_reaction = str(answer.content).strip()
             if is_reaction_response(as_reaction, resolved_domain_data.chat.chat_type):
-                di.chat_message_crud.save(
-                    ChatMessageSave(
+                di.chat_message_repo.save(
+                    ChatMessage(
                         chat_id = resolved_domain_data.chat.chat_id,
                         message_id = f"reaction:{resolved_domain_data.message.message_id}",
                         author_id = agent.id,

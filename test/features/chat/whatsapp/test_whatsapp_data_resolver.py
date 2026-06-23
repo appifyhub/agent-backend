@@ -7,13 +7,14 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
+from features.chat.message.chat_message import ChatMessage
+from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
 from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
@@ -38,7 +39,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.user_crud = self.sql.user_crud()
         # noinspection PyPropertyAccess
-        self.mock_di.chat_message_crud = self.sql.chat_message_crud()
+        self.mock_di.chat_message_repo = self.sql.chat_message_repo()
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_attachment_repo = self.sql.chat_message_attachment_repo()
         # noinspection PyPropertyAccess
@@ -61,8 +62,9 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             is_private = True,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
-        message_data = ChatMessageSave(
+        message_data = ChatMessageRemoteData(
             message_id = "m1",
+            sent_at = datetime.now(),
             text = "This is a message",
         )
         attachment_data = ChatMessageAttachmentRemoteData(
@@ -104,8 +106,9 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             whatsapp_user_id = self.agent_user.whatsapp_user_id,
             full_name = self.agent_user.full_name,
         )
-        message_data = ChatMessageSave(
+        message_data = ChatMessageRemoteData(
             message_id = "m1",
+            sent_at = datetime.now(),
             text = "This is a message",
         )
         attachment_data = ChatMessageAttachmentRemoteData(
@@ -149,8 +152,9 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             whatsapp_user_id = "1",
             full_name = "New User",
         )
-        message_data = ChatMessageSave(
+        message_data = ChatMessageRemoteData(
             message_id = "m1",
+            sent_at = datetime.now(),
             text = "This is a message",
         )
         attachment_data = ChatMessageAttachmentRemoteData(
@@ -365,20 +369,19 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        mapped_data = ChatMessageSave(
-            chat_id = chat.chat_id,
+        mapped_data = ChatMessageRemoteData(
             message_id = "m1",
+            sent_at = datetime.now(),
             text = "This is a message",
         )
 
-        result = self.resolver.resolve_chat_message(mapped_data)
-        saved_message_db = self.sql.chat_message_crud().get(mapped_data.chat_id, mapped_data.message_id)
-        saved_message = ChatMessage.model_validate(saved_message_db)
+        result = self.resolver.resolve_chat_message(mapped_data, chat.chat_id, None)
+        saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
 
         self.assertEqual(result, saved_message)
-        self.assertEqual(result.chat_id, mapped_data.chat_id)
+        self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
-        self.assertEqual(result.author_id, mapped_data.author_id)
+        self.assertIsNone(result.author_id)
         self.assertEqual(result.sent_at, mapped_data.sent_at)
         self.assertEqual(result.text, mapped_data.text)
 
@@ -386,33 +389,30 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        old_message_data = ChatMessageSave(
+        old_message = ChatMessage(
             chat_id = chat.chat_id,
             message_id = "m1",
             author_id = None,
             sent_at = datetime.now() - timedelta(days = 1),
             text = "Old message",
         )
-        self.sql.chat_message_crud().save(old_message_data)
+        self.sql.chat_message_repo().save(old_message)
 
         new_author_data = UserSave(full_name = "First Last", whatsapp_chat_id = "c1")
         new_author = User.model_validate(self.sql.user_crud().save(new_author_data))
-        mapped_data = ChatMessageSave(
-            chat_id = chat.chat_id,
+        mapped_data = ChatMessageRemoteData(
             message_id = "m1",
-            author_id = new_author.id,
             sent_at = datetime.now(),
             text = "Updated message",
         )
 
-        result = self.resolver.resolve_chat_message(mapped_data)
-        saved_message_db = self.sql.chat_message_crud().get(mapped_data.chat_id, mapped_data.message_id)
-        saved_message = ChatMessage.model_validate(saved_message_db)
+        result = self.resolver.resolve_chat_message(mapped_data, chat.chat_id, new_author.id)
+        saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
 
         self.assertEqual(result, saved_message)
-        self.assertEqual(result.chat_id, mapped_data.chat_id)
+        self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
-        self.assertEqual(result.author_id, mapped_data.author_id)
+        self.assertEqual(result.author_id, new_author.id)
         self.assertEqual(result.sent_at, mapped_data.sent_at)
         self.assertEqual(result.text, mapped_data.text)
 
@@ -420,8 +420,8 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        self.sql.chat_message_crud().create(
-            ChatMessageSave(chat_id = chat.chat_id, message_id = "m1", text = "x"),
+        self.sql.chat_message_repo().save(
+            ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"),
         )
         mapped_data = ChatMessageAttachmentRemoteData(
             external_id = "e1",
@@ -449,8 +449,8 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        self.sql.chat_message_crud().create(
-            ChatMessageSave(chat_id = chat.chat_id, message_id = "m1", text = "x"),
+        self.sql.chat_message_repo().save(
+            ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"),
         )
         old_attachment_data = ChatMessageAttachment(
             id = "i1",
