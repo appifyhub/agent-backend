@@ -55,11 +55,11 @@ if TYPE_CHECKING:
     from features.chat.command_processor import CommandProcessor
     from features.chat.config.chat_config_repo import ChatConfigRepository
     from features.chat.dev_announcements_service import DevAnnouncementsService
+    from features.chat.domain_langchain_mapper import DomainLangchainMapper
     from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
     from features.chat.membership.chat_membership_repo import ChatMembershipRepository
     from features.chat.membership.chat_membership_service import ChatMembershipService
     from features.chat.message.chat_message_repo import ChatMessageRepository
-    from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper
     from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
     from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
     from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
@@ -562,7 +562,7 @@ class DI:
     @property
     def domain_langchain_mapper(self) -> "DomainLangchainMapper":
         if self._domain_langchain_mapper is None:
-            from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper
+            from features.chat.domain_langchain_mapper import DomainLangchainMapper
             self._domain_langchain_mapper = DomainLangchainMapper()
         return self._domain_langchain_mapper
 

@@ -5,10 +5,10 @@ from uuid import UUID
 from langchain_core.messages import AIMessage, HumanMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
 from features.chat.config.chat_config import ChatConfig
-from features.chat.telegram.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
+from features.chat.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
+from features.chat.message.chat_message import ChatMessage
 from features.integrations.integrations import resolve_agent_user
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 
@@ -144,7 +144,11 @@ class DomainLangchainMapperTest(unittest.TestCase):
         self.assertNotEqual(result1[0].message_id, result2[0].message_id)
 
     def test_map_bot_message_to_storage_preserves_code_block(self):
-        content = f"Here's code:{CHAT_MESSAGE_DELIMITER}```python\nx = 1{CHAT_MESSAGE_DELIMITER}y = 2\n```{CHAT_MESSAGE_DELIMITER}Done!"
+        content = (
+            f"Here's code:{CHAT_MESSAGE_DELIMITER}```python\n"
+            f"x = 1{CHAT_MESSAGE_DELIMITER}y = 2\n"
+            f"```{CHAT_MESSAGE_DELIMITER}Done!"
+        )
         message = AIMessage(content = content)
         result = self.mapper.map_bot_message_to_storage(self.chat, message)
         self.assertEqual(len(result), 3)

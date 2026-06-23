@@ -51,7 +51,6 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
         self.mock_di.chat_config_repo.get_all.return_value = []
         self.mock_platform_sdk.send_text_message.return_value = {"result": {"message_id": 123}}
-        self.mock_di.chat_message_crud.save.return_value = MagicMock()
         self.mock_di.translations_cache.get.return_value = "Translated announcement"
         self.mock_di.translations_cache.save.return_value = "Translated announcement"
         self.mock_di.clone.return_value = self.mock_di

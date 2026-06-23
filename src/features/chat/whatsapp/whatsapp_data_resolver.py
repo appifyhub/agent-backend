@@ -3,19 +3,21 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_mapper import apply_remote_data, from_remote_data
+from features.chat.attachment.chat_message_attachment_mapper import apply_remote_data as apply_remote_data_attachment
+from features.chat.attachment.chat_message_attachment_mapper import from_remote_data as from_remote_data_attachment
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config import ChatConfig
+from features.chat.message.chat_message import ChatMessage
+from features.chat.message.chat_message_mapper import apply_remote_data as apply_remote_data_message
+from features.chat.message.chat_message_mapper import from_remote_data as from_remote_data_message
+from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.integrations.integrations import is_the_agent
 from util import log
 from util.config import config
-from util.error_codes import UNEXPECTED_ERROR
-from util.errors import InternalError
 
 
 class WhatsAppDataResolver:
@@ -49,26 +51,31 @@ class WhatsAppDataResolver:
         if mapping_result.author:
             is_author_the_agent = is_the_agent(mapping_result.author, ChatConfigDB.ChatType.whatsapp)
             resolved_author = self.resolve_author(mapping_result.author)
-            if resolved_author:
-                mapping_result.message.author_id = resolved_author.id
         # ensure a membership row exists for real users (skip the agent itself)
         if resolved_author and not is_author_the_agent:
             self.__di.chat_membership_service.sync(resolved_author, resolved_chat_config)
-        # we need to set the resolved chat's UUID to the message
-        mapping_result.message.chat_id = resolved_chat_config.chat_id
         # Handle replied-to message (WhatsApp doesn't provide content, so we fetch from DB)
+        remote_message = mapping_result.message
         if mapping_result.replied_to_message_id:
-            replied_message_db = self.__di.chat_message_crud.get(
-                chat_id = resolved_chat_config.chat_id,
-                message_id = mapping_result.replied_to_message_id,
+            replied_message = self.__di.chat_message_repo.get(
+                resolved_chat_config.chat_id,
+                mapping_result.replied_to_message_id,
             )
-            if replied_message_db:
-                replied_message = ChatMessage.model_validate(replied_message_db)
+            if replied_message:
                 quoted_text = self.__format_quoted_message(replied_message.text)
-                mapping_result.message.text = f"{quoted_text}\n\n{mapping_result.message.text}"
+                remote_message = ChatMessageRemoteData(
+                    message_id = remote_message.message_id,
+                    sent_at = remote_message.sent_at,
+                    text = f"{quoted_text}\n\n{remote_message.text}",
+                )
             else:
                 log.w(f"  Replied-to message '{mapping_result.replied_to_message_id}' not found in DB")
-        resolved_chat_message = self.resolve_chat_message(mapping_result.message)
+        # we need to set the resolved chat's UUID to the message
+        resolved_chat_message = self.resolve_chat_message(
+            mapped_data = remote_message,
+            chat_id = resolved_chat_config.chat_id,
+            author_id = resolved_author.id if resolved_author else None,
+        )
         resolved_attachments = [
             self.resolve_chat_message_attachment(attachment, resolved_chat_message.chat_id)
             for attachment in mapping_result.attachments
@@ -138,18 +145,16 @@ class WhatsAppDataResolver:
 
         return User.model_validate(self.__di.user_crud.save(mapped_data))
 
-    def resolve_chat_message(self, mapped_data: ChatMessageSave) -> ChatMessage:
+    def resolve_chat_message(self, mapped_data: ChatMessageRemoteData, chat_id: UUID, author_id: UUID | None) -> ChatMessage:
         log.t(f"  Resolving chat message: {mapped_data}")
-        if mapped_data.chat_id is None:
-            raise InternalError("chat_id is None in resolved chat message", UNEXPECTED_ERROR)
-        old_chat_message_db = self.__di.chat_message_crud.get(mapped_data.chat_id, mapped_data.message_id)
-        if old_chat_message_db:
-            old_chat_message = ChatMessage.model_validate(old_chat_message_db)
-            # reset the attributes that are not normally changed through the WhatsApp API
-            mapped_data.chat_id = old_chat_message.chat_id
-            mapped_data.author_id = mapped_data.author_id or old_chat_message.author_id
-            mapped_data.sent_at = mapped_data.sent_at or old_chat_message.sent_at
-        return ChatMessage.model_validate(self.__di.chat_message_crud.save(mapped_data))
+        old_chat_message = self.__di.chat_message_repo.get(chat_id, mapped_data.message_id)
+        # reset the attributes that are not normally changed through the WhatsApp API
+        chat_message = (
+            apply_remote_data_message(old_chat_message, mapped_data, author_id)
+            if old_chat_message
+            else from_remote_data_message(mapped_data, chat_id, author_id)
+        )
+        return self.__di.chat_message_repo.save(chat_message)
 
     def resolve_chat_message_attachment(
         self,
@@ -158,7 +163,11 @@ class WhatsAppDataResolver:
     ) -> ChatMessageAttachment:
         log.t(f"  Resolving chat message attachment: {mapped_data}")
         old_attachment = self.__di.chat_message_attachment_repo.get_by_external_id(mapped_data.external_id)
-        attachment = apply_remote_data(old_attachment, mapped_data) if old_attachment else from_remote_data(mapped_data, chat_id)
+        attachment = (
+            apply_remote_data_attachment(old_attachment, mapped_data)
+            if old_attachment
+            else from_remote_data_attachment(mapped_data, chat_id)
+        )
         return self.__di.whatsapp_bot_sdk.refresh_attachment(attachment)
 
     # noinspection PyMethodMayBeStatic

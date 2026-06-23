@@ -4,9 +4,9 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 from uuid import UUID
 
-from db.schema.chat_message import ChatMessage
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver

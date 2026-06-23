@@ -8,9 +8,9 @@ from langchain_core.messages import AIMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User
 from features.chat.config.chat_config import ChatConfig
+from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
@@ -92,7 +92,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             ),
             author = User.model_validate(author_db),
         )
-        self.di.chat_message_crud.get_latest_chat_messages.return_value = []
+        self.di.chat_message_repo.get_latest_by_chat.return_value = []
         self.di.user_crud.get.return_value = author_db  # Return author for all calls
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -138,8 +138,8 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
         self.mock_sleep.assert_not_called()
-        saved_message = self.di.chat_message_crud.save.call_args.args[0]
-        self.assertIsInstance(saved_message, ChatMessageSave)
+        saved_message = self.di.chat_message_repo.save.call_args.args[0]
+        self.assertIsInstance(saved_message, ChatMessage)
         self.assertEqual(saved_message.message_id, "reaction:test-message-id")
         self.assertEqual(saved_message.text, "<reaction>👍</reaction>")
 
@@ -175,8 +175,8 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
         self.mock_sleep.assert_not_called()
-        saved_message = self.di.chat_message_crud.save.call_args.args[0]
-        self.assertIsInstance(saved_message, ChatMessageSave)
+        saved_message = self.di.chat_message_repo.save.call_args.args[0]
+        self.assertIsInstance(saved_message, ChatMessage)
         self.assertEqual(saved_message.message_id, "reaction:test-message-id")
         self.assertEqual(saved_message.text, "<reaction>👍</reaction>")
 
@@ -187,14 +187,14 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             chat = Mock(spec = ChatConfig, chat_id = "123"),
             author = Mock(spec = User, id = UUID(int = 1)),
         )
-        self.di.chat_message_crud.get_latest_chat_messages.return_value = []
+        self.di.chat_message_repo.get_latest_by_chat.return_value = []
         self.di.chat_agent.return_value.execute.return_value = Mock(content = "")
 
         result = respond_to_update(self.update)
 
         self.assertFalse(result)
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
-        self.di.chat_message_crud.save.assert_not_called()
+        self.di.chat_message_repo.save.assert_not_called()
 
     def test_mapping_error(self):
         self.di.telegram_domain_mapper.map_update.return_value = None
@@ -209,7 +209,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
-        self.di.chat_message_crud.save.assert_not_called()
+        self.di.chat_message_repo.save.assert_not_called()
 
     def test_no_author_returns_false(self):
         self.di.telegram_domain_mapper.map_update.return_value = Mock(
@@ -243,7 +243,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
             error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
             # Raise exception during message fetching, after resolved_domain_data is set
-            self.di.chat_message_crud.get_latest_chat_messages.side_effect = Exception(error_message)
+            self.di.chat_message_repo.get_latest_by_chat.side_effect = Exception(error_message)
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
             self.di.telegram_bot_sdk.send_text_message = Mock()
 
@@ -254,4 +254,4 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.assertFalse(result)
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Error response")
         self.mock_sleep.assert_called_once_with(0.1)
-        self.di.chat_message_crud.save.assert_not_called()
+        self.di.chat_message_repo.save.assert_not_called()

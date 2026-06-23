@@ -6,10 +6,10 @@ from uuid import UUID
 from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessageSave
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
 from features.chat.config.chat_config import ChatConfig
+from features.chat.message.chat_message import ChatMessage
 
 
 class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
@@ -36,7 +36,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         message_id: str,
         sent_at: datetime | None = None,
     ) -> None:
-        self.sql.chat_message_crud().create(ChatMessageSave(
+        self.sql.chat_message_repo().save(ChatMessage(
             chat_id = chat_id,
             message_id = message_id,
             sent_at = sent_at or datetime.now(),
