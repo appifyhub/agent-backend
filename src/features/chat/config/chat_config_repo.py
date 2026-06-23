@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.config.chat_config import ChatConfig
-from features.chat.config.chat_config_mapper import apply_remote_data, db, domain, from_remote_data
+from features.chat.config.chat_config_mapper import apply_remote_data, apply_to_db_model, db, domain, from_remote_data
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 
 
@@ -69,7 +69,7 @@ class ChatConfigRepository:
             ).first()
 
         if existing is not None:
-            self.__copy_to_db_model(chat_config, existing)
+            apply_to_db_model(chat_config, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
@@ -79,14 +79,3 @@ class ChatConfigRepository:
         self._db.commit()
         self._db.refresh(db_model)
         return domain(db_model)
-
-    def __copy_to_db_model(self, source: ChatConfig, target: ChatConfigDB) -> None:
-        target.external_id = source.external_id
-        target.language_iso_code = source.language_iso_code
-        target.language_name = source.language_name
-        target.title = source.title
-        target.is_private = source.is_private
-        target.reply_chance_percent = source.reply_chance_percent
-        target.release_notifications = source.release_notifications
-        target.media_mode = source.media_mode
-        target.chat_type = source.chat_type

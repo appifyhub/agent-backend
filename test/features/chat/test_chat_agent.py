@@ -10,7 +10,6 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.chat_message import ChatMessage
 from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
@@ -18,6 +17,7 @@ from features.chat.chat_progress_notifier import ChatProgressNotifier
 from features.chat.command_processor import CommandProcessor
 from features.chat.config.chat_config import ChatConfig
 from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
+from features.chat.message.chat_message import ChatMessage
 from features.external_tools.tool_choice_resolver import ConfiguredTool
 from features.integrations.integrations import resolve_agent_user
 from util.error_codes import UNEXPECTED_ERROR, WAITLIST_ACCOUNT_NOT_ACTIVE, WAITLIST_INVITED_POLICIES_REQUIRED
@@ -104,7 +104,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "Test message",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [mock_latest_message]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [mock_latest_message]
         self.mock_di.chat_message_attachment_repo.get_all_by_message.return_value = []
         self.mock_di.user_crud.get.return_value = None
         self.mock_di.domain_langchain_mapper.map_to_langchain.return_value = HumanMessage("Test message")
@@ -119,7 +119,7 @@ class ChatAgentTest(unittest.TestCase):
             di = self.mock_di,
         )
         # reset so per-test assertions don't count the init call
-        self.mock_di.chat_message_crud.get_latest_chat_messages.reset_mock()
+        self.mock_di.chat_message_repo.get_latest_by_chat.reset_mock()
 
     def test_init_fetches_invoker_membership(self):
         self.mock_di.chat_membership_service.get.assert_called_once_with(
@@ -453,7 +453,7 @@ class ChatAgentTest(unittest.TestCase):
         self.agent.execute()
 
         self.mock_sleep.assert_not_called()
-        self.mock_di.chat_message_crud.get_latest_chat_messages.assert_not_called()
+        self.mock_di.chat_message_repo.get_latest_by_chat.assert_not_called()
 
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
@@ -485,7 +485,7 @@ class ChatAgentTest(unittest.TestCase):
         newer_message = Mock()
         newer_message.message_id = "msg_999"
         newer_message.author_id = self.user.id
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [newer_message]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [newer_message]
 
         result = self.agent.execute()
 
@@ -544,7 +544,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "follow up",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [current, recent_tagged]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, recent_tagged]
 
         self.assertTrue(self.agent.should_reply())
 
@@ -569,7 +569,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "follow up",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [current, other_tagged]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, other_tagged]
 
         self.assertFalse(self.agent.should_reply())
 
@@ -601,7 +601,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "follow up",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [current, bot_reply, old_tagged]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, bot_reply, old_tagged]
 
         self.assertFalse(self.agent.should_reply())
 
@@ -622,11 +622,11 @@ class ChatAgentTest(unittest.TestCase):
         recent_tagged.text = f"Hello @{self.agent_user.telegram_username}"
         current = Mock()
         current.message_id = "msg_123"
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [current, recent_tagged]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, recent_tagged]
 
         self.assertFalse(self.agent.should_reply())
         # the chain walk must not even hit the DB when debounce is disabled
-        self.mock_di.chat_message_crud.get_latest_chat_messages.assert_not_called()
+        self.mock_di.chat_message_repo.get_latest_by_chat.assert_not_called()
 
     @patch("features.chat.chat_agent.config")
     def test_should_reply_direct_mention_works_when_debounce_disabled(self, mock_config):
@@ -639,7 +639,7 @@ class ChatAgentTest(unittest.TestCase):
         mock_config.chat_history_depth = 30
 
         self.assertTrue(self.agent.should_reply())
-        self.mock_di.chat_message_crud.get_latest_chat_messages.assert_not_called()
+        self.mock_di.chat_message_repo.get_latest_by_chat.assert_not_called()
 
     @patch("features.chat.chat_agent.config")
     def test_should_reply_skips_command_message_in_burst(self, mock_config):
@@ -665,7 +665,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "hey guys what's up",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [current, command_message]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, command_message]
 
         self.assertFalse(self.agent.should_reply())
 
@@ -702,7 +702,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "follow up with no tag",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             current, tagged_older, earlier_untagged,
         ]
 
@@ -724,7 +724,7 @@ class ChatAgentTest(unittest.TestCase):
         our_message = Mock()
         our_message.message_id = "msg_123"
         our_message.author_id = self.user.id
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             newer_message_other_user, our_message,
         ]
         mock_tools_model = Mock()
@@ -763,7 +763,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "follow up with no tag",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             current, other_user_msg, tagged_by_invoker,
         ]
 
@@ -796,7 +796,7 @@ class ChatAgentTest(unittest.TestCase):
         our_message = Mock()
         our_message.message_id = "msg_123"
         our_message.author_id = self.user.id
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [our_message]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [our_message]
         mock_tools_model = Mock()
         mock_tools_model.invoke.return_value = AIMessage("response")
         self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
@@ -823,7 +823,7 @@ class ChatAgentTest(unittest.TestCase):
         our_tagged = Mock()
         our_tagged.message_id = "msg_123"
         our_tagged.author_id = self.user.id
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             newer_from_other, our_tagged,
         ]
         mock_tools_model = Mock()
@@ -859,7 +859,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "just chatting",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             newer_from_other, our_message,
         ]
 
@@ -886,7 +886,7 @@ class ChatAgentTest(unittest.TestCase):
             text = "last message in burst",
             chat_id = self.chat_config.chat_id,
         )
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [our_message]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [our_message]
         mock_tools_model = Mock()
         mock_tools_model.invoke.return_value = AIMessage("private reply")
         self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
@@ -905,7 +905,7 @@ class ChatAgentTest(unittest.TestCase):
         newer_message = Mock()
         newer_message.message_id = "msg_999"
         newer_message.author_id = self.user.id
-        self.mock_di.chat_message_crud.get_latest_chat_messages.return_value = [newer_message]
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [newer_message]
 
         result = self.agent.execute()
 

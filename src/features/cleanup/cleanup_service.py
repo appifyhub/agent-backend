@@ -28,7 +28,7 @@ class CleanupService:
         try:
             result.attachments_deleted = self.__di.chat_message_attachment_repo.delete_by_old_messages(message_cutoff)
             log.i(f"  Cleanup phase 1A: deleted {result.attachments_deleted} attachments")
-            result.messages_deleted = self.__di.chat_message_crud.delete_older_than(message_cutoff)
+            result.messages_deleted = self.__di.chat_message_repo.delete_older_than(message_cutoff)
             log.i(f"  Cleanup phase 1B: deleted {result.messages_deleted} messages")
         except Exception as e:
             log.e(f"  Cleanup phase 1 (messages / attachments) failed: {e}")

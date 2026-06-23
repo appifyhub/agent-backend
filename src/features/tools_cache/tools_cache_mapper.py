@@ -24,3 +24,12 @@ def db(domain_model: ToolsCache | None) -> ToolsCacheDB | None:
         created_at = domain_model.created_at,
         expires_at = domain_model.expires_at,
     )
+
+
+def apply_to_db_model(
+    domain_model: ToolsCache,
+    db_model: ToolsCacheDB,
+) -> None:
+    db_model.value = domain_model.value
+    db_model.created_at = domain_model.created_at
+    db_model.expires_at = domain_model.expires_at

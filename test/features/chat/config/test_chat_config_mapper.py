@@ -3,7 +3,7 @@ from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.config.chat_config import ChatConfig
-from features.chat.config.chat_config_mapper import apply_remote_data, db, domain, from_remote_data
+from features.chat.config.chat_config_mapper import apply_remote_data, apply_to_db_model, db, domain, from_remote_data
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 
 
@@ -80,6 +80,33 @@ class ChatConfigMapperTest(unittest.TestCase):
         result = domain(db(self.domain_model))
 
         self.assertEqual(result, self.domain_model)
+
+    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
+        domain_model = ChatConfig(
+            chat_id = UUID("33333333-3333-3333-3333-333333333333"),
+            external_id = "chat2",
+            language_iso_code = None,
+            language_name = None,
+            title = None,
+            is_private = True,
+            reply_chance_percent = 25,
+            release_notifications = ChatConfigDB.ReleaseNotifications.major,
+            media_mode = ChatConfigDB.MediaMode.photo,
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+
+        apply_to_db_model(domain_model, self.db_model)
+
+        self.assertEqual(self.db_model.chat_id, self.chat_id)
+        self.assertEqual(self.db_model.external_id, domain_model.external_id)
+        self.assertIsNone(self.db_model.language_iso_code)
+        self.assertIsNone(self.db_model.language_name)
+        self.assertIsNone(self.db_model.title)
+        self.assertEqual(self.db_model.is_private, domain_model.is_private)
+        self.assertEqual(self.db_model.reply_chance_percent, domain_model.reply_chance_percent)
+        self.assertEqual(self.db_model.release_notifications, domain_model.release_notifications)
+        self.assertEqual(self.db_model.media_mode, domain_model.media_mode)
+        self.assertEqual(self.db_model.chat_type, domain_model.chat_type)
 
     def test_db_leaves_missing_chat_id_for_database_generation(self):
         self.domain_model.chat_id = None

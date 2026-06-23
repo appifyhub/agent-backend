@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from db.model.sponsorship import SponsorshipDB
 from features.sponsorships.sponsorship import Sponsorship
-from features.sponsorships.sponsorship_mapper import db, domain
+from features.sponsorships.sponsorship_mapper import apply_to_db_model, db, domain
 
 
 class SponsorshipRepository:
@@ -58,7 +58,7 @@ class SponsorshipRepository:
             SponsorshipDB.receiver_id == sponsorship.receiver_id,
         ).first()
         if existing is not None:
-            self.__copy_to_db_model(sponsorship, existing)
+            apply_to_db_model(sponsorship, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
@@ -95,7 +95,3 @@ class SponsorshipRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def __copy_to_db_model(self, source: Sponsorship, target: SponsorshipDB):
-        target.sponsored_at = source.sponsored_at
-        target.accepted_at = source.accepted_at

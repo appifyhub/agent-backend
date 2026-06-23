@@ -4,7 +4,7 @@ from uuid import UUID
 
 from db.model.sponsorship import SponsorshipDB
 from features.sponsorships.sponsorship import Sponsorship
-from features.sponsorships.sponsorship_mapper import db, domain
+from features.sponsorships.sponsorship_mapper import apply_to_db_model, db, domain
 
 
 class SponsorshipMapperTest(unittest.TestCase):
@@ -107,3 +107,24 @@ class SponsorshipMapperTest(unittest.TestCase):
         result = domain(db(original))
 
         self.assertEqual(result, original)
+
+    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
+        db_model = SponsorshipDB(
+            sponsor_id = self.sponsor_id,
+            receiver_id = self.receiver_id,
+            sponsored_at = self.sponsored_at,
+            accepted_at = self.accepted_at,
+        )
+        domain_model = Sponsorship(
+            sponsor_id = UUID("33333333-3333-3333-3333-333333333333"),
+            receiver_id = UUID("44444444-4444-4444-4444-444444444444"),
+            sponsored_at = datetime(2026, 1, 3, 12, 0, 0),
+            accepted_at = None,
+        )
+
+        apply_to_db_model(domain_model, db_model)
+
+        self.assertEqual(db_model.sponsor_id, self.sponsor_id)
+        self.assertEqual(db_model.receiver_id, self.receiver_id)
+        self.assertEqual(db_model.sponsored_at, domain_model.sponsored_at)
+        self.assertIsNone(db_model.accepted_at)

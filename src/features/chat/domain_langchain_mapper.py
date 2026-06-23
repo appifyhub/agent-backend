@@ -6,9 +6,9 @@ from uuid import UUID
 from langchain_core.messages import AIMessage, HumanMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage, ChatMessageSave
 from db.schema.user import User
 from features.chat.config.chat_config import ChatConfig
+from features.chat.message.chat_message import ChatMessage
 from features.integrations.integrations import is_the_agent, resolve_agent_user, resolve_external_handle, resolve_external_id
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 from util import log
@@ -93,9 +93,9 @@ class DomainLangchainMapper:
             return AIMessage(content)
         return HumanMessage(content)
 
-    def map_bot_message_to_storage(self, chat: ChatConfig, message: AIMessage) -> list[ChatMessageSave]:
+    def map_bot_message_to_storage(self, chat: ChatConfig, message: AIMessage) -> list[ChatMessage]:
         log.t(f"Mapping AI message '{message}' to storage message")
-        result: list[ChatMessageSave] = []
+        result: list[ChatMessage] = []
         content = self.__map_bot_message_text(message)
         parts = _split_preserving_blocks(content, CHAT_MESSAGE_DELIMITER)
         for part in parts:
@@ -105,7 +105,7 @@ class DomainLangchainMapper:
                 part += f"\n{fence}"
             sent_at = datetime.now()
             agent_user = resolve_agent_user(chat.chat_type)
-            storage_message = ChatMessageSave(
+            storage_message = ChatMessage(
                 chat_id = chat.chat_id,
                 message_id = DomainLangchainMapper.__construct_bot_message_id(chat.chat_id, sent_at),  # unused outside
                 author_id = agent_user.id,

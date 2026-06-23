@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from db.model.tools_cache import ToolsCacheDB
 from features.tools_cache.tools_cache import ToolsCache
-from features.tools_cache.tools_cache_mapper import db, domain
+from features.tools_cache.tools_cache_mapper import apply_to_db_model, db, domain
 
 
 class ToolsCacheRepository:
@@ -33,7 +33,7 @@ class ToolsCacheRepository:
             ToolsCacheDB.key == tools_cache.key,
         ).first()
         if existing is not None:
-            self.__copy_to_db_model(tools_cache, existing)
+            apply_to_db_model(tools_cache, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
@@ -61,8 +61,3 @@ class ToolsCacheRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
-
-    def __copy_to_db_model(self, source: ToolsCache, target: ToolsCacheDB):
-        target.value = source.value
-        target.created_at = source.created_at
-        target.expires_at = source.expires_at

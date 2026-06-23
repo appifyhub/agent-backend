@@ -4,6 +4,7 @@ from datetime import datetime
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
+from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.audio import Audio
 from features.chat.telegram.model.attachment.document import Document
 from features.chat.telegram.model.attachment.file import File
@@ -90,8 +91,8 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         result = self.mapper.map_message(message)
 
+        self.assertIsInstance(result, ChatMessageRemoteData)
         self.assertEqual(result.message_id, "100")
-        self.assertIsNone(result.author_id)
         self.assertEqual(result.sent_at, datetime.fromtimestamp(message.edit_date))
         self.assertEqual(result.text, "This is a test message")
 
@@ -107,8 +108,8 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         result = self.mapper.map_message(message)
 
+        self.assertIsInstance(result, ChatMessageRemoteData)
         self.assertEqual(result.message_id, "100")
-        self.assertIsNone(result.author_id)
         self.assertEqual(result.sent_at, datetime.fromtimestamp(message.date))
         self.assertEqual(result.text, "This is a caption")
 

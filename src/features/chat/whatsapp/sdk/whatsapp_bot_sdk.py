@@ -5,9 +5,9 @@ from uuid import UUID
 import requests
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage, ChatMessageSave
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.message.chat_message import ChatMessage
 from features.chat.supported_files import KNOWN_FILE_FORMATS
 from features.chat.whatsapp.model.media_info import MediaInfo
 from features.chat.whatsapp.model.response import MessageResponse
@@ -138,15 +138,14 @@ class WhatsAppBotSDK:
         )
         if not chat_config:
             raise NotFoundError(f"Chat config not found for WhatsApp recipient: {recipient_id}", CHAT_CONFIG_NOT_FOUND)
-        message_save = ChatMessageSave(
+        message = ChatMessage(
             message_id = first_message.id,
             chat_id = chat_config.chat_id,
             author_id = THE_AGENT.id,
             sent_at = datetime.now(),
             text = text,
         )
-        message_db = self.__di.chat_message_crud.save(message_save)
-        return ChatMessage.model_validate(message_db)
+        return self.__di.chat_message_repo.save(message)
 
     def __store_attachment_for_sent_media(
         self,

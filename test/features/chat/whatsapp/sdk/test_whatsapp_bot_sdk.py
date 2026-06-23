@@ -5,10 +5,10 @@ from unittest.mock import Mock, patch
 from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.config.chat_config import ChatConfig
+from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.media_info import MediaInfo
 from features.chat.whatsapp.model.response import ContactResponse, MessageResponse, SentMessageResponse
 from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
@@ -39,7 +39,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.mock_di.chat_message_attachment_repo = Mock()
         self.mock_di.chat_message_attachment_repo.save.side_effect = lambda attachment: attachment
         # noinspection PyPropertyAccess
-        self.mock_di.chat_message_crud = Mock()
+        self.mock_di.chat_message_repo = Mock()
+        self.mock_di.chat_message_repo.save.side_effect = lambda msg: msg
         self.mock_file_uploader = Mock()
         self.mock_file_uploader.execute.return_value = "https://uploaded.example/media"
         self.mock_di.file_uploader.return_value = self.mock_file_uploader
@@ -74,10 +75,6 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
         self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = self.chat_config
 
-        # Create a mock DB object that will be returned when saving message
-        mock_message_db = Mock()
-        self.mock_di.chat_message_crud.save.return_value = mock_message_db
-
         self.attachment = ChatMessageAttachment(
             id = "attachment1",
             external_id = "media1",
@@ -90,23 +87,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             mime_type = "image/jpeg",
         )
 
-    @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_text_message(self, mock_message_validate, mock_map_update):
-        mock_message_validate.return_value = ChatMessage(
-            message_id = self.message_id,
-            chat_id = self.chat_uuid,
-            sent_at = datetime.now(),
-            text = "test message",
-        )
+    def test_send_text_message(self):
         text = "test message"
-        expected_message = Mock(spec = ChatMessage)
-        mock_map_update.return_value = Mock(spec = WhatsAppDomainMapper.Result)
-        self.mock_di.whatsapp_data_resolver.resolve.return_value = Mock(
-            spec = WhatsAppDataResolver.Result,
-            message = expected_message,
-            attachments = [Mock(spec = ChatMessageAttachment)],
-        )
 
         result = self.sdk.send_text_message(chat_id = self.chat_id, text = text)
 
@@ -115,36 +97,19 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             recipient_id = str(self.chat_id),
             text = text,
         )
-        # Check that we got a ChatMessage object with the expected content
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.text, text)
         self.assertEqual(result.chat_id, self.chat_uuid)
 
     @patch("requests.get")
-    @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_photo(self, mock_message_validate, mock_map_update, mock_requests_get):
-        mock_message_validate.return_value = ChatMessage(
-            message_id = self.message_id,
-            chat_id = self.chat_uuid,
-            sent_at = datetime.now(),
-            text = "test photo",
-        )
-        # Mock requests.get to avoid actual network calls
+    def test_send_photo(self, mock_requests_get):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.content = b"\xFF\xD8\xFF\xE0"  # JPEG magic bytes
         mock_requests_get.return_value = mock_response
         photo_url = "http://test.com/photo.jpg"
         caption = "test photo"
-        expected_message = Mock(spec = ChatMessage)
-        mock_map_update.return_value = Mock(spec = WhatsAppDomainMapper.Result)
-        self.mock_di.whatsapp_data_resolver.resolve.return_value = Mock(
-            spec = WhatsAppDataResolver.Result,
-            message = expected_message,
-            attachments = [Mock(spec = ChatMessageAttachment)],
-        )
 
         result = self.sdk.send_photo(
             chat_id = self.chat_id,
@@ -158,35 +123,18 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             image_url = photo_url,
             caption = caption,
         )
-        # Check that we got a ChatMessage object with the expected content
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
 
     @patch("requests.get")
-    @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_document(self, mock_message_validate, mock_map_update, mock_requests_get):
-        mock_message_validate.return_value = ChatMessage(
-            message_id = self.message_id,
-            chat_id = self.chat_uuid,
-            sent_at = datetime.now(),
-            text = "test document",
-        )
-        # Mock requests.get to avoid actual network calls
+    def test_send_document(self, mock_requests_get):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.content = b"%PDF-1.4"  # PDF magic bytes
         mock_requests_get.return_value = mock_response
         doc_url = "http://test.com/doc.pdf"
         caption = "test document"
-        expected_message = Mock(spec = ChatMessage)
-        mock_map_update.return_value = Mock(spec = WhatsAppDomainMapper.Result)
-        self.mock_di.whatsapp_data_resolver.resolve.return_value = Mock(
-            spec = WhatsAppDataResolver.Result,
-            message = expected_message,
-            attachments = [Mock(spec = ChatMessageAttachment)],  # Add at least one attachment
-        )
 
         result = self.sdk.send_document(
             chat_id = self.chat_id,
@@ -200,7 +148,6 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             document_url = doc_url,
             caption = caption,
         )
-        # Check that we got a ChatMessage object with the expected content
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
@@ -333,23 +280,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(result.last_url, media_url)
         self.assertEqual(self.mock_di.chat_message_attachment_repo.save.call_count, 1)
 
-    @patch.object(WhatsAppDomainMapper, "map_update")
-    @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_send_button_link(self, mock_message_validate, mock_map_update):
-        mock_message_validate.return_value = ChatMessage(
-            message_id = self.message_id,
-            chat_id = self.chat_uuid,
-            sent_at = datetime.now(),
-            text = "⚙️ https://test.com",
-        )
+    def test_send_button_link(self):
         link_url = "https://test.com"
-        expected_message = Mock(spec = ChatMessage)
-        mock_map_update.return_value = Mock(spec = WhatsAppDomainMapper.Result)
-        self.mock_di.whatsapp_data_resolver.resolve.return_value = Mock(
-            spec = WhatsAppDataResolver.Result,
-            message = expected_message,
-            attachments = [Mock(spec = ChatMessageAttachment)],
-        )
 
         # Test settings button
         result = self.sdk.send_button_link(
@@ -401,36 +333,22 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
 
-    @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_store_api_response_mapping_failure(self, mock_message_validate):
-        mock_message_validate.return_value = ChatMessage(
-            message_id = self.message_id,
-            chat_id = self.chat_uuid,
-            sent_at = datetime.now(),
-            text = "test",
-        )
-        # The __store_api_response_as_message method now directly creates a ChatMessage
-        # without using domain mapping, so this test is no longer relevant
+    def test_store_api_response_creates_domain_message(self):
         result = self.sdk._WhatsAppBotSDK__store_api_response_as_message(
             self.api_response,
             text = "test",
             recipient_id = self.chat_id,
         )
         self.assertIsInstance(result, ChatMessage)
+        self.assertEqual(result.message_id, self.message_id)
+        self.assertEqual(result.chat_id, self.chat_uuid)
+        self.assertEqual(result.text, "test")
 
-    @patch("db.schema.chat_message.ChatMessage.model_validate")
-    def test_store_api_response_resolution_failure(self, mock_message_validate):
-        mock_message_validate.return_value = ChatMessage(
-            message_id = self.message_id,
-            chat_id = self.chat_uuid,
-            sent_at = datetime.now(),
-            text = "test",
-        )
-        # The __store_api_response_as_message method now directly creates a ChatMessage
-        # without using data resolution, so this test is no longer relevant
-        result = self.sdk._WhatsAppBotSDK__store_api_response_as_message(
-            self.api_response,
-            text = "test",
-            recipient_id = self.chat_id,
-        )
-        self.assertIsInstance(result, ChatMessage)
+    def test_store_api_response_chat_not_found(self):
+        self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
+        with self.assertRaises(NotFoundError):
+            self.sdk._WhatsAppBotSDK__store_api_response_as_message(
+                self.api_response,
+                text = "test",
+                recipient_id = "unknown",
+            )

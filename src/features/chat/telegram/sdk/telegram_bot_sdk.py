@@ -5,9 +5,9 @@ from typing import Literal
 
 import requests
 
-from db.schema.chat_message import ChatMessage
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.message.chat_message import ChatMessage
 from features.chat.supported_files import KNOWN_FILE_FORMATS
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.chat_member import ChatMember

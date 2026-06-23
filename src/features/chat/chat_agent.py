@@ -10,10 +10,10 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.runnables import Runnable
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.chat_message import ChatMessage
 from db.schema.user import User
 from di.di import DI
 from features.chat.command_processor import is_known_command
+from features.chat.message.chat_message import ChatMessage
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
@@ -71,11 +71,10 @@ class ChatAgent:
         self.__di = di
 
         # load the chat history
-        past_messages_db = di.chat_message_crud.get_latest_chat_messages(
+        past_messages = di.chat_message_repo.get_latest_by_chat(
             chat_id = target_chat.chat_id,
             limit = invoker_membership.max_chat_history_depth,
         )
-        past_messages = [ChatMessage.model_validate(message_db) for message_db in past_messages_db]
         langchain_messages = [self.__map_to_langchain(di, message, chat_type) for message in past_messages][::-1]
         self.__attachment_ids = [
             attachment.id
@@ -118,7 +117,7 @@ class ChatAgent:
         chat_id = self.__di.require_invoker_chat().chat_id
         # iterate newest-to-oldest, skipping messages from other authors, to find the
         # most recent message from this invoker - only the same author messages form a burst
-        recent_messages = self.__di.chat_message_crud.get_latest_chat_messages(chat_id, limit = 10)
+        recent_messages = self.__di.chat_message_repo.get_latest_by_chat(chat_id, limit = 10)
         for message in recent_messages:
             if message.author_id == self.__di.invoker.id:
                 if message.message_id != self.__last_message_id:
@@ -289,11 +288,10 @@ class ChatAgent:
         chat_type = self.__di.require_invoker_chat_type()
         agent_user = resolve_agent_user(chat_type)
         agent_user_id = agent_user.id if agent_user else None
-        recent_messages_db = self.__di.chat_message_crud.get_latest_chat_messages(
+        recent_messages = self.__di.chat_message_repo.get_latest_by_chat(
             chat_id = invoker_chat.chat_id,
             limit = config.chat_history_depth,
         )
-        recent_messages = [ChatMessage.model_validate(m) for m in recent_messages_db]
         # walk back through recent messages from the same invoker looking for an
         # unanswered @mention. a bot reply is the only true chain-break (it means
         # the prior mention was already answered). messages from other users are
