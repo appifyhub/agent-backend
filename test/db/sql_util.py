@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from db.crud.chat_message import ChatMessageCRUD
 from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
@@ -52,11 +51,6 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return ChatMembershipRepository(self.__session)
-
-    def chat_message_crud(self) -> ChatMessageCRUD:
-        if not self.__is_session_active:
-            self.start_session()
-        return ChatMessageCRUD(self.__session)
 
     def chat_message_repo(self) -> ChatMessageRepository:
         if not self.__is_session_active:

@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from api.sponsorships_controller import SponsorshipsController
     from api.transfers_controller import TransfersController
     from api.usage_controller import UsageController
-    from db.crud.chat_message import ChatMessageCRUD
     from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
@@ -117,7 +116,6 @@ class DI:
     _chat_config_repo: "ChatConfigRepository | None"
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
-    _chat_message_crud: "ChatMessageCRUD | None"
     _chat_message_repo: "ChatMessageRepository | None"
     _chat_message_attachment_repo: "ChatMessageAttachmentRepository | None"
     _sponsorship_repo: "SponsorshipRepository | None"
@@ -177,7 +175,6 @@ class DI:
         self._chat_config_repo = None
         self._chat_membership_repo = None
         self._chat_membership_service = None
-        self._chat_message_crud = None
         self._chat_message_repo = None
         self._chat_message_attachment_repo = None
         self._sponsorship_repo = None
@@ -372,13 +369,6 @@ class DI:
             from features.chat.membership.chat_membership_service import ChatMembershipService
             self._chat_membership_service = ChatMembershipService(self)
         return self._chat_membership_service
-
-    @property
-    def chat_message_crud(self) -> "ChatMessageCRUD":
-        if self._chat_message_crud is None:
-            from db.crud.chat_message import ChatMessageCRUD
-            self._chat_message_crud = ChatMessageCRUD(self.db)
-        return self._chat_message_crud
 
     @property
     def chat_message_repo(self) -> "ChatMessageRepository":
