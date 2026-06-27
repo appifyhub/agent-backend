@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
-from api.mapper.user_mapper import api_to_domain, domain_to_api
+from api.mapper.user_api_mapper import api_to_domain, domain_to_api
 from api.model.user_settings_payload import UserSettingsPayload
 from db.model.user import UserDB
 from db.schema.user import User

@@ -4,8 +4,8 @@ from typing import Annotated, Literal, TypeAlias, get_args
 from uuid import UUID
 
 from api import auth
-from api.mapper.chat_settings_mapper import domain_to_api as chat_to_api
-from api.mapper.user_mapper import api_to_domain, domain_to_api
+from api.mapper.chat_settings_api_mapper import domain_to_api as chat_to_api
+from api.mapper.user_api_mapper import api_to_domain, domain_to_api
 from api.model.chat_config_payload import ChatConfigPayload
 from api.model.chat_settings_payload import ChatSettingsPayload
 from api.model.chat_settings_response import ChatSettingsResponse
