@@ -11,6 +11,7 @@ from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.currencies.price_alert_repo import PriceAlertRepository
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
+from features.users.user_repo import UserRepository
 
 
 class SQLUtil:
@@ -76,6 +77,11 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return UserCRUD(self.__session)
+
+    def user_repo(self) -> UserRepository:
+        if not self.__is_session_active:
+            self.start_session()
+        return UserRepository(self.__session)
 
     def price_alert_repo(self) -> PriceAlertRepository:
         if not self.__is_session_active:
