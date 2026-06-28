@@ -9,11 +9,11 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET
 from features.support.user_support_service import UserSupportService
+from features.users.user import User
 
 
 class UserSupportServiceTest(unittest.TestCase):

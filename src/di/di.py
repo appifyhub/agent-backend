@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from api.sponsorships_controller import SponsorshipsController
     from api.transfers_controller import TransfersController
     from api.usage_controller import UsageController
-    from db.crud.user import UserCRUD
     from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
     from features.accounting.purchases.purchase_service import PurchaseService
     from features.accounting.spending.spending_service import SpendingService
@@ -113,7 +112,6 @@ class DI:
     _telegram_bot_sdk: "TelegramBotSDK | None"
     _whatsapp_bot_sdk: "WhatsAppBotSDK | None"
     # Repositories
-    _user_crud: "UserCRUD | None"
     _user_repo: "UserRepository | None"
     _chat_config_repo: "ChatConfigRepository | None"
     _chat_membership_repo: "ChatMembershipRepository | None"
@@ -173,7 +171,6 @@ class DI:
         self._telegram_bot_sdk = None
         self._whatsapp_bot_sdk = None
         # Repositories
-        self._user_crud = None
         self._user_repo = None
         self._chat_config_repo = None
         self._chat_membership_repo = None
@@ -344,13 +341,6 @@ class DI:
         return self._whatsapp_bot_sdk
 
     # === Repositories ===
-
-    @property
-    def user_crud(self) -> "UserCRUD":
-        if self._user_crud is None:
-            from db.crud.user import UserCRUD
-            self._user_crud = UserCRUD(self.db)
-        return self._user_crud
 
     @property
     def user_repo(self) -> "UserRepository":

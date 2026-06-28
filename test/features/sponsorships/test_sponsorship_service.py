@@ -464,13 +464,13 @@ class SponsorshipServiceTest(unittest.TestCase):
 
     def test_unsponsor_by_user_id_success(self):
         sponsor_id = UUID(int = 2)
-        sponsorship_db = Mock(
+        sponsorship = Sponsorship(
             sponsor_id = sponsor_id,
             receiver_id = self.user.id,
             sponsored_at = datetime.now(),
             accepted_at = datetime.now(),
         )
-        self.mock_sponsorship_repo.get.return_value = sponsorship_db
+        self.mock_sponsorship_repo.get.return_value = sponsorship
 
         result, msg = self.service.unsponsor_by_user_id(sponsor_id.hex, self.user.id.hex)
 
@@ -494,15 +494,15 @@ class SponsorshipServiceTest(unittest.TestCase):
     def test_unsponsor_self_success(self):
         user_id_hex = self.user.id.hex
         sponsor_id = UUID(int = 2)
-        sponsorship_db = Mock(
+        sponsorship = Sponsorship(
             sponsor_id = sponsor_id,
             receiver_id = self.user.id,
             sponsored_at = datetime.now(),
             accepted_at = datetime.now(),
         )
         self.mock_user_repo.get.return_value = self.user
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship_db]
-        self.mock_sponsorship_repo.get.return_value = sponsorship_db
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship]
+        self.mock_sponsorship_repo.get.return_value = sponsorship
 
         result, msg = self.service.unsponsor_self(user_id_hex)
 
@@ -530,14 +530,14 @@ class SponsorshipServiceTest(unittest.TestCase):
 
     def test_unsponsor_self_delegates_to_unsponsor_by_user_id(self):
         sponsor_id = UUID(int = 2)
-        sponsorship_db = Mock(
+        sponsorship = Sponsorship(
             sponsor_id = sponsor_id,
             receiver_id = self.user.id,
             sponsored_at = datetime.now(),
             accepted_at = datetime.now(),
         )
         self.mock_user_repo.get.return_value = self.user
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship_db]
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship]
 
         with unittest.mock.patch.object(self.service, "unsponsor_by_user_id") as mock_method:
             mock_method.return_value = (SponsorshipService.Result.success, "Revoked")

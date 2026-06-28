@@ -4,9 +4,9 @@ from uuid import uuid4
 
 from db.sql_util import SQLUtil
 
-from db.schema.user import UserSave
 from features.accounting.purchases.purchase_record import PurchaseRecord
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
+from features.users.user import User
 from util.errors import NotFoundError, ValidationError
 
 
@@ -18,7 +18,7 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.purchase_record_repo()
-        self.user = self.sql.user_crud().create(UserSave(connect_key = "TEST-KEY-1234"))
+        self.user = self.sql.user_repo().save(User(connect_key = "TEST-KEY-1234"))
 
     def tearDown(self):
         self.sql.end_session()
@@ -289,7 +289,7 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
         self.assertIn("refunded", str(context.exception))
 
     def test_bind_license_key_to_user_already_bound(self):
-        other_user = self.sql.user_crud().create(UserSave(connect_key = "OTHER-KEY"))
+        other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
         record = self._create_record(user_id = other_user.id, license_key = "LICENSE-BOUND")
         self.repo.save(record)
 
@@ -394,7 +394,7 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
         self.assertTrue(updated.refunded)
 
     def test_save_updates_user_id_when_update_has_value(self):
-        other_user = self.sql.user_crud().create(UserSave(connect_key = "UPDATE-KEY"))
+        other_user = self.sql.user_repo().save(User(connect_key = "UPDATE-KEY"))
         original = self._create_record(
             user_id = self.user.id,
             sale_id = "sale-update-user",

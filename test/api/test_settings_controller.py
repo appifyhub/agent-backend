@@ -632,10 +632,10 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIsNotNone(result)
 
     def test_create_settings_link_with_sponsorship(self):
-        mock_sponsorship_db = MagicMock()
-        mock_sponsorship_db.receiver_id = self.invoker_user.id
+        sponsorship = MagicMock()
+        sponsorship.receiver_id = self.invoker_user.id
 
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [mock_sponsorship_db]
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship]
 
         controller = SettingsController(self.mock_di)
         link_response = controller.create_settings_link()

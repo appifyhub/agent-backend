@@ -6,10 +6,10 @@ from uuid import UUID
 from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import UserSave
 from features.chat.config.chat_config import ChatConfig
 from features.currencies.price_alert import PriceAlert
 from features.currencies.price_alert_repo import PriceAlertRepository
+from features.users.user import User
 
 
 class PriceAlertRepositoryTest(unittest.TestCase):
@@ -21,7 +21,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.price_alert_repo()
-        self.owner_id = self.sql.user_crud().create(UserSave()).id
+        self.owner_id = self.sql.user_repo().save(User()).id
 
     def tearDown(self):
         self.sql.end_session()
@@ -124,7 +124,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
             chat.chat_id,
             last_price_time = datetime(2026, 1, 1, 12, 0, 0),
         ))
-        replacement_owner = self.sql.user_crud().create(UserSave()).id
+        replacement_owner = self.sql.user_repo().save(User()).id
         replacement = replace(
             created,
             owner_id = replacement_owner,

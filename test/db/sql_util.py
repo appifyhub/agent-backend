@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
@@ -72,11 +71,6 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return ToolsCacheRepository(self.__session)
-
-    def user_crud(self) -> UserCRUD:
-        if not self.__is_session_active:
-            self.start_session()
-        return UserCRUD(self.__session)
 
     def user_repo(self) -> UserRepository:
         if not self.__is_session_active:

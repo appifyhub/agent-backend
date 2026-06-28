@@ -5,10 +5,8 @@ from uuid import UUID
 
 from api.model.settings_link_response import SettingsLinkResponse
 from api.settings_controller import SettingsController
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.command_processor import (
     COMMAND_CONNECT,
@@ -23,6 +21,7 @@ from features.connect.profile_connect_service import ProfileConnectService
 from features.integrations.integrations import resolve_agent_user
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.sponsorships.sponsorship_service import SponsorshipService
+from features.users.user import User
 from util.error_codes import UNEXPECTED_ERROR
 
 
@@ -30,7 +29,7 @@ class CommandProcessorTest(unittest.TestCase):
 
     user: User
     chat: ChatConfig
-    agent_user: UserSave
+    agent_user: User
     mock_di: DI
     processor: CommandProcessor
 
@@ -66,8 +65,6 @@ class CommandProcessorTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
 
-        # noinspection PyPropertyAccess
-        self.mock_di.user_crud = Mock(spec = UserCRUD)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_service = Mock(spec = SponsorshipService)
         # noinspection PyPropertyAccess

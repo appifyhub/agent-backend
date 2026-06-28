@@ -7,14 +7,13 @@ import requests_mock
 from pydantic import SecretStr
 from requests_mock.mocker import Mocker
 
-from db.crud.user import UserCRUD
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.currencies.exchange_rate_fetcher import CACHE_TTL, ExchangeRateFetcher
 from features.tools_cache.tools_cache import ToolsCache
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
+from features.users.user import User
 from features.web_browsing.web_fetcher import WebFetcher
 from util.config import config
 from util.errors import ValidationError
@@ -25,7 +24,6 @@ class ExchangeRateFetcherTest(unittest.TestCase):
     cached_rate: str
     user: User
     cache_entry: ToolsCache
-    mock_user_crud: UserCRUD
     mock_cache_repo: ToolsCacheRepository
     mock_telegram_sdk: TelegramBotSDK
 
@@ -72,8 +70,6 @@ class ExchangeRateFetcherTest(unittest.TestCase):
         self.mock_di.access_token_resolver.require_access_token_for_tool.return_value.get_secret_value.return_value = "test_token"
 
         self.mock_cache_repo.get.return_value = None
-        self.mock_sponsorship_dao = MagicMock()
-        self.mock_sponsorship_dao.get_all_by_receiver.return_value = []
         self.mock_telegram_sdk = MagicMock()
 
     # noinspection PyUnusedLocal

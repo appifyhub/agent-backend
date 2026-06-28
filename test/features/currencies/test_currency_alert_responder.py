@@ -3,7 +3,6 @@ from datetime import datetime
 from unittest.mock import Mock
 from uuid import UUID
 
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
@@ -27,8 +26,6 @@ class CurrencyAlertResponderTest(unittest.TestCase):
     def setUp(self):
         # Create a DI mock and set required properties
         self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.user_crud = Mock(spec = UserCRUD)
 
         self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
         self.mock_di.chat_config_repo.get = self.__make_chat_config
