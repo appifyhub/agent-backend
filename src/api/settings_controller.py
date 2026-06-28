@@ -5,7 +5,7 @@ from uuid import UUID
 
 from api import auth
 from api.mapper.chat_settings_api_mapper import domain_to_api as chat_to_api
-from api.mapper.user_api_mapper import api_to_domain, domain_to_api
+from api.mapper.user_api_mapper import apply_to_domain, domain_to_api
 from api.model.chat_config_payload import ChatConfigPayload
 from api.model.chat_settings_payload import ChatSettingsPayload
 from api.model.chat_settings_response import ChatSettingsResponse
@@ -16,7 +16,6 @@ from api.model.user_chat_config_payload import UserChatConfigPayload
 from api.model.user_settings_payload import UserSettingsPayload
 from api.model.user_settings_response import UserSettingsResponse
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
@@ -24,6 +23,7 @@ from features.external_tools.external_tool_library import ALL_EXTERNAL_TOOLS
 from features.external_tools.external_tool_provider_library import ALL_PROVIDERS
 from features.external_tools.intelligence_presets import get_all_presets
 from features.integrations.integrations import is_own_chat, resolve_agent_user, resolve_external_handle, resolve_external_id
+from features.users.user import User
 from util import log
 from util.config import config
 from util.error_codes import (
@@ -308,11 +308,10 @@ class SettingsController:
         if should_activate_waitlisted_user:
             self.__di.authorization_service.require_waitlisted_user_can_activate(user)
 
-        user_save = api_to_domain(payload, user)
+        updated_user = apply_to_domain(payload, user)
         if should_activate_waitlisted_user:
-            user_save.is_on_waitlist = False
-            user_save.is_invited_to_start = False
-        User.model_validate(self.__di.user_crud.save(user_save))
+            updated_user = replace(updated_user, is_on_waitlist = False, is_invited_to_start = False)
+        self.__di.user_repo.save(updated_user)
         log.i("User settings saved")
 
     def __is_sponsored(self, user_id: UUID) -> bool:

@@ -1,6 +1,7 @@
 import base64
 import json
 import unittest
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock, PropertyMock, patch
 from uuid import UUID
@@ -14,10 +15,8 @@ from api.model.settings_link_response import SettingsLinkResponse
 from api.model.user_chat_config_payload import UserChatConfigPayload
 from api.model.user_settings_payload import UserSettingsPayload
 from api.settings_controller import SettingsController
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig as ChatConfigDomain
 from features.chat.config.chat_config_repo import ChatConfigRepository
@@ -29,6 +28,8 @@ from features.external_tools.access_token_resolver import AccessTokenResolver
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
 from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET, GPT_4O, IMAGE_GEN_FLUX_1_1, SONAR
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
+from features.users.user import User
+from features.users.user_repo import UserRepository
 from util.config import ConfiguredProduct
 from util.error_codes import (
     NOT_CHAT_ADMIN,
@@ -46,7 +47,7 @@ class SettingsControllerTest(unittest.TestCase):
     chat_config: ChatConfigDomain
     chat_config_domain: ChatConfigDomain
     mock_di: DI
-    mock_user_dao: UserCRUD
+    mock_user_repo: UserRepository
     mock_chat_config_repo: ChatConfigRepository
     mock_sponsorship_repo: SponsorshipRepository
     mock_telegram_sdk: TelegramBotSDK
@@ -96,13 +97,14 @@ class SettingsControllerTest(unittest.TestCase):
         self.chat_config_domain = self.chat_config
 
         # Create mocks
-        self.mock_user_dao = MagicMock(spec = UserCRUD)
+        self.mock_user_repo = MagicMock(spec = UserRepository)
         self.mock_chat_config_repo = MagicMock(spec = ChatConfigRepository)
         self.mock_sponsorship_repo = MagicMock(spec = SponsorshipRepository)
         self.mock_telegram_sdk = MagicMock(spec = TelegramBotSDK)
 
         # Configure common mock returns
-        self.mock_user_dao.get.return_value = self.invoker_user
+        self.mock_user_repo.get.return_value = self.invoker_user
+        self.mock_user_repo.save.return_value = self.invoker_user
         self.mock_chat_config_repo.get.return_value = self.chat_config_domain
         self.mock_chat_config_repo.save.return_value = self.chat_config_domain
         self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
@@ -116,7 +118,7 @@ class SettingsControllerTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker_chat_type = PropertyMock(return_value = ChatConfigDB.ChatType.telegram)
         # noinspection PyPropertyAccess
-        self.mock_di.user_crud = self.mock_user_dao
+        self.mock_di.user_repo = self.mock_user_repo
         # noinspection PyPropertyAccess
         self.mock_di.chat_config_repo = self.mock_chat_config_repo
         # noinspection PyPropertyAccess
@@ -245,8 +247,6 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn(self.invoker_user.id.hex, link)
 
     def test_fetch_user_settings_success(self):
-        self.mock_user_dao.get.return_value = self.invoker_user
-
         controller = SettingsController(self.mock_di)
         result = controller.fetch_user_settings(self.invoker_user.id.hex)
 
@@ -269,8 +269,6 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertTrue(result.is_sponsored)
 
     def test_fetch_user_settings_masks_all_token_fields(self):
-        self.mock_user_dao.get.return_value = self.invoker_user
-
         controller = SettingsController(self.mock_di)
         result = controller.fetch_user_settings(self.invoker_user.id.hex)
 
@@ -282,34 +280,6 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(result.coinmarketcap_key, mask_secret(self.invoker_user.coinmarketcap_key))
 
     def test_save_user_settings_with_all_tokens(self):
-        # Create a proper UserDB mock for the save return value
-        saved_user_db = UserDB(
-            id = self.invoker_user.id,
-            full_name = self.invoker_user.full_name,
-            telegram_username = self.invoker_user.telegram_username,
-            telegram_chat_id = self.invoker_user.telegram_chat_id,
-            telegram_user_id = self.invoker_user.telegram_user_id,
-            connect_key = "SAVE-USER-KEY1",
-            open_ai_key = SecretStr("new_openai_key"),
-            anthropic_key = SecretStr("new_anthropic_key"),
-            perplexity_key = SecretStr("new_perplexity_key"),
-            replicate_key = SecretStr("new_replicate_key"),
-            rapid_api_key = SecretStr("new_rapid_api_key"),
-            coinmarketcap_key = SecretStr("new_coinmarketcap_key"),
-            tool_choice_chat = CLAUDE_4_6_SONNET.id,
-            tool_choice_reasoning = GPT_4O.id,
-            tool_choice_vision = CLAUDE_4_6_SONNET.id,
-            tool_choice_images_gen = IMAGE_GEN_FLUX_1_1.id,
-            tool_choice_search = SONAR.id,
-            group = self.invoker_user.group,
-            created_at = self.invoker_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-        self.mock_user_dao.save.return_value = saved_user_db
-
         controller = SettingsController(self.mock_di)
         payload = UserSettingsPayload(
             open_ai_key = "new_openai_key",
@@ -330,7 +300,7 @@ class SettingsControllerTest(unittest.TestCase):
 
         # Verify the save method was called
         # noinspection PyUnresolvedReferences
-        self.mock_user_dao.save.assert_called_once()
+        self.mock_user_repo.save.assert_called_once()
 
     def test_save_user_settings_failure_invalid_tool_choice(self):
         controller = SettingsController(self.mock_di)
@@ -354,48 +324,31 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, POLICY_ACCEPTANCE_REVOCATION_FORBIDDEN)
 
     def test_save_user_settings_waitlisted_activation_when_capacity_available(self):
-        waitlisted_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": False,
-                "are_policies_accepted": False,
-            },
+        waitlisted_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
         self.mock_authorization_service.authorize_for_user.return_value = waitlisted_user
         self.mock_authorization_service.require_waitlisted_user_can_activate.return_value = waitlisted_user
-        saved_user_db = UserDB(
-            id = waitlisted_user.id,
-            full_name = waitlisted_user.full_name,
-            telegram_username = waitlisted_user.telegram_username,
-            telegram_chat_id = waitlisted_user.telegram_chat_id,
-            telegram_user_id = waitlisted_user.telegram_user_id,
-            connect_key = "SAVE-USER-KEY2",
-            group = waitlisted_user.group,
-            created_at = waitlisted_user.created_at,
-            credit_balance = waitlisted_user.credit_balance,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-        self.mock_user_dao.save.return_value = saved_user_db
 
         controller = SettingsController(self.mock_di)
         payload = UserSettingsPayload(are_policies_accepted = True)
         controller.save_user_settings(waitlisted_user.id.hex, payload)
 
         self.mock_authorization_service.require_waitlisted_user_can_activate.assert_called_once_with(waitlisted_user)
-        saved_payload = self.mock_user_dao.save.call_args.args[0]
+        saved_payload = self.mock_user_repo.save.call_args.args[0]
         self.assertFalse(saved_payload.is_on_waitlist)
         self.assertFalse(saved_payload.is_invited_to_start)
         self.assertTrue(saved_payload.are_policies_accepted)
 
     def test_save_user_settings_waitlisted_activation_denied_without_invite_or_capacity(self):
-        waitlisted_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": False,
-                "are_policies_accepted": False,
-            },
+        waitlisted_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
         self.mock_authorization_service.authorize_for_user.return_value = waitlisted_user
         self.mock_authorization_service.require_waitlisted_user_can_activate.side_effect = AuthorizationError(

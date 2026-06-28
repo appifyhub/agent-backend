@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import User
 from features.chat.config.chat_config import ChatConfig
+from features.users.user import User
 from util.config import config
 from util.error_codes import DI_DEPENDENCY_NOT_MET
 from util.errors import InternalError

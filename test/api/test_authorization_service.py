@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import Mock
 from uuid import UUID
@@ -6,15 +7,15 @@ from uuid import UUID
 from pydantic import SecretStr
 
 from api.authorization_service import AuthorizationService
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.platform_bot_sdk import ChatAccess
+from features.users.user import User
+from features.users.user_repo import UserRepository
 from util.error_codes import NOT_CHAT_ADMIN, NOT_CHAT_MEMBER, WAITLIST_ACCOUNT_NOT_ACTIVE, WAITLIST_INVITED_POLICIES_REQUIRED
 from util.errors import AuthorizationError, NotFoundError, ValidationError
 
@@ -23,7 +24,7 @@ class AuthorizationServiceTest(unittest.TestCase):
 
     invoker_user: User
     chat_config: ChatConfig
-    mock_user_dao: UserCRUD
+    mock_user_repo: UserRepository
     mock_chat_config_repo: ChatConfigRepository
     mock_di: DI
 
@@ -50,13 +51,13 @@ class AuthorizationServiceTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        self.mock_user_dao = Mock(spec = UserCRUD)
-        self.mock_user_dao.get.return_value = self.invoker_user
+        self.mock_user_repo = Mock(spec = UserRepository)
+        self.mock_user_repo.get.return_value = self.invoker_user
         self.mock_chat_config_repo = Mock(spec = ChatConfigRepository)
         self.mock_chat_config_repo.get.return_value = self.chat_config
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
-        self.mock_di.user_crud = self.mock_user_dao
+        self.mock_di.user_repo = self.mock_user_repo
         # noinspection PyPropertyAccess
         self.mock_di.chat_config_repo = self.mock_chat_config_repo
 
@@ -103,7 +104,7 @@ class AuthorizationServiceTest(unittest.TestCase):
 
     def test_validate_user_failure_user_not_found(self):
         # Reset mock to return None for this test
-        self.mock_di.user_crud.get.return_value = None
+        self.mock_di.user_repo.get.return_value = None
         service = AuthorizationService(self.mock_di)
         with self.assertRaises(NotFoundError) as context:
             service.validate_user("00000000000000000000000000000000")
@@ -125,7 +126,7 @@ class AuthorizationServiceTest(unittest.TestCase):
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
-        self.mock_user_dao.get.return_value = other_user
+        self.mock_user_repo.get.return_value = other_user
 
         service = AuthorizationService(self.mock_di)
         with self.assertRaises(AuthorizationError) as context:
@@ -315,22 +316,20 @@ class AuthorizationServiceTest(unittest.TestCase):
         self.assertIs(result, self.invoker_user)
 
     def test_require_user_is_chat_ready_success(self):
-        active_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": False,
-                "are_policies_accepted": True,
-            },
+        active_user = replace(
+            self.invoker_user,
+            is_on_waitlist = False,
+            are_policies_accepted = True,
         )
         service = AuthorizationService(self.mock_di)
         service.require_user_is_chat_ready(active_user)
 
     def test_require_user_is_chat_ready_waitlist_requires_activation(self):
-        waitlisted_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": False,
-                "are_policies_accepted": False,
-            },
+        waitlisted_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
         service = AuthorizationService(self.mock_di)
 
@@ -340,12 +339,11 @@ class AuthorizationServiceTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, WAITLIST_ACCOUNT_NOT_ACTIVE)
 
     def test_require_user_is_chat_ready_invited_requires_policies(self):
-        invited_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": True,
-                "are_policies_accepted": False,
-            },
+        invited_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = True,
+            are_policies_accepted = False,
         )
         service = AuthorizationService(self.mock_di)
 
@@ -355,12 +353,11 @@ class AuthorizationServiceTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, WAITLIST_INVITED_POLICIES_REQUIRED)
 
     def test_require_user_is_chat_ready_non_waitlisted_requires_policies(self):
-        inactive_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": False,
-                "is_invited_to_start": False,
-                "are_policies_accepted": False,
-            },
+        inactive_user = replace(
+            self.invoker_user,
+            is_on_waitlist = False,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
         service = AuthorizationService(self.mock_di)
 
@@ -370,40 +367,37 @@ class AuthorizationServiceTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, WAITLIST_INVITED_POLICIES_REQUIRED)
 
     def test_require_waitlisted_user_can_activate_when_invited(self):
-        invited_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": True,
-                "are_policies_accepted": False,
-            },
+        invited_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = True,
+            are_policies_accepted = False,
         )
-        self.mock_user_dao.count.return_value = 999999
+        self.mock_user_repo.count.return_value = 999999
         service = AuthorizationService(self.mock_di)
 
         service.require_waitlisted_user_can_activate(invited_user)
 
     def test_require_waitlisted_user_can_activate_with_available_capacity(self):
-        waitlisted_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": False,
-                "are_policies_accepted": False,
-            },
+        waitlisted_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
-        self.mock_user_dao.count.return_value = 0
+        self.mock_user_repo.count.return_value = 0
         service = AuthorizationService(self.mock_di)
 
         service.require_waitlisted_user_can_activate(waitlisted_user)
 
     def test_require_waitlisted_user_can_activate_denied_without_invite_or_capacity(self):
-        waitlisted_user = self.invoker_user.model_copy(
-            update = {
-                "is_on_waitlist": True,
-                "is_invited_to_start": False,
-                "are_policies_accepted": False,
-            },
+        waitlisted_user = replace(
+            self.invoker_user,
+            is_on_waitlist = True,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
-        self.mock_user_dao.count.return_value = 999999
+        self.mock_user_repo.count.return_value = 999999
         service = AuthorizationService(self.mock_di)
 
         with self.assertRaises(AuthorizationError) as context:
