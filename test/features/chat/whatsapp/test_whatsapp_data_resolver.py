@@ -7,7 +7,6 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
@@ -19,13 +18,14 @@ from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
 from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.integrations.integrations import resolve_agent_user
+from features.users.user import User
+from features.users.user_remote_data import UserRemoteData
 from util.config import config
 from util.functions import generate_deterministic_short_uuid
 
 
 class WhatsAppDataResolverTest(unittest.TestCase):
 
-    agent_user: UserSave
     sql: SQLUtil
     mock_di: DI
     resolver: WhatsAppDataResolver
@@ -37,7 +37,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_config_repo = self.sql.chat_config_repo()
         # noinspection PyPropertyAccess
-        self.mock_di.user_crud = self.sql.user_crud()
+        self.mock_di.user_repo = self.sql.user_repo()
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = self.sql.chat_message_repo()
         # noinspection PyPropertyAccess
@@ -102,7 +102,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             is_private = True,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
-        author_data = UserSave(
+        author_data = UserRemoteData(
             whatsapp_user_id = self.agent_user.whatsapp_user_id,
             full_name = self.agent_user.full_name,
         )
@@ -148,7 +148,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             is_private = True,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
-        author_data = UserSave(
+        author_data = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
@@ -192,14 +192,13 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_resolve_author_new(self):
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
 
         result = self.resolver.resolve_author(mapped_data)
-        saved_user_db = self.sql.user_crud().get_by_whatsapp_user_id(mapped_data.whatsapp_user_id or -1)
-        saved_user = User.model_validate(saved_user_db)
+        saved_user = self.sql.user_repo().get_by_whatsapp_user_id(mapped_data.whatsapp_user_id or "")
 
         assert result is not None
         self.assertEqual(result, saved_user)
@@ -207,27 +206,25 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.full_name, mapped_data.full_name)
         self.assertEqual(result.whatsapp_user_id, mapped_data.whatsapp_user_id)
         self.assertEqual(result.whatsapp_user_id, mapped_data.whatsapp_user_id)
-        self.assertEqual(result.open_ai_key, mapped_data.open_ai_key)
-        self.assertEqual(result.group, mapped_data.group)
+        self.assertIsNone(result.open_ai_key)
+        self.assertEqual(result.group, UserDB.Group.standard)
         self.assertEqual(result.created_at, datetime.now().date())
 
     def test_resolve_author_by_whatsapp_user_id(self):
-        existing_user_data = UserSave(
+        existing_user_data = User(
             whatsapp_user_id = "1234567890",
             full_name = "Existing User",
         )
-        existing_user_db = self.sql.user_crud().save(existing_user_data)
-        existing_user = User.model_validate(existing_user_db)
+        existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             whatsapp_user_id = "1234567890",
             full_name = "Updated User",
         )
 
         result = self.resolver.resolve_author(mapped_data)
         assert result is not None
-        saved_user_db = self.sql.user_crud().get(result.id)
-        saved_user = User.model_validate(saved_user_db)
+        saved_user = self.sql.user_repo().get(result.id)
 
         assert result is not None
         self.assertEqual(result, saved_user)
@@ -240,10 +237,10 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.group, existing_user.group)
         self.assertEqual(result.created_at, existing_user.created_at)
 
-    @patch("db.crud.user.UserCRUD.count")
+    @patch("features.users.user_repo.UserRepository.count")
     def test_resolve_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
         mock_count.return_value = config.max_users  # reach maximum immediately
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
@@ -256,7 +253,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         mock_count.assert_called_once()
 
     def test_resolve_author_existing(self):
-        existing_user_data = UserSave(
+        existing_user_data = User(
             whatsapp_user_id = "1",
             full_name = "Existing User",
             open_ai_key = SecretStr("sk-key"),
@@ -285,10 +282,9 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             tool_choice_api_crypto_exchange = "coinmarketcap",
             tool_choice_api_twitter = "rapidapi",
         )
-        existing_user_db = self.sql.user_crud().save(existing_user_data)
-        existing_user = User.model_validate(existing_user_db)
+        existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "Updated User",
         )
@@ -296,8 +292,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         result = self.resolver.resolve_author(mapped_data)
         assert result is not None
 
-        saved_user_db = self.sql.user_crud().get(result.id)
-        saved_user = User.model_validate(saved_user_db)
+        saved_user = self.sql.user_repo().get(result.id)
 
         self.assertEqual(result, saved_user)
         self.assertEqual(result.id, existing_user.id)
@@ -334,18 +329,16 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_api_twitter, existing_user.tool_choice_api_twitter)
 
     def test_resolve_author_preserves_name_when_empty(self):
-        existing_user_data = UserSave(
+        existing_user_data = User(
             whatsapp_user_id = "1",
             full_name = "Existing User",
         )
-        existing_user_db = self.sql.user_crud().save(existing_user_data)
-        existing_user = User.model_validate(existing_user_db)
+        existing_user = self.sql.user_repo().save(existing_user_data)
 
         # Test with None full_name
-        mapped_data_none = UserSave(
+        mapped_data_none = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = None,
-            whatsapp_chat_id = "c2",
         )
 
         result = self.resolver.resolve_author(mapped_data_none)
@@ -354,10 +347,9 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
 
         # Test with empty string full_name
-        mapped_data_empty = UserSave(
+        mapped_data_empty = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "",
-            whatsapp_chat_id = "c3",
         )
 
         result = self.resolver.resolve_author(mapped_data_empty)
@@ -398,8 +390,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         )
         self.sql.chat_message_repo().save(old_message)
 
-        new_author_data = UserSave(full_name = "First Last", whatsapp_chat_id = "c1")
-        new_author = User.model_validate(self.sql.user_crud().save(new_author_data))
+        new_author = self.sql.user_repo().save(User(full_name = "First Last", whatsapp_user_id = "c1"))
         mapped_data = ChatMessageRemoteData(
             message_id = "m1",
             sent_at = datetime.now(),

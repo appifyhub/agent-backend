@@ -3,13 +3,13 @@ from datetime import datetime
 from pydantic import BaseModel, SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import UserSave
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.whatsapp.model.message import Message
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.model.value import Value
+from features.users.user_remote_data import UserRemoteData
 from util import log
 from util.functions import generate_deterministic_short_uuid, normalize_phone_number
 
@@ -18,7 +18,7 @@ class WhatsAppDomainMapper:
 
     class Result(BaseModel):
         chat: ChatConfigRemoteData
-        author: UserSave | None
+        author: UserRemoteData | None
         message: ChatMessageRemoteData
         attachments: list[ChatMessageAttachmentRemoteData]
         replied_to_message_id: str | None = None
@@ -70,7 +70,7 @@ class WhatsAppDomainMapper:
         )
 
     # noinspection PyMethodMayBeStatic
-    def map_author(self, message: Message, value: Value) -> UserSave | None:
+    def map_author(self, message: Message, value: Value) -> UserRemoteData | None:
         full_name: str | None = None
         wa_id: str
         if value.contacts:
@@ -83,7 +83,7 @@ class WhatsAppDomainMapper:
             log.w(f"  No WhatsApp user ID found for message '{message.id}'")
             return None
         phone_number = SecretStr(wa_id) if self._is_phone_number(wa_id) else None
-        return UserSave(
+        return UserRemoteData(
             full_name = full_name,
             whatsapp_user_id = wa_id,
             whatsapp_phone_number = phone_number,

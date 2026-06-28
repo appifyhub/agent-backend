@@ -3,7 +3,6 @@ import unittest
 from datetime import datetime
 
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.audio import Audio
 from features.chat.telegram.model.attachment.document import Document
@@ -16,6 +15,7 @@ from features.chat.telegram.model.text_quote import TextQuote
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.model.user import User
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
+from features.users.user_remote_data import UserRemoteData
 from util.functions import generate_deterministic_short_uuid
 
 
@@ -132,13 +132,11 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         result = self.mapper.map_author(message)
 
-        self.assertIsNone(result.id)
+        self.assertIsInstance(result, UserRemoteData)
         self.assertEqual(result.full_name, "First Last")
         self.assertEqual(result.telegram_username, "username")
         self.assertEqual(result.telegram_chat_id, "10")
         self.assertEqual(result.telegram_user_id, 1)
-        self.assertIsNone(result.open_ai_key)
-        self.assertEqual(result.group, UserDB.Group.standard)
 
     def test_map_author_empty(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it

@@ -1,9 +1,9 @@
+from dataclasses import replace
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_mapper import apply_remote_data as apply_remote_data_attachment
@@ -16,6 +16,10 @@ from features.chat.message.chat_message_mapper import from_remote_data as from_r
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.integrations.integrations import is_the_agent
+from features.users.user import User
+from features.users.user_mapper import apply_remote_data as apply_remote_data_user
+from features.users.user_mapper import from_remote_data as from_remote_data_user
+from features.users.user_remote_data import UserRemoteData
 from util import log
 from util.config import config
 
@@ -88,62 +92,21 @@ class WhatsAppDataResolver:
         )
 
     # noinspection DuplicatedCode
-    def resolve_author(self, mapped_data: UserSave | None) -> User | None:
+    def resolve_author(self, mapped_data: UserRemoteData | None) -> User | None:
         if not mapped_data:
             return None
         log.t(f"  Resolving user: {mapped_data}")
-        whatsapp_phone_number = mapped_data.whatsapp_phone_number.get_secret_value() if mapped_data.whatsapp_phone_number else ""
-        old_user_db = (
-            self.__di.user_crud.get_by_whatsapp_user_id(mapped_data.whatsapp_user_id or "") or
-            self.__di.user_crud.get_by_whatsapp_phone_number(whatsapp_phone_number or "")
+        existing_user = self.__di.user_repo.get_by_remote_data(mapped_data)
+        if existing_user:
+            return self.__di.user_repo.save(apply_remote_data_user(existing_user, mapped_data))
+
+        user = replace(
+            from_remote_data_user(mapped_data),
+            is_on_waitlist = self.__di.user_repo.count() >= config.max_users,
+            is_invited_to_start = False,
+            are_policies_accepted = False,
         )
-
-        if old_user_db:
-            old_user = User.model_validate(old_user_db)
-            # reset the attributes that are not normally changed through the WhatsApp API
-            mapped_data.id = old_user.id
-            mapped_data.full_name = mapped_data.full_name if not old_user.full_name else old_user.full_name
-            mapped_data.about_me = old_user.about_me
-            mapped_data.custom_prompt = old_user.custom_prompt
-            mapped_data.whatsapp_phone_number = mapped_data.whatsapp_phone_number or old_user.whatsapp_phone_number
-            mapped_data.telegram_chat_id = old_user.telegram_chat_id
-            mapped_data.telegram_user_id = old_user.telegram_user_id
-            mapped_data.telegram_username = old_user.telegram_username
-            mapped_data.connect_key = old_user.connect_key
-            mapped_data.open_ai_key = old_user.open_ai_key
-            mapped_data.anthropic_key = old_user.anthropic_key
-            mapped_data.google_ai_key = old_user.google_ai_key
-            mapped_data.perplexity_key = old_user.perplexity_key
-            mapped_data.replicate_key = old_user.replicate_key
-            mapped_data.rapid_api_key = old_user.rapid_api_key
-            mapped_data.coinmarketcap_key = old_user.coinmarketcap_key
-            mapped_data.x_key = old_user.x_key
-            mapped_data.x_ai_key = old_user.x_ai_key
-            mapped_data.tool_choice_chat = old_user.tool_choice_chat
-            mapped_data.tool_choice_reasoning = old_user.tool_choice_reasoning
-            mapped_data.tool_choice_copywriting = old_user.tool_choice_copywriting
-            mapped_data.tool_choice_vision = old_user.tool_choice_vision
-            mapped_data.tool_choice_hearing = old_user.tool_choice_hearing
-            mapped_data.tool_choice_images_gen = old_user.tool_choice_images_gen
-            mapped_data.tool_choice_images_edit = old_user.tool_choice_images_edit
-            mapped_data.tool_choice_search = old_user.tool_choice_search
-            mapped_data.tool_choice_embedding = old_user.tool_choice_embedding
-            mapped_data.tool_choice_api_fiat_exchange = old_user.tool_choice_api_fiat_exchange
-            mapped_data.tool_choice_api_crypto_exchange = old_user.tool_choice_api_crypto_exchange
-            mapped_data.tool_choice_api_twitter = old_user.tool_choice_api_twitter
-            mapped_data.credit_balance = old_user.credit_balance
-            mapped_data.is_on_waitlist = old_user.is_on_waitlist
-            mapped_data.is_invited_to_start = old_user.is_invited_to_start
-            mapped_data.are_policies_accepted = old_user.are_policies_accepted
-            mapped_data.group = old_user.group
-        else:
-            user_count = self.__di.user_crud.count()
-            at_capacity = user_count >= config.max_users
-            mapped_data.is_on_waitlist = at_capacity
-            mapped_data.is_invited_to_start = False
-            mapped_data.are_policies_accepted = False
-
-        return User.model_validate(self.__di.user_crud.save(mapped_data))
+        return self.__di.user_repo.save(user)
 
     def resolve_chat_message(self, mapped_data: ChatMessageRemoteData, chat_id: UUID, author_id: UUID | None) -> ChatMessage:
         log.t(f"  Resolving chat message: {mapped_data}")
