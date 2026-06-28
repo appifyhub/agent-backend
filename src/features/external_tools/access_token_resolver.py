@@ -3,7 +3,6 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
-from db.schema.user import User
 from di.di import DI
 from features.external_tools.external_tool import ExternalTool, ExternalToolProvider
 from features.external_tools.external_tool_provider_library import (
@@ -17,6 +16,7 @@ from features.external_tools.external_tool_provider_library import (
     XAI,
     X,
 )
+from features.users.user import User
 from util import log
 from util.config import config
 from util.error_codes import TOKEN_NOT_FOUND
@@ -119,14 +119,13 @@ class AccessTokenResolver:
             log.t(f"User '{user_id_hex}' has no accepted sponsorships")
             self.__sponsor_cache[user_id_hex] = None
             return None
-        sponsor_user = self.__di.user_crud.get(sponsorship.sponsor_id)
+        sponsor_user = self.__di.user_repo.get(sponsorship.sponsor_id)
 
         if not sponsor_user:
             log.t(f"Sponsor '{sponsorship.sponsor_id.hex}' not found")
             self.__sponsor_cache[user_id_hex] = None
             return None
 
-        sponsor_user = User.model_validate(sponsor_user)
         self.__sponsor_cache[user_id_hex] = sponsor_user
         log.t(f"Cached sponsor '{sponsor_user.id.hex}' for user '{user_id_hex}'")
         return sponsor_user

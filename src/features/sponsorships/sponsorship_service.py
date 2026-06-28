@@ -5,15 +5,15 @@ from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.integrations.integrations import (
     lookup_user_by_handle,
     resolve_external_handle,
     resolve_external_id,
-    resolve_user_to_save,
+    resolve_user_to_create,
 )
 from features.sponsorships.sponsorship import Sponsorship
+from features.users.user import User
 from util import log
 from util.config import config
 
@@ -35,12 +35,11 @@ class SponsorshipService:
         log.d(f"Sponsor '{sponsor_user_id_hex}' is sponsoring {chat_type.value}/'@{receiver_handle}'")
 
         # check if sponsor exists
-        sponsor_user_db = self.__di.user_crud.get(UUID(hex = sponsor_user_id_hex))
-        if not sponsor_user_db:
+        sponsor_user = self.__di.user_repo.get(UUID(hex = sponsor_user_id_hex))
+        if not sponsor_user:
             message = f"Sponsor '{sponsor_user_id_hex}' not found"
             log.d(message)
             return (SponsorshipService.Result.failure, message)
-        sponsor_user = User.model_validate(sponsor_user_db)
 
         # check if sponsor is sponsoring themselves
         sponsor_handle = resolve_external_handle(sponsor_user, chat_type)
@@ -71,10 +70,8 @@ class SponsorshipService:
             return (SponsorshipService.Result.failure, message)
 
         # check if receiver already has a sponsorship
-        receiver_user_db = lookup_user_by_handle(receiver_handle, chat_type, self.__di.user_crud)
-        receiver_user: User
-        if receiver_user_db:
-            receiver_user = User.model_validate(receiver_user_db)
+        receiver_user = lookup_user_by_handle(receiver_handle, chat_type, self.__di.user_repo)
+        if receiver_user:
             # check if receiver already has a sponsorship
             all_receiver_sponsorships = self.__di.sponsorship_repo.get_all_by_receiver(receiver_user.id)
             if all_receiver_sponsorships:
@@ -99,18 +96,17 @@ class SponsorshipService:
         else:
             # create a new user for the receiver
             log.t(f"Creating new user for receiver {chat_type.value}/'@{receiver_handle}'")
-            receiver_user_to_save = resolve_user_to_save(receiver_handle, chat_type)
-            if not receiver_user_to_save:
+            receiver_user = resolve_user_to_create(receiver_handle, chat_type)
+            if not receiver_user:
                 message = f"User creation not supported for platform {chat_type.value}"
                 log.d(message)
                 return (SponsorshipService.Result.failure, message)
-            user_count = self.__di.user_crud.count()
-            at_capacity = user_count >= config.max_users
-            receiver_user_to_save.is_on_waitlist = at_capacity
-            receiver_user_to_save.is_invited_to_start = False
-            receiver_user_to_save.are_policies_accepted = False
-            receiver_user_db = self.__di.user_crud.save(receiver_user_to_save)
-            receiver_user = User.model_validate(receiver_user_db)
+            receiver_user = self.__di.user_repo.save(replace(
+                receiver_user,
+                is_on_waitlist = self.__di.user_repo.count() >= config.max_users,
+                is_invited_to_start = False,
+                are_policies_accepted = False,
+            ))
             accepted_at = None
             message = f"Sponsorship sent! Waiting for '{receiver_handle}' to send the first message"
 
@@ -144,19 +140,18 @@ class SponsorshipService:
         log.d(f"Sponsor '{sponsor_user_id_hex}' is unsponsoring receiver {chat_type.value}/'@{receiver_handle}'")
 
         # check if sponsor exists
-        sponsor_user_db = self.__di.user_crud.get(UUID(hex = sponsor_user_id_hex))
-        if not sponsor_user_db:
+        sponsor_user = self.__di.user_repo.get(UUID(hex = sponsor_user_id_hex))
+        if not sponsor_user:
             message = f"Sponsor '{sponsor_user_id_hex}' not found"
             log.d(message)
             return (SponsorshipService.Result.failure, message)
 
         # check if receiver exists
-        receiver_user_db = lookup_user_by_handle(receiver_handle, chat_type, self.__di.user_crud)
-        if not receiver_user_db:
+        receiver_user = lookup_user_by_handle(receiver_handle, chat_type, self.__di.user_repo)
+        if not receiver_user:
             message = f"Receiver '@{receiver_handle}' not found"
             log.d(message)
             return (SponsorshipService.Result.failure, message)
-        receiver_user = User.model_validate(receiver_user_db)
 
         result, message = self.unsponsor_by_user_id(sponsor_user_id_hex, receiver_user.id.hex)
         if result == SponsorshipService.Result.success:
@@ -166,12 +161,11 @@ class SponsorshipService:
 
     def unsponsor_self(self, user_id_hex: str) -> tuple[Result, str]:
         log.d(f"User '{user_id_hex}' is unsponsoring themselves")
-        user_db = self.__di.user_crud.get(UUID(hex = user_id_hex))
-        if not user_db:
+        user = self.__di.user_repo.get(UUID(hex = user_id_hex))
+        if not user:
             message = f"User '{user_id_hex}' not found"
             log.d(message)
             return (SponsorshipService.Result.failure, message)
-        user = User.model_validate(user_db)
         sponsorships = self.__di.sponsorship_repo.get_all_by_receiver(user.id)
         if not sponsorships:
             message = f"User '{user.id}' has no sponsorships to remove"

@@ -10,7 +10,6 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.runnables import Runnable
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.command_processor import is_known_command
 from features.chat.message.chat_message import ChatMessage
@@ -94,8 +93,7 @@ class ChatAgent:
 
     @staticmethod
     def __map_to_langchain(di: DI, message: ChatMessage, chat_type: ChatConfigDB.ChatType) -> HumanMessage | AIMessage:
-        author_db = di.user_crud.get(message.author_id)
-        author = User.model_validate(author_db) if author_db else None
+        author = di.user_repo.get(message.author_id)
         return di.domain_langchain_mapper.map_to_langchain(
             author = author,
             message = message,

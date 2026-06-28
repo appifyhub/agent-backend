@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, Mock
 from uuid import UUID
 
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_tracking_service import UsageTrackingService
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
+from features.users.user import User
 from util.config import config
 
 
@@ -37,7 +37,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         mock_repo = Mock()
         mock_repo.create = MagicMock(side_effect = lambda x: x)
         self.mock_di.usage_record_repo = mock_repo
-        self.mock_di.user_crud.get.return_value = None
+        self.mock_di.user_repo.get.return_value = None
 
         self.original_fee = config.usage_maintenance_fee_credits
         config.usage_maintenance_fee_credits = 1.0
@@ -628,7 +628,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
             created_at = date.today(),
             credit_balance = 50.0,
         )
-        self.mock_di.user_crud.get.return_value = payer.model_dump()
+        self.mock_di.user_repo.get.return_value = payer
 
         tool = self._create_tool()
         record = self.service.track_text_model(

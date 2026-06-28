@@ -7,12 +7,12 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.chat.membership.chat_membership_service import ChatMembershipService
 from features.integrations.platform_bot_sdk import ChatAccess
+from features.users.user import User
 from util.error_codes import NOT_CHAT_MEMBER
 from util.errors import AuthorizationError
 
@@ -27,17 +27,15 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def setUp(self):
         self.sql = SQLUtil()
-        self.user = User.model_validate(
-            self.sql.user_crud().create(
-                UserSave(
-                    full_name = "Test User",
-                    telegram_username = "testuser",
-                    telegram_chat_id = "chat_ext_1",
-                    telegram_user_id = 1,
-                    open_ai_key = SecretStr("key"),
-                    group = UserDB.Group.standard,
-                    created_at = datetime.now().date(),
-                ),
+        self.user = self.sql.user_repo().save(
+            User(
+                full_name = "Test User",
+                telegram_username = "testuser",
+                telegram_chat_id = "chat_ext_1",
+                telegram_user_id = 1,
+                open_ai_key = SecretStr("key"),
+                group = UserDB.Group.standard,
+                created_at = datetime.now().date(),
             ),
         )
         self.chat = self.sql.chat_config_repo().save(

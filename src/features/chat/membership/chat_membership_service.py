@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.platform_bot_sdk import ChatAccess
+from features.users.user import User
 from util import log
 from util.error_codes import NOT_CHAT_MEMBER
 from util.errors import AuthorizationError

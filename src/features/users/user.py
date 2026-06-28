@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from db.model.user import UserDB
 
 
-def _generate_connect_key() -> str:
+def generate_connect_key() -> str:
     allowed_chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     key_chars = [secrets.choice(allowed_chars) for _ in range(12)]
     return f"{''.join(key_chars[0:4])}-{''.join(key_chars[4:8])}-{''.join(key_chars[8:12])}"
@@ -60,7 +60,7 @@ class User:
     is_invited_to_start: bool = False
     are_policies_accepted: bool = False
 
-    connect_key: str = field(default_factory = _generate_connect_key)
+    connect_key: str = field(default_factory = generate_connect_key)
     group: UserDB.Group = UserDB.Group.standard
 
     def has_any_api_key(self) -> bool:

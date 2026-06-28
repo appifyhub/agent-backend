@@ -3,7 +3,6 @@ from typing import Any
 from api.model.sponsorship_payload import SponsorshipPayload
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.integrations.integrations import lookup_user_by_handle, resolve_any_external_handle
 from features.sponsorships.sponsorship_service import SponsorshipService
@@ -38,11 +37,10 @@ class SponsorshipsController:
 
         output_sponsorships: list[dict[str, Any]] = []
         for sponsorship in sponsorships:
-            receiver_user_db = self.__di.user_crud.get(sponsorship.receiver_id)
-            if not receiver_user_db:
+            receiver_user = self.__di.user_repo.get(sponsorship.receiver_id)
+            if not receiver_user:
                 log.t(f"  Receiver user with id {sponsorship.receiver_id} not found, skipping.")
                 continue
-            receiver_user = User.model_validate(receiver_user_db)
             platform_handle, platform_type = resolve_any_external_handle(receiver_user)
             output_sponsorships.append(
                 {
@@ -77,10 +75,9 @@ class SponsorshipsController:
             raise InternalError(message, SPONSORSHIP_OPERATION_FAILED)
 
         # user status changed possibly with regards to waitlist or start invitation – let's fetch
-        receiver_user_db = lookup_user_by_handle(payload.platform_handle, chat_type, self.__di.user_crud)
-        if not receiver_user_db:
+        receiver_user = lookup_user_by_handle(payload.platform_handle, chat_type, self.__di.user_repo)
+        if not receiver_user:
             raise InternalError("Sponsored receiver user not found after sponsorship creation", SPONSORSHIP_OPERATION_FAILED)
-        receiver_user = User.model_validate(receiver_user_db)
         sponsorship = self.__di.sponsorship_repo.get(user.id, receiver_user.id)
         if not sponsorship:
             raise InternalError("Sponsorship row not found after sponsorship creation", SPONSORSHIP_OPERATION_FAILED)

@@ -78,7 +78,7 @@ class UserRepository:
             return self.get_by_whatsapp_phone_number(remote_data.whatsapp_phone_number.get_secret_value())
         return None
 
-    def save(self, user: User) -> User:
+    def save(self, user: User, commit: bool = True) -> User:
         existing: UserDB | None = None
         if user.id is not None:
             existing = self._db.query(UserDB).filter(
@@ -87,13 +87,17 @@ class UserRepository:
 
         if existing is not None:
             apply_to_db_model(user, existing)
-            self._db.commit()
+            self._db.flush()
+            if commit:
+                self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
 
         db_model = db(user)
         self._db.add(db_model)
-        self._db.commit()
+        self._db.flush()
+        if commit:
+            self._db.commit()
         self._db.refresh(db_model)
         return domain(db_model)
 
@@ -116,27 +120,33 @@ class UserRepository:
         second_id: UUID,
         update_fn: Callable[[User, User], tuple[User, User]],
     ) -> tuple[User, User]:
+        # rows are locked in UUID order to avoid deadlocks
         lock_order = sorted([first_id, second_id])
+
         first = self._db.query(UserDB).filter(
             UserDB.id == lock_order[0],
         ).with_for_update().first()
         second = self._db.query(UserDB).filter(
             UserDB.id == lock_order[1],
         ).with_for_update().first()
+
         if first is None or second is None:
             raise NotFoundError("User not found", USER_NOT_FOUND)
 
+        # locks might have come out of order, but callbacks receive caller order; let's check which is which
         mapped_first = first if first.id == first_id else second
         mapped_second = second if second.id == second_id else first
+
         updated_first, updated_second = update_fn(domain(mapped_first), domain(mapped_second))
         apply_to_db_model(updated_first, mapped_first)
         apply_to_db_model(updated_second, mapped_second)
+
         self._db.commit()
         self._db.refresh(mapped_first)
         self._db.refresh(mapped_second)
         return domain(mapped_first), domain(mapped_second)
 
-    def delete(self, user_id: UUID) -> User | None:
+    def delete(self, user_id: UUID, commit: bool = True) -> User | None:
         db_model = self._db.query(UserDB).filter(
             UserDB.id == user_id,
         ).first()
@@ -144,5 +154,7 @@ class UserRepository:
             return None
         snapshot = domain(db_model)
         self._db.delete(db_model)
-        self._db.commit()
+        self._db.flush()
+        if commit:
+            self._db.commit()
         return snapshot
