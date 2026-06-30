@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -63,7 +64,7 @@ class PurchaseService:
             try:
                 user_id_str = payload.url_params["user_id"]
                 user_id = UUID(user_id_str)
-                user = self.__di.user_crud.get(user_id)
+                user = self.__di.user_repo.get(user_id)
                 if user is None:
                     log.w(f"User {user_id_str} from url_params not found, storing without user_id")
                     user_id = None
@@ -115,9 +116,9 @@ class PurchaseService:
         if credits <= 0:
             return
         total = float(credits * record.quantity)
-        self.__di.user_crud.update_locked(
+        self.__di.user_repo.update_locked(
             user_id = record.user_id,
-            update_fn = lambda user: setattr(user, "credit_balance", (user.credit_balance or 0.0) + total),
+            update_fn = lambda user: replace(user, credit_balance = (user.credit_balance or 0.0) + total),
         )
         log.i(f"Allocated {total} credits to user {record.user_id} for purchase {record.id}")
 
@@ -130,9 +131,9 @@ class PurchaseService:
         if credits <= 0:
             return
         total = float(credits * record.quantity)
-        self.__di.user_crud.update_locked(
+        self.__di.user_repo.update_locked(
             user_id = record.user_id,
-            update_fn = lambda user: setattr(user, "credit_balance", (user.credit_balance or 0.0) - total),
+            update_fn = lambda user: replace(user, credit_balance = (user.credit_balance or 0.0) - total),
         )
         log.i(f"Deallocated {total} credits from user {record.user_id} for purchase {record.id}")
 

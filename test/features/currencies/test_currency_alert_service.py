@@ -5,10 +5,8 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
@@ -17,11 +15,11 @@ from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
 from features.currencies.price_alert import PriceAlert
 from features.currencies.price_alert_repo import PriceAlertRepository
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
+from features.users.user import User
 
 
 class CurrencyAlertServiceTest(unittest.TestCase):
 
-    mock_user_dao: UserCRUD
     mock_price_alert_repo: PriceAlertRepository
     mock_sponsorship_repo: SponsorshipRepository
     mock_telegram_bot_sdk: TelegramBotSDK
@@ -39,7 +37,6 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         self.mock_di = MagicMock(spec = DI)
         self.mock_di.authorization_service = MagicMock()
         self.mock_di.price_alert_repo = self.mock_price_alert_repo = MagicMock(spec = PriceAlertRepository)
-        self.mock_di.user_crud = self.mock_user_dao = MagicMock(spec = UserCRUD)
         self.mock_di.sponsorship_repo = self.mock_sponsorship_repo = MagicMock(spec = SponsorshipRepository)
         self.mock_di.telegram_bot_sdk = self.mock_telegram_bot_sdk = MagicMock(spec = TelegramBotSDK)
         self.mock_di.exchange_rate_fetcher = self.mock_exchange_rate_fetcher = MagicMock(spec = ExchangeRateFetcher)

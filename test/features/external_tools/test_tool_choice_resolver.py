@@ -6,13 +6,13 @@ from uuid import UUID
 from pydantic import SecretStr
 
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.external_tools.access_token_resolver import AccessTokenResolver, ResolvedToken
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET, GPT_4O_MINI
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver, ToolResolutionError
+from features.users.user import User
 
 
 class ToolChoiceResolverTest(unittest.TestCase):

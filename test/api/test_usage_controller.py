@@ -8,13 +8,13 @@ from pydantic import SecretStr
 from api.authorization_service import AuthorizationService
 from api.usage_controller import UsageController
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.accounting.usage.usage_aggregates import AggregateStats, ProviderInfo, ToolInfo, UsageAggregates
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import GPT_4O
+from features.users.user import User
 from util.error_codes import NOT_TARGET_USER
 from util.errors import AuthorizationError, ValidationError
 

@@ -1,13 +1,13 @@
 from datetime import datetime
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import User, UserSave
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.integrations import resolve_agent_user, resolve_allowed_reactions
 from features.prompting import prompt_composer, prompt_library
 from features.prompting.prompt_composer import PromptFragment, PromptVar
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
+from features.users.user import User
 from util.config import config
 from util.error_codes import UNSUPPORTED_CHAT_TYPE
 from util.errors import ConfigurationError
@@ -16,7 +16,7 @@ PLACEHOLDER_NO_DATA = "{undefined}"
 
 
 def chat(
-    invoker: User | UserSave,
+    invoker: User,
     target_chat: ChatConfig,
     invoker_membership: ChatMembership | None,
     tools_list: str | None,
@@ -434,7 +434,7 @@ def __now() -> str:
     return f"{datetime.now().strftime("%A, %B %d %Y")}, {datetime.now().strftime("%I:%M %p")}"
 
 
-def __get_personal_dictionary(agent_user: UserSave | User) -> str:
+def __get_personal_dictionary(agent_user: User) -> str:
     keywords: set[str] = {keyword for keyword in [
         agent_user.full_name, config.parent_organization, config.website_url, config.version,
         agent_user.telegram_username, agent_user.telegram_username,

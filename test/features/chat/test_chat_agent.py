@@ -10,7 +10,6 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
 from features.chat.chat_progress_notifier import ChatProgressNotifier
@@ -20,6 +19,7 @@ from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
 from features.chat.message.chat_message import ChatMessage
 from features.external_tools.tool_choice_resolver import ConfiguredTool
 from features.integrations.integrations import resolve_agent_user
+from features.users.user import User
 from util.error_codes import UNEXPECTED_ERROR, WAITLIST_ACCOUNT_NOT_ACTIVE, WAITLIST_INVITED_POLICIES_REQUIRED
 from util.errors import AuthorizationError
 
@@ -27,7 +27,7 @@ from util.errors import AuthorizationError
 class ChatAgentTest(unittest.TestCase):
 
     user: User
-    agent_user: UserSave
+    agent_user: User
     chat_config: ChatConfig
     mock_di: DI
     configured_tool: ConfiguredTool
@@ -106,7 +106,7 @@ class ChatAgentTest(unittest.TestCase):
         )
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [mock_latest_message]
         self.mock_di.chat_message_attachment_repo.get_all_by_message.return_value = []
-        self.mock_di.user_crud.get.return_value = None
+        self.mock_di.user_repo.get.return_value = None
         self.mock_di.domain_langchain_mapper.map_to_langchain.return_value = HumanMessage("Test message")
 
         self.sleep_patcher = patch("features.chat.chat_agent.time.sleep")

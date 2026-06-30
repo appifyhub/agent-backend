@@ -3,7 +3,6 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
@@ -45,10 +44,9 @@ class DevAnnouncementsService:
         chat_type: ChatConfigDB.ChatType | None = self.__di.invoker_chat_type
         log.t(f"Validating target user data of {chat_type.value if chat_type else '<no_platform>'}/'@{target_handle}'")
         if target_handle and chat_type:
-            target_user_db = lookup_user_by_handle(target_handle, chat_type, self.__di.user_crud)
-            if not target_user_db:
+            target_user = lookup_user_by_handle(target_handle, chat_type, self.__di.user_repo)
+            if not target_user:
                 raise NotFoundError(f"Target user '{target_handle}' not found", TARGET_USER_NOT_FOUND)
-            target_user = User.model_validate(target_user_db)
 
             # check if user has external ID for the current platform
             external_id = resolve_external_id(target_user, chat_type) or ""

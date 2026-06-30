@@ -2,10 +2,8 @@ from datetime import datetime, timedelta
 
 from pydantic import SecretStr
 
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantInfo
 from features.chat.config.chat_config import ChatConfig
@@ -19,13 +17,15 @@ from features.integrations.integration_config import (
     WHATSAPP_REACTION_INTERVAL_S,
     WHATSAPP_REACTIONS,
 )
+from features.users.user import User
+from features.users.user_repo import UserRepository
 from util.functions import normalize_phone_number, normalize_username
 
 WHATSAPP_MESSAGING_WINDOW_HOURS = 24
 REACTION_RESPONSE_TEMPLATE = "<reaction>{reaction}</reaction>"
 
 
-def resolve_agent_user(chat_type: ChatConfigDB.ChatType) -> UserSave:
+def resolve_agent_user(chat_type: ChatConfigDB.ChatType) -> User:
     match chat_type:
         case ChatConfigDB.ChatType.telegram | ChatConfigDB.ChatType.whatsapp | ChatConfigDB.ChatType.github:
             return THE_AGENT
@@ -33,7 +33,7 @@ def resolve_agent_user(chat_type: ChatConfigDB.ChatType) -> UserSave:
             return BACKGROUND_AGENT
 
 
-def resolve_external_id(user: User | UserSave, chat_type: ChatConfigDB.ChatType) -> str | None:
+def resolve_external_id(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:
     match chat_type:
         case ChatConfigDB.ChatType.telegram:
             return str(user.telegram_user_id) if user.telegram_user_id else None
@@ -45,7 +45,7 @@ def resolve_external_id(user: User | UserSave, chat_type: ChatConfigDB.ChatType)
             return None
 
 
-def resolve_external_handle(user: User | UserSave, chat_type: ChatConfigDB.ChatType) -> str | None:
+def resolve_external_handle(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:
     match chat_type:
         case ChatConfigDB.ChatType.telegram:
             return user.telegram_username
@@ -68,7 +68,7 @@ def format_handle(handle: str, chat_type: ChatConfigDB.ChatType) -> str:
             return f"#{clean}"
 
 
-def resolve_any_external_handle(user: User | UserSave) -> tuple[str | None, ChatConfigDB.ChatType | None]:
+def resolve_any_external_handle(user: User) -> tuple[str | None, ChatConfigDB.ChatType | None]:
     for chat_type in ChatConfigDB.ChatType:
         handle = resolve_external_handle(user, chat_type)
         if handle and handle.strip():
@@ -76,7 +76,7 @@ def resolve_any_external_handle(user: User | UserSave) -> tuple[str | None, Chat
     return None, None
 
 
-def resolve_user_link(user: User | UserSave, chat_type: ChatConfigDB.ChatType) -> str | None:
+def resolve_user_link(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:
     platform_handle = resolve_external_handle(user, chat_type)
     if not platform_handle:
         return None
@@ -100,7 +100,7 @@ def resolve_user_link(user: User | UserSave, chat_type: ChatConfigDB.ChatType) -
             return f"[@{clean_handle}](https://github.com/{clean_handle})"
 
 
-def resolve_private_chat_id(user: User | UserSave, chat_type: ChatConfigDB.ChatType) -> str | None:
+def resolve_private_chat_id(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:
     match chat_type:
         case ChatConfigDB.ChatType.telegram:
             return user.telegram_chat_id
@@ -112,12 +112,11 @@ def resolve_private_chat_id(user: User | UserSave, chat_type: ChatConfigDB.ChatT
             return None
 
 
-def resolve_user_to_save(handle: str, chat_type: ChatConfigDB.ChatType) -> UserSave | None:
+def resolve_user_to_create(handle: str, chat_type: ChatConfigDB.ChatType) -> User | None:
     match chat_type:
         case ChatConfigDB.ChatType.telegram:
             normalized_username = (normalize_username(handle) or "").strip()
-            return UserSave(
-                id = None,
+            return User(
                 full_name = None,
                 telegram_username = normalized_username,
                 telegram_chat_id = None,
@@ -130,8 +129,7 @@ def resolve_user_to_save(handle: str, chat_type: ChatConfigDB.ChatType) -> UserS
             return None
         case ChatConfigDB.ChatType.whatsapp:
             normalized_phone = (normalize_phone_number(handle) or "").strip()
-            return UserSave(
-                id = None,
+            return User(
                 full_name = None,
                 whatsapp_user_id = normalized_phone,
                 whatsapp_phone_number = SecretStr(normalized_phone),
@@ -150,7 +148,7 @@ def user_to_participant(user: User) -> ParticipantInfo:
     )
 
 
-def is_the_agent(who: User | UserSave | None, chat_type: ChatConfigDB.ChatType) -> bool:
+def is_the_agent(who: User | None, chat_type: ChatConfigDB.ChatType) -> bool:
     if not who:
         return False
     agent_user = resolve_agent_user(chat_type)
@@ -175,17 +173,17 @@ def is_own_chat(chat_config: ChatConfig, user: User) -> bool:
             return False
 
 
-def lookup_user_by_handle(handle: str, chat_type: ChatConfigDB.ChatType, user_crud: UserCRUD) -> UserDB | None:
+def lookup_user_by_handle(handle: str, chat_type: ChatConfigDB.ChatType, user_repo: UserRepository) -> User | None:
     match chat_type:
         case ChatConfigDB.ChatType.telegram:
             normalized_username = (normalize_username(handle) or "").strip()
-            return user_crud.get_by_telegram_username(normalized_username)
+            return user_repo.get_by_telegram_username(normalized_username)
         case ChatConfigDB.ChatType.whatsapp:
             normalized_phone = (normalize_phone_number(handle) or "").strip()
             # Try by whatsapp_user_id first (not encrypted, faster), then fall back to phone number
-            user = user_crud.get_by_whatsapp_user_id(normalized_phone)
+            user = user_repo.get_by_whatsapp_user_id(normalized_phone)
             if not user:
-                user = user_crud.get_by_whatsapp_phone_number(normalized_phone)
+                user = user_repo.get_by_whatsapp_phone_number(normalized_phone)
             return user
         case ChatConfigDB.ChatType.background:
             return None

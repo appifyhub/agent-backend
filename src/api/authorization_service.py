@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
 from features.integrations.platform_bot_sdk import ChatAccess
+from features.users.user import User
 from util import log
 from util.config import config
 from util.error_codes import (
@@ -49,10 +49,10 @@ class AuthorizationService:
             user_uuid = user if isinstance(user, UUID) else UUID(hex = user)
         except ValueError as e:
             raise ValidationError(f"Malformed user ID '{user}'", MALFORMED_USER_ID) from e
-        user_db = self.__di.user_crud.get(user_uuid)
-        if not user_db:
+        validated_user = self.__di.user_repo.get(user_uuid)
+        if not validated_user:
             raise NotFoundError(f"User '{user}' not found", USER_NOT_FOUND)
-        return User.model_validate(user_db)
+        return validated_user
 
     def get_authorized_chats(self, user: str | UUID | User) -> list[ChatConfig]:
         user = self.validate_user(user)
@@ -160,8 +160,7 @@ class AuthorizationService:
         if not user.is_on_waitlist:
             return user
 
-        user_count = self.__di.user_crud.count()
-        has_available_capacity = user_count < config.max_users
+        has_available_capacity = self.__di.user_repo.count() < config.max_users
         if (not user.is_invited_to_start) and (not has_available_capacity):
             raise AuthorizationError(
                 "Activation is not available right now because maximum user capacity has been reached. "

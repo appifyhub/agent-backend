@@ -7,7 +7,6 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
@@ -19,13 +18,14 @@ from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import resolve_agent_user
+from features.users.user import User
+from features.users.user_remote_data import UserRemoteData
 from util.config import config
 from util.functions import generate_deterministic_short_uuid
 
 
 class TelegramDataResolverTest(unittest.TestCase):
 
-    agent_user: UserSave
     sql: SQLUtil
     mock_di: DI
     resolver: TelegramDataResolver
@@ -37,7 +37,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_config_repo = self.sql.chat_config_repo()
         # noinspection PyPropertyAccess
-        self.mock_di.user_crud = self.sql.user_crud()
+        self.mock_di.user_repo = self.sql.user_repo()
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = self.sql.chat_message_repo()
         # noinspection PyPropertyAccess
@@ -102,7 +102,7 @@ class TelegramDataResolverTest(unittest.TestCase):
             is_private = True,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        author_data = UserSave(
+        author_data = UserRemoteData(
             telegram_username = self.agent_user.telegram_username,
             telegram_chat_id = "c1",
             telegram_user_id = self.agent_user.telegram_user_id,
@@ -151,7 +151,7 @@ class TelegramDataResolverTest(unittest.TestCase):
             is_private = True,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        author_data = UserSave(
+        author_data = UserRemoteData(
             telegram_username = "username",
             telegram_chat_id = "c1",
             telegram_user_id = 1,
@@ -198,15 +198,14 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_resolve_author_new(self):
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             telegram_user_id = 1,
             full_name = "New User",
             telegram_chat_id = "c1",
         )
 
         result = self.resolver.resolve_author(mapped_data)
-        saved_user_db = self.sql.user_crud().get_by_telegram_user_id(mapped_data.telegram_user_id or -1)
-        saved_user = User.model_validate(saved_user_db)
+        saved_user = self.sql.user_repo().get_by_telegram_user_id(mapped_data.telegram_user_id or -1)
 
         assert result is not None
         self.assertEqual(result, saved_user)
@@ -215,20 +214,19 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.telegram_username, mapped_data.telegram_username)
         self.assertEqual(result.telegram_chat_id, mapped_data.telegram_chat_id)
         self.assertEqual(result.telegram_user_id, mapped_data.telegram_user_id)
-        self.assertEqual(result.open_ai_key, mapped_data.open_ai_key)
-        self.assertEqual(result.group, mapped_data.group)
+        self.assertIsNone(result.open_ai_key)
+        self.assertEqual(result.group, UserDB.Group.standard)
         self.assertEqual(result.created_at, datetime.now().date())
 
     def test_resolve_author_by_username(self):
-        existing_user_data = UserSave(
+        existing_user_data = User(
             telegram_user_id = None,
             telegram_username = "unique_username",
             full_name = "Existing User",
         )
-        existing_user_db = self.sql.user_crud().save(existing_user_data)
-        existing_user = User.model_validate(existing_user_db)
+        existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             telegram_user_id = None,
             telegram_username = "unique_username",
             full_name = "Updated User",
@@ -237,8 +235,7 @@ class TelegramDataResolverTest(unittest.TestCase):
 
         result = self.resolver.resolve_author(mapped_data)
         assert result is not None
-        saved_user_db = self.sql.user_crud().get(result.id)
-        saved_user = User.model_validate(saved_user_db)
+        saved_user = self.sql.user_repo().get(result.id)
 
         assert result is not None
         self.assertEqual(result, saved_user)
@@ -252,10 +249,10 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.group, existing_user.group)
         self.assertEqual(result.created_at, existing_user.created_at)
 
-    @patch("db.crud.user.UserCRUD.count")
+    @patch("features.users.user_repo.UserRepository.count")
     def test_resolve_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
         mock_count.return_value = config.max_users  # reach maximum immediately
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             telegram_user_id = 1,
             full_name = "New User",
             telegram_chat_id = "c1",
@@ -269,7 +266,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         mock_count.assert_called_once()
 
     def test_resolve_author_existing(self):
-        existing_user_data = UserSave(
+        existing_user_data = User(
             telegram_user_id = 1,
             full_name = "Existing User",
             telegram_chat_id = "c1",
@@ -299,10 +296,9 @@ class TelegramDataResolverTest(unittest.TestCase):
             tool_choice_api_crypto_exchange = "coinmarketcap",
             tool_choice_api_twitter = "rapidapi",
         )
-        existing_user_db = self.sql.user_crud().save(existing_user_data)
-        existing_user = User.model_validate(existing_user_db)
+        existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserSave(
+        mapped_data = UserRemoteData(
             telegram_user_id = 1,
             full_name = "Updated User",
             telegram_chat_id = "c2",
@@ -311,8 +307,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         result = self.resolver.resolve_author(mapped_data)
         assert result is not None
 
-        saved_user_db = self.sql.user_crud().get(result.id)
-        saved_user = User.model_validate(saved_user_db)
+        saved_user = self.sql.user_repo().get(result.id)
 
         self.assertEqual(result, saved_user)
         self.assertEqual(result.id, existing_user.id)
@@ -350,16 +345,15 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_api_twitter, existing_user.tool_choice_api_twitter)
 
     def test_resolve_author_preserves_name_when_empty(self):
-        existing_user_data = UserSave(
+        existing_user_data = User(
             telegram_user_id = 1,
             full_name = "Existing User",
             telegram_chat_id = "c1",
         )
-        existing_user_db = self.sql.user_crud().save(existing_user_data)
-        existing_user = User.model_validate(existing_user_db)
+        existing_user = self.sql.user_repo().save(existing_user_data)
 
         # Test with None full_name
-        mapped_data_none = UserSave(
+        mapped_data_none = UserRemoteData(
             telegram_user_id = 1,
             full_name = None,
             telegram_chat_id = "c2",
@@ -371,7 +365,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
 
         # Test with empty string full_name
-        mapped_data_empty = UserSave(
+        mapped_data_empty = UserRemoteData(
             telegram_user_id = 1,
             full_name = "",
             telegram_chat_id = "c3",
@@ -415,8 +409,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         )
         self.sql.chat_message_repo().save(old_message_data)
 
-        new_author_data = UserSave(full_name = "First Last", telegram_chat_id = "c1")
-        new_author = User.model_validate(self.sql.user_crud().save(new_author_data))
+        new_author = self.sql.user_repo().save(User(full_name = "First Last", telegram_chat_id = "c1"))
         mapped_data = ChatMessageRemoteData(
             message_id = "m1",
             sent_at = datetime.now(),
@@ -437,10 +430,10 @@ class TelegramDataResolverTest(unittest.TestCase):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
-        author = User.model_validate(self.sql.user_crud().save(UserSave(
+        author = self.sql.user_repo().save(User(
             full_name = "Existing Author",
             telegram_user_id = 1,
-        )))
+        ))
         self.sql.chat_message_repo().save(ChatMessage(
             chat_id = chat.chat_id,
             message_id = "m1",

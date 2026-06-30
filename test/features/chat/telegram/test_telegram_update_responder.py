@@ -8,13 +8,13 @@ from langchain_core.messages import AIMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.chat.telegram.telegram_update_responder import respond_to_update
+from features.users.user import User
 
 
 class TelegramUpdateResponderTest(unittest.TestCase):
@@ -61,7 +61,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
         )
 
-        author_db = UserDB(
+        author = User(
             id = UUID(int = 1),
             telegram_username = "test_user",
             full_name = "Test User",
@@ -70,10 +70,6 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             group = UserDB.Group.standard,
             created_at = date.today(),
             telegram_chat_id = "123",
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = False,
         )
 
         self.di.telegram_data_resolver.resolve.return_value = Mock(
@@ -90,10 +86,9 @@ class TelegramUpdateResponderTest(unittest.TestCase):
                 media_mode = ChatConfigDB.MediaMode.photo,
                 chat_type = ChatConfigDB.ChatType.telegram,
             ),
-            author = User.model_validate(author_db),
+            author = author,
         )
         self.di.chat_message_repo.get_latest_by_chat.return_value = []
-        self.di.user_crud.get.return_value = author_db  # Return author for all calls
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
             Mock(chat_id = "123", text = "Test response"),
@@ -102,7 +97,6 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         result = respond_to_update(self.update)
 
         self.assertTrue(result)
-        # Agent user creation logic was removed, so user_crud.save should not be called
         self.di.chat_agent.return_value.execute.assert_called_once()
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Test response")
         self.mock_sleep.assert_called_once_with(0.1)

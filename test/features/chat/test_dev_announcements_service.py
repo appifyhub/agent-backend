@@ -8,10 +8,10 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from features.chat.config.chat_config import ChatConfig
 from features.chat.dev_announcements_service import DevAnnouncementsService
 from features.external_tools.tool_choice_resolver import ConfiguredTool
+from features.users.user import User
 from util.errors import AuthorizationError, NotFoundError
 
 
@@ -47,7 +47,7 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         self.mock_platform_sdk = MagicMock()
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
         self.mock_di.chat_langchain_model.return_value = MagicMock()
-        self.mock_di.user_crud.get_by_telegram_username.return_value = None
+        self.mock_di.user_repo.get_by_telegram_username.return_value = None
         self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
         self.mock_di.chat_config_repo.get_all.return_value = []
         self.mock_platform_sdk.send_text_message.return_value = {"result": {"message_id": 123}}

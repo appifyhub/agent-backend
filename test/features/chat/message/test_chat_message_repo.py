@@ -6,10 +6,10 @@ from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import UserSave
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_repo import ChatMessageRepository
+from features.users.user import User
 
 
 class ChatMessageRepositoryTest(unittest.TestCase):
@@ -31,7 +31,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         ))
 
     def _create_user(self, external_id: int):
-        return self.sql.user_crud().create(UserSave(
+        return self.sql.user_repo().save(User(
             full_name = f"User {external_id}",
             telegram_user_id = external_id,
             group = UserDB.Group.standard,

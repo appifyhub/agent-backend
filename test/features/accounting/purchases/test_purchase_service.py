@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
 
 from api.model.gumroad_ping_payload import GumroadPingPayload
-from db.crud.user import UserCRUD
 from di.di import DI
 from features.accounting.purchases.purchase_record import PurchaseRecord
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
@@ -41,10 +40,10 @@ class PurchaseServiceTest(unittest.TestCase):
 
         mock_user = Mock()
         mock_user.id = self.user_id
-        mock_user_crud = Mock(spec = UserCRUD)
-        mock_user_crud.get = MagicMock(return_value = mock_user)
-        mock_user_crud.update_locked = MagicMock()
-        self.mock_di.user_crud = mock_user_crud
+        mock_user_repo = Mock()
+        mock_user_repo.get = MagicMock(return_value = mock_user)
+        mock_user_repo.update_locked = MagicMock()
+        self.mock_di.user_repo = mock_user_repo
 
         mock_repo = Mock(spec = PurchaseRecordRepository)
         mock_repo.save = MagicMock(side_effect = lambda x: x)
@@ -117,7 +116,7 @@ class PurchaseServiceTest(unittest.TestCase):
 
         assert record is not None
         self.assertEqual(record.user_id, self.user_id)
-        self.mock_di.user_crud.get.assert_called_once_with(self.user_id)
+        self.mock_di.user_repo.get.assert_called_once_with(self.user_id)
 
     def test_record_purchase_handles_missing_user_id(self):
         payload = self._create_payload(user_id_in_params = None)
@@ -138,7 +137,7 @@ class PurchaseServiceTest(unittest.TestCase):
         self.assertIsNone(record.user_id)
 
     def test_record_purchase_handles_nonexistent_user(self):
-        self.mock_di.user_crud.get.return_value = None
+        self.mock_di.user_repo.get.return_value = None
         payload = self._create_payload(user_id_in_params = str(self.user_id))
 
         with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
@@ -161,8 +160,8 @@ class PurchaseServiceTest(unittest.TestCase):
         with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
             self.service.record_purchase(payload)
 
-        self.mock_di.user_crud.update_locked.assert_called_once()
-        call_args = self.mock_di.user_crud.update_locked.call_args
+        self.mock_di.user_repo.update_locked.assert_called_once()
+        call_args = self.mock_di.user_repo.update_locked.call_args
         self.assertEqual(call_args.kwargs["user_id"], self.user_id)
         self.assertTrue(callable(call_args.kwargs["update_fn"]))
 
@@ -172,7 +171,7 @@ class PurchaseServiceTest(unittest.TestCase):
         with patch("features.accounting.purchases.purchase_service.config", _mock_config(credits = 0)):
             record = self.service.record_purchase(payload)
 
-        self.mock_di.user_crud.update_locked.assert_not_called()
+        self.mock_di.user_repo.update_locked.assert_not_called()
         assert record is not None
 
     def test_record_purchase_does_not_allocate_credits_for_test_purchase(self):
@@ -181,7 +180,7 @@ class PurchaseServiceTest(unittest.TestCase):
         with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
             self.service.record_purchase(payload)
 
-        self.mock_di.user_crud.update_locked.assert_not_called()
+        self.mock_di.user_repo.update_locked.assert_not_called()
 
     def test_record_purchase_does_not_allocate_credits_without_user_id(self):
         payload = self._create_payload()
@@ -189,7 +188,7 @@ class PurchaseServiceTest(unittest.TestCase):
         with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
             self.service.record_purchase(payload)
 
-        self.mock_di.user_crud.update_locked.assert_not_called()
+        self.mock_di.user_repo.update_locked.assert_not_called()
 
     def test_record_purchase_deducts_credits_on_refund(self):
         already_allocated = PurchaseRecord(
@@ -213,8 +212,8 @@ class PurchaseServiceTest(unittest.TestCase):
         with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
             self.service.record_purchase(payload)
 
-        self.mock_di.user_crud.update_locked.assert_called_once()
-        call_args = self.mock_di.user_crud.update_locked.call_args
+        self.mock_di.user_repo.update_locked.assert_called_once()
+        call_args = self.mock_di.user_repo.update_locked.call_args
         self.assertEqual(call_args.kwargs["user_id"], self.user_id)
         self.assertTrue(callable(call_args.kwargs["update_fn"]))
 
@@ -252,8 +251,8 @@ class PurchaseServiceTest(unittest.TestCase):
         with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
             self.service.bind_license_key(self.user_id, "LICENSE-123")
 
-        self.mock_di.user_crud.update_locked.assert_called_once()
-        call_args = self.mock_di.user_crud.update_locked.call_args
+        self.mock_di.user_repo.update_locked.assert_called_once()
+        call_args = self.mock_di.user_repo.update_locked.call_args
         self.assertEqual(call_args.kwargs["user_id"], self.user_id)
         self.assertTrue(callable(call_args.kwargs["update_fn"]))
 

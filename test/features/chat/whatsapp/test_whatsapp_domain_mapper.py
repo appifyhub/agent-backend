@@ -13,6 +13,7 @@ from features.chat.whatsapp.model.profile import Profile
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.model.value import Value
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
+from features.users.user_remote_data import UserRemoteData
 from util.functions import generate_deterministic_short_uuid
 
 
@@ -173,8 +174,10 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         result = self.mapper.map_author(message, value_obj)
 
         self.assertIsNotNone(result)
+        self.assertIsInstance(result, UserRemoteData)
         self.assertEqual(result.full_name, "John Doe")
         self.assertEqual(result.whatsapp_user_id, "1234567890")
+        self.assertEqual(result.whatsapp_phone_number.get_secret_value(), "1234567890")
 
     def test_map_author_empty(self):
         value_dict = {

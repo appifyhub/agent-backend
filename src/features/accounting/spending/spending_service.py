@@ -1,4 +1,5 @@
-from db.schema.user import User
+from dataclasses import replace
+
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from util import log
@@ -34,10 +35,9 @@ class SpendingService:
             input_image_sizes = input_image_sizes,
             output_image_sizes = output_image_sizes,
         ) + config.usage_maintenance_fee_credits
-        user_db = self.__di.user_crud.get(configured_tool.payer_id)
-        if user_db is None:
+        user = self.__di.user_repo.get(configured_tool.payer_id)
+        if user is None:
             raise NotFoundError(f"Payer user not found for id {configured_tool.payer_id}", USER_NOT_FOUND)
-        user = User.model_validate(user_db)
         if user.credit_balance < estimated_cost:
             raise ValidationError(f"Insufficient credits: minimum required {estimated_cost}, available {user.credit_balance}", INSUFFICIENT_CREDITS)  # noqa: E501
 
@@ -52,5 +52,5 @@ class SpendingService:
                     f"Actual cost {amount} exceeds pre-flight estimate for user "
                     f"{configured_tool.payer_id}; balance will go negative",
                 )
-            user.credit_balance = available - amount
-        self.__di.user_crud.update_locked(configured_tool.payer_id, apply)
+            return replace(user, credit_balance = available - amount)
+        self.__di.user_repo.update_locked(configured_tool.payer_id, apply)

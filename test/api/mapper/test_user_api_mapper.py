@@ -1,13 +1,14 @@
 import unittest
+from dataclasses import replace
 from datetime import date
 from uuid import UUID
 
 from pydantic import SecretStr
 
-from api.mapper.user_mapper import api_to_domain, domain_to_api
+from api.mapper.user_api_mapper import apply_to_domain, domain_to_api
 from api.model.user_settings_payload import UserSettingsPayload
 from db.model.user import UserDB
-from db.schema.user import User
+from features.users.user import User
 from util.functions import mask_secret
 
 
@@ -54,7 +55,7 @@ class UserMapperTest(unittest.TestCase):
             created_at = date(2024, 1, 1),
         )
 
-    def test_api_to_domain_with_all_fields(self):
+    def test_apply_to_domain_with_all_fields(self):
         payload = UserSettingsPayload(
             open_ai_key = "sk-new123",
             anthropic_key = "sk-ant-new456",
@@ -80,7 +81,7 @@ class UserMapperTest(unittest.TestCase):
             are_policies_accepted = True,
         )
 
-        user_save = api_to_domain(payload, self.user)
+        user_save = apply_to_domain(payload, self.user)
 
         # Check that all fields were updated
         self.assertEqual(user_save.open_ai_key.get_secret_value() if user_save.open_ai_key else None, "sk-new123")
@@ -113,13 +114,13 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(user_save.is_on_waitlist, self.user.is_on_waitlist)
         self.assertEqual(user_save.is_invited_to_start, self.user.is_invited_to_start)
 
-    def test_api_to_domain_with_partial_fields(self):
+    def test_apply_to_domain_with_partial_fields(self):
         payload = UserSettingsPayload(
             open_ai_key = "sk-new123",
             tool_choice_chat = "gpt-4o-mini",
         )
 
-        user_save = api_to_domain(payload, self.user)
+        user_save = apply_to_domain(payload, self.user)
 
         # Check that provided fields were updated
         self.assertEqual(user_save.open_ai_key.get_secret_value() if user_save.open_ai_key else None, "sk-new123")
@@ -130,46 +131,46 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(user_save.google_ai_key, self.user.google_ai_key)
         self.assertEqual(user_save.tool_choice_reasoning, self.user.tool_choice_reasoning)
 
-    def test_api_to_domain_with_empty_strings(self):
+    def test_apply_to_domain_with_empty_strings(self):
         payload = UserSettingsPayload(
             open_ai_key = "   ",  # whitespace only
             tool_choice_chat = "",  # empty string
         )
 
-        user_save = api_to_domain(payload, self.user)
+        user_save = apply_to_domain(payload, self.user)
 
         # Check that empty/whitespace strings become None
         self.assertIsNone(user_save.open_ai_key)
         self.assertIsNone(user_save.tool_choice_chat)
 
-    def test_api_to_domain_with_full_name(self):
+    def test_apply_to_domain_with_full_name(self):
         # Test setting a new full_name
         payload_set = UserSettingsPayload(
             full_name = "New Name",
         )
-        user_save = api_to_domain(payload_set, self.user)
+        user_save = apply_to_domain(payload_set, self.user)
         self.assertEqual(user_save.full_name, "New Name")
 
         # Test clearing full_name with empty string
         payload_clear = UserSettingsPayload(
             full_name = "",
         )
-        user_save = api_to_domain(payload_clear, self.user)
+        user_save = apply_to_domain(payload_clear, self.user)
         self.assertIsNone(user_save.full_name)
 
         # Test that None in payload preserves existing value
         payload_none = UserSettingsPayload(
             open_ai_key = "sk-test",
         )
-        user_save = api_to_domain(payload_none, self.user)
+        user_save = apply_to_domain(payload_none, self.user)
         self.assertEqual(user_save.full_name, self.user.full_name)
 
-    def test_api_to_domain_with_about_me(self):
+    def test_apply_to_domain_with_about_me(self):
         # Test setting a new about_me
         payload_set = UserSettingsPayload(
             about_me = "I enjoy hiking and photography",
         )
-        user_save = api_to_domain(payload_set, self.user)
+        user_save = apply_to_domain(payload_set, self.user)
         self.assertEqual(
             user_save.about_me.get_secret_value() if user_save.about_me else None,
             "I enjoy hiking and photography",
@@ -179,22 +180,22 @@ class UserMapperTest(unittest.TestCase):
         payload_clear = UserSettingsPayload(
             about_me = "",
         )
-        user_save = api_to_domain(payload_clear, self.user)
+        user_save = apply_to_domain(payload_clear, self.user)
         self.assertIsNone(user_save.about_me)
 
         # Test that None in payload preserves existing value
         payload_none = UserSettingsPayload(
             open_ai_key = "sk-test",
         )
-        user_save = api_to_domain(payload_none, self.user)
+        user_save = apply_to_domain(payload_none, self.user)
         self.assertEqual(user_save.about_me, self.user.about_me)
 
-    def test_api_to_domain_with_custom_prompt(self):
+    def test_apply_to_domain_with_custom_prompt(self):
         # Test setting a new custom_prompt
         payload_set = UserSettingsPayload(
             custom_prompt = "Always respond in formal English",
         )
-        user_save = api_to_domain(payload_set, self.user)
+        user_save = apply_to_domain(payload_set, self.user)
         self.assertEqual(
             user_save.custom_prompt.get_secret_value() if user_save.custom_prompt else None,
             "Always respond in formal English",
@@ -204,14 +205,14 @@ class UserMapperTest(unittest.TestCase):
         payload_clear = UserSettingsPayload(
             custom_prompt = "",
         )
-        user_save = api_to_domain(payload_clear, self.user)
+        user_save = apply_to_domain(payload_clear, self.user)
         self.assertIsNone(user_save.custom_prompt)
 
         # Test that None in payload preserves existing value
         payload_none = UserSettingsPayload(
             open_ai_key = "sk-test",
         )
-        user_save = api_to_domain(payload_none, self.user)
+        user_save = apply_to_domain(payload_none, self.user)
         self.assertEqual(user_save.custom_prompt, self.user.custom_prompt)
 
     def test_domain_to_api_conversion(self):
@@ -272,14 +273,13 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(masked_user.tool_choice_api_twitter, self.user.tool_choice_api_twitter)
 
     def test_domain_to_api_with_none_values(self):
-        user_with_nones = self.user.model_copy(
-            update = {
-                "about_me": None,
-                "custom_prompt": None,
-                "open_ai_key": None,
-                "tool_choice_chat": None,
-                "tool_choice_reasoning": None,
-            },
+        user_with_nones = replace(
+            self.user,
+            about_me = None,
+            custom_prompt = None,
+            open_ai_key = None,
+            tool_choice_chat = None,
+            tool_choice_reasoning = None,
         )
 
         masked_user = domain_to_api(user_with_nones, is_sponsored = True)

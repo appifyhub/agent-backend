@@ -1,9 +1,8 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantDetails
 from features.accounting.usage.usage_record import UsageRecord
@@ -18,6 +17,7 @@ from features.integrations.integrations import (
     resolve_external_handle,
     user_to_participant,
 )
+from features.users.user import User
 from util import log
 from util.error_codes import (
     ANNOUNCEMENT_NOT_RECEIVED,
@@ -56,18 +56,20 @@ class CreditTransferService:
         sender_user, receiver_user = self.__validate_transfer(sender_id, recipient_handle, chat_type, amount)
 
         # happens during the lock phase
-        def apply_transfer(sender_user_db: UserDB, receiver_user_db: UserDB) -> None:
-            if sender_user_db.credit_balance < amount:
+        def apply_transfer(sender_user: User, receiver_user: User) -> tuple[User, User]:
+            if sender_user.credit_balance < amount:
                 raise ValidationError(
-                    f"Not enough credits to transfer {amount} (balance: {sender_user_db.credit_balance})",
+                    f"Not enough credits to transfer {amount} (balance: {sender_user.credit_balance})",
                     INSUFFICIENT_CREDITS,
                 )
-            sender_user_db.credit_balance -= amount
-            receiver_user_db.credit_balance += amount
+            return (
+                replace(sender_user, credit_balance = sender_user.credit_balance - amount),
+                replace(receiver_user, credit_balance = receiver_user.credit_balance + amount),
+            )
 
         # acquire a lock and perform the credit transfer
         try:
-            self.__di.user_crud.update_locked_pair(sender_user.id, receiver_user.id, apply_transfer)
+            self.__di.user_repo.update_locked_pair(sender_user.id, receiver_user.id, apply_transfer)
         except ServiceError:
             raise
         except Exception as e:
@@ -132,18 +134,16 @@ class CreditTransferService:
                 INVALID_TRANSFER_AMOUNT,
             )
 
-        sender_user_db = self.__di.user_crud.get(sender_id)
-        if not sender_user_db:
+        sender_user = self.__di.user_repo.get(sender_id)
+        if not sender_user:
             raise NotFoundError(f"Sender '{sender_id}' not found", USER_NOT_FOUND)
-        sender_user = User.model_validate(sender_user_db)
 
-        receiver_user_db = lookup_user_by_handle(recipient_handle, chat_type, self.__di.user_crud)
-        if not receiver_user_db:
+        receiver_user = lookup_user_by_handle(recipient_handle, chat_type, self.__di.user_repo)
+        if not receiver_user:
             raise NotFoundError(
                 f"Recipient '@{recipient_handle}' not found on {chat_type.value}",
                 TRANSFER_RECIPIENT_NOT_FOUND,
             )
-        receiver_user = User.model_validate(receiver_user_db)
 
         if sender_user.id == receiver_user.id:
             raise ValidationError("Cannot transfer credits to yourself", SELF_TRANSFER_NOT_ALLOWED)

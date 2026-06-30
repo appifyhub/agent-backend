@@ -8,10 +8,10 @@ from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.integrations.platform_bot_sdk import ChatAccess, PlatformBotSDK
+from features.users.user import User
 
 
 def _make_di() -> DI:

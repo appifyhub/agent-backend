@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from db.schema.user import User
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantDetails, ParticipantInfo
 from features.accounting.usage.usage_record import UsageRecord
@@ -231,11 +230,11 @@ class UsageTrackingService:
         invoker_info = user_to_participant(self.__di.invoker)
         if payer_id == self.__di.invoker.id:
             return ParticipantDetails(payer = invoker_info, owner = invoker_info)
-        payer_db = self.__di.user_crud.get(payer_id)
-        if payer_db is None:
+        payer = self.__di.user_repo.get(payer_id)
+        if payer is None:
             payer_info = ParticipantInfo(user_id = payer_id, full_name = None, platform = None, handle = None)
         else:
-            payer_info = user_to_participant(User.model_validate(payer_db))
+            payer_info = user_to_participant(payer)
         return ParticipantDetails(
             payer = payer_info,
             owner = user_to_participant(self.__di.invoker),
