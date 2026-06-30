@@ -3,13 +3,13 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import UserSave
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.update import Update
+from features.users.user_remote_data import UserRemoteData
 from util import log
 from util.config import config
 from util.functions import generate_deterministic_short_uuid
@@ -19,7 +19,7 @@ class TelegramDomainMapper:
 
     class Result(BaseModel):
         chat: ChatConfigRemoteData
-        author: UserSave | None
+        author: UserRemoteData | None
         message: ChatMessageRemoteData
         attachments: list[ChatMessageAttachmentRemoteData]
 
@@ -49,13 +49,13 @@ class TelegramDomainMapper:
         )
 
     # noinspection PyMethodMayBeStatic
-    def map_author(self, message: Message) -> UserSave | None:
+    def map_author(self, message: Message) -> UserRemoteData | None:
         if not message.from_user:
             return None
         log.t(f"  Mapping author {message.from_user}")
         # properties might be updated later when this is stored
         author = message.from_user
-        return UserSave(
+        return UserRemoteData(
             full_name = f"{author.first_name} {author.last_name}" if author.last_name else author.first_name,
             telegram_username = author.username,
             telegram_chat_id = str(message.chat.id) if message.chat.type == "private" else None,

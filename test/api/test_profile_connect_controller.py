@@ -7,9 +7,9 @@ from api.model.connect_key_response import ConnectKeyResponse
 from api.model.settings_link_response import SettingsLinkResponse
 from api.profile_connect_controller import ProfileConnectController
 from db.model.chat_config import ChatConfigDB
-from db.schema.user import User
 from di.di import DI
 from features.connect.profile_connect_service import ProfileConnectService
+from features.users.user import User
 from util.errors import InternalError
 
 

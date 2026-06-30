@@ -1,3 +1,4 @@
+from dataclasses import replace
 from enum import Enum
 from uuid import UUID
 
@@ -5,10 +6,10 @@ from db.model.chat_message import ChatMessageDB
 from db.model.price_alert import PriceAlertDB
 from db.model.sponsorship import SponsorshipDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave, generate_connect_key
 from di.di import DI
+from features.users.user import User, generate_connect_key
 from util import log
-from util.error_codes import CONNECT_KEY_UPDATE_FAILED, USER_DELETE_FAILED, USER_UPDATE_FAILED
+from util.error_codes import CONNECT_KEY_UPDATE_FAILED, USER_DELETE_FAILED
 from util.errors import InternalError
 
 
@@ -28,13 +29,12 @@ class ProfileConnectService:
         log.t(f"  Using connect-key: '{target_connect_key}'")
 
         # Find target user by connect key
-        target_user_db = self.__di.user_crud.get_by_connect_key(target_connect_key)
-        if not target_user_db:
+        target_user = self.__di.user_repo.get_by_connect_key(target_connect_key)
+        if not target_user:
             return (
                 ProfileConnectService.Result.failure,
                 "Invalid connect key. Please check the key and try again.",
             )
-        target_user = User.model_validate(target_user_db)
 
         # Validate merge
         validation_error = self.__validate_connection(requester_user, target_user)
@@ -55,16 +55,13 @@ class ProfileConnectService:
             self.__migrate_dependent_entities(survivor_user.id, casualty_user.id)
 
             # Merge user data first (reads from casualty_user before deletion)
-            merged_user_save = self.__merge_user_data(survivor_user, casualty_user)
+            merged_user = self.__merge_user_data(survivor_user, casualty_user)
 
             # Delete the casualty profile (frees up unique constraints for the survivor's update)
-            deleted_user = self.__di.user_crud.delete(casualty_user.id, commit = False)
+            deleted_user = self.__di.user_repo.delete(casualty_user.id, commit = False)
             if not deleted_user:
                 raise InternalError(f"Failed to find user to delete '{casualty_user.id}'", USER_DELETE_FAILED)
-            merged_user_db = self.__di.user_crud.update(merged_user_save, commit = False)
-            if not merged_user_db:
-                raise InternalError(f"Failed to update survivor user '{survivor_user.id}'", USER_UPDATE_FAILED)
-            merged_user = User.model_validate(merged_user_db)
+            merged_user = self.__di.user_repo.save(merged_user, commit = False)
 
             # Regenerate connect key for survivor
             log.d("Generating new connect key for the survivor user")
@@ -88,12 +85,9 @@ class ProfileConnectService:
 
     def regenerate_connect_key(self, user: User, commit: bool = True) -> str:
         log.d(f"Regenerating connect key for user '{user.id}'")
-        user_save = UserSave(**user.model_dump())
-        user_save.connect_key = generate_connect_key()
-        updated_user_db = self.__di.user_crud.update(user_save, commit = commit)
-        if not updated_user_db:
+        updated_user = self.__di.user_repo.save(replace(user, connect_key = generate_connect_key()), commit = commit)
+        if not updated_user:
             raise InternalError(f"Failed to update connect key for user '{user.id}'", CONNECT_KEY_UPDATE_FAILED)
-        updated_user = User.model_validate(updated_user_db)
         log.i(f"Generated new connect key for user '{user.id}'")
         return updated_user.connect_key
 
@@ -129,9 +123,9 @@ class ProfileConnectService:
         else:
             return user2, user1
 
-    def __merge_user_data(self, survivor: User, casualty: User) -> UserSave:
+    def __merge_user_data(self, survivor: User, casualty: User) -> User:
         log.d(f"Merging data from '{casualty.id}' into '{survivor.id}'")
-        merged = UserSave(**survivor.model_dump())
+        merged = replace(survivor)
 
         # Merge fields: prefer non-null from either, otherwise use survivor's value
         # For fields where both have values, prefer survivor (older account)

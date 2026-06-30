@@ -1,7 +1,7 @@
 import unittest
 from uuid import UUID
 
-from api.mapper.chat_settings_mapper import domain_to_api
+from api.mapper.chat_settings_api_mapper import domain_to_api
 from db.model.chat_config import ChatConfigDB
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership

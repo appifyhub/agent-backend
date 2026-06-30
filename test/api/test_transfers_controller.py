@@ -7,8 +7,8 @@ from api.model.credit_transfer_payload import CreditTransferPayload
 from api.transfers_controller import TransfersController
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
+from features.users.user import User
 from util.error_codes import INVALID_PLATFORM, NOT_TARGET_USER
 from util.errors import AuthorizationError, ValidationError
 

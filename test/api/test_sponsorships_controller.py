@@ -7,15 +7,15 @@ from pydantic import SecretStr
 
 from api.model.sponsorship_payload import SponsorshipPayload
 from api.sponsorships_controller import SponsorshipsController
-from db.crud.user import UserCRUD
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.sponsorships.sponsorship import Sponsorship
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.sponsorships.sponsorship_service import SponsorshipService
+from features.users.user import User
+from features.users.user_repo import UserRepository
 from util.config import config
 from util.errors import AuthorizationError, InternalError
 
@@ -58,6 +58,7 @@ class SponsorshipsControllerTest(unittest.TestCase):
             open_ai_key = SecretStr("receiver_api_key"),
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
+            are_policies_accepted = True,
         )
         self.sponsorship = Sponsorship(
             sponsor_id = self.sponsor_user.id,
@@ -76,7 +77,7 @@ class SponsorshipsControllerTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
         # noinspection PyPropertyAccess
-        self.mock_di.user_crud = Mock(spec = UserCRUD)
+        self.mock_di.user_repo = Mock(spec = UserRepository)
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
         # noinspection PyPropertyAccess
@@ -90,7 +91,7 @@ class SponsorshipsControllerTest(unittest.TestCase):
         self.mock_di.sponsorship_service.unsponsor_user.return_value = (SponsorshipService.Result.success, "Success")
         self.mock_di.sponsorship_service.unsponsor_self.return_value = (SponsorshipService.Result.success, "Success")
 
-        self.mock_di.user_crud.get.return_value = self.invoker_user
+        self.mock_di.user_repo.get.return_value = self.receiver_user
 
     def test_init_success(self):
         controller = SponsorshipsController(self.mock_di)
@@ -110,24 +111,8 @@ class SponsorshipsControllerTest(unittest.TestCase):
             sponsored_at = self.sponsorship.sponsored_at,
             accepted_at = self.sponsorship.accepted_at,
         )
-        receiver_user_db = UserDB(
-            id = self.receiver_user.id,
-            full_name = self.receiver_user.full_name,
-            telegram_username = self.receiver_user.telegram_username,
-            telegram_chat_id = self.receiver_user.telegram_chat_id,
-            telegram_user_id = self.receiver_user.telegram_user_id,
-            connect_key = "RCVR-USER-KEY1",
-            open_ai_key = self.receiver_user.open_ai_key,
-            group = self.receiver_user.group,
-            created_at = self.receiver_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-
         self.mock_di.sponsorship_repo.get_all_by_sponsor.return_value = [sponsorship]
-        self.mock_di.user_crud.get.return_value = receiver_user_db
+        self.mock_di.user_repo.get.return_value = self.receiver_user
         self.mock_di.authorization_service.authorize_for_user.return_value = self.sponsor_user
 
         controller = SponsorshipsController(self.mock_di)
@@ -178,7 +163,7 @@ class SponsorshipsControllerTest(unittest.TestCase):
             accepted_at = self.sponsorship.accepted_at,
         )
         self.mock_di.sponsorship_repo.get_all_by_sponsor.return_value = [sponsorship]
-        self.mock_di.user_crud.get.return_value = None  # Missing receiver
+        self.mock_di.user_repo.get.return_value = None  # Missing receiver
         self.mock_di.authorization_service.authorize_for_user.return_value = self.sponsor_user
 
         controller = SponsorshipsController(self.mock_di)
@@ -202,24 +187,8 @@ class SponsorshipsControllerTest(unittest.TestCase):
             sponsored_at = self.sponsorship.sponsored_at,
             accepted_at = None,  # Not accepted yet
         )
-        receiver_user_db = UserDB(
-            id = self.receiver_user.id,
-            full_name = self.receiver_user.full_name,
-            telegram_username = self.receiver_user.telegram_username,
-            telegram_chat_id = self.receiver_user.telegram_chat_id,
-            telegram_user_id = self.receiver_user.telegram_user_id,
-            connect_key = "RCVR-USER-KEY2",
-            open_ai_key = self.receiver_user.open_ai_key,
-            group = self.receiver_user.group,
-            created_at = self.receiver_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-
         self.mock_di.sponsorship_repo.get_all_by_sponsor.return_value = [sponsorship]
-        self.mock_di.user_crud.get.return_value = receiver_user_db
+        self.mock_di.user_repo.get.return_value = self.receiver_user
         self.mock_di.authorization_service.authorize_for_user.return_value = self.sponsor_user
 
         controller = SponsorshipsController(self.mock_di)
@@ -245,33 +214,26 @@ class SponsorshipsControllerTest(unittest.TestCase):
         self.mock_di.sponsorship_repo.get_all_by_sponsor.assert_called_once_with(self.sponsor_user.id)
 
     def test_fetch_sponsorships_success_with_developer_user(self):
-        developer_user = self.invoker_user.model_copy(update = {"group": UserDB.Group.developer})
+        developer_user = User(
+            id = self.invoker_user.id,
+            full_name = self.invoker_user.full_name,
+            telegram_username = self.invoker_user.telegram_username,
+            telegram_chat_id = self.invoker_user.telegram_chat_id,
+            telegram_user_id = self.invoker_user.telegram_user_id,
+            open_ai_key = self.invoker_user.open_ai_key,
+            group = UserDB.Group.developer,
+            created_at = self.invoker_user.created_at,
+        )
         sponsorship = Sponsorship(
             sponsor_id = self.sponsorship.sponsor_id,
             receiver_id = self.sponsorship.receiver_id,
             sponsored_at = self.sponsorship.sponsored_at,
             accepted_at = self.sponsorship.accepted_at,
         )
-        receiver_user_db = UserDB(
-            id = self.receiver_user.id,
-            full_name = self.receiver_user.full_name,
-            telegram_username = self.receiver_user.telegram_username,
-            telegram_chat_id = self.receiver_user.telegram_chat_id,
-            telegram_user_id = self.receiver_user.telegram_user_id,
-            connect_key = "RCVR-USER-KEY3",
-            open_ai_key = self.receiver_user.open_ai_key,
-            group = self.receiver_user.group,
-            created_at = self.receiver_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-
         # noinspection PyPropertyAccess
         self.mock_di.invoker = developer_user
         self.mock_di.sponsorship_repo.get_all_by_sponsor.return_value = [sponsorship]
-        self.mock_di.user_crud.get.return_value = receiver_user_db
+        self.mock_di.user_repo.get.return_value = self.receiver_user
         self.mock_di.authorization_service.authorize_for_user.return_value = self.sponsor_user
 
         controller = SponsorshipsController(self.mock_di)
@@ -304,28 +266,13 @@ class SponsorshipsControllerTest(unittest.TestCase):
     @patch.object(SponsorshipService, "sponsor_user", return_value = (SponsorshipService.Result.success, "Success"))
     def test_sponsor_user_success(self, mock_sponsor_user):
         self.mock_di.authorization_service.authorize_for_user.return_value = self.sponsor_user
-        receiver_user_db = UserDB(
-            id = self.receiver_user.id,
-            full_name = self.receiver_user.full_name,
-            telegram_username = self.receiver_user.telegram_username,
-            telegram_chat_id = self.receiver_user.telegram_chat_id,
-            telegram_user_id = self.receiver_user.telegram_user_id,
-            connect_key = "RCVR-USER-KEY4",
-            open_ai_key = self.receiver_user.open_ai_key,
-            group = self.receiver_user.group,
-            created_at = self.receiver_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
         sponsorship = Sponsorship(
             sponsor_id = self.sponsor_user.id,
             receiver_id = self.receiver_user.id,
             sponsored_at = datetime.now(),
             accepted_at = None,
         )
-        self.mock_di.user_crud.get_by_telegram_username.return_value = receiver_user_db
+        self.mock_di.user_repo.get_by_telegram_username.return_value = self.receiver_user
         self.mock_di.sponsorship_repo.get.return_value = sponsorship
 
         controller = SponsorshipsController(self.mock_di)

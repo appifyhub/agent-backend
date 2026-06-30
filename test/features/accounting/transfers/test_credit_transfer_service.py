@@ -5,11 +5,11 @@ from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.accounting.transfers.credit_transfer_service import CreditTransferService
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import TRANSFER_TOOL
+from features.users.user import User
 from util.error_codes import (
     INSUFFICIENT_CREDITS,
     INVALID_TRANSFER_AMOUNT,
@@ -48,13 +48,13 @@ class CreditTransferServiceTest(unittest.TestCase):
         self.mock_di = Mock(spec = DI)
         self.mock_di.invoker_chat = None
 
-        self.mock_di.user_crud.get.side_effect = lambda uid: (
-            self.sender.model_dump() if uid == self.sender.id else
-            self.receiver.model_dump() if uid == self.receiver.id else
+        self.mock_di.user_repo.get.side_effect = lambda uid: (
+            self.sender if uid == self.sender.id else
+            self.receiver if uid == self.receiver.id else
             None
         )
-        self.mock_di.user_crud.get_by_telegram_username.return_value = self.receiver.model_dump()
-        self.mock_di.user_crud.update_locked_pair.return_value = None
+        self.mock_di.user_repo.get_by_telegram_username.return_value = self.receiver
+        self.mock_di.user_repo.update_locked_pair.return_value = None
         self.mock_di.sponsorship_repo.get_all_by_receiver.return_value = []
         self.mock_di.usage_record_repo.create.return_value = None
         self.mock_di.clone.side_effect = Exception("notification not configured in test")
@@ -121,11 +121,11 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, INVALID_TRANSFER_AMOUNT)
-        self.mock_di.user_crud.update_locked_pair.assert_not_called()
+        self.mock_di.user_repo.update_locked_pair.assert_not_called()
 
     def test_transfer_sender_not_found(self):
-        self.mock_di.user_crud.get.side_effect = None
-        self.mock_di.user_crud.get.return_value = None
+        self.mock_di.user_repo.get.side_effect = None
+        self.mock_di.user_repo.get.return_value = None
 
         with self.assertRaises(NotFoundError) as ctx:
             self.service.transfer_credits(
@@ -136,10 +136,10 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, USER_NOT_FOUND)
-        self.mock_di.user_crud.update_locked_pair.assert_not_called()
+        self.mock_di.user_repo.update_locked_pair.assert_not_called()
 
     def test_transfer_recipient_not_found(self):
-        self.mock_di.user_crud.get_by_telegram_username.return_value = None
+        self.mock_di.user_repo.get_by_telegram_username.return_value = None
 
         with self.assertRaises(NotFoundError) as ctx:
             self.service.transfer_credits(
@@ -150,10 +150,10 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, TRANSFER_RECIPIENT_NOT_FOUND)
-        self.mock_di.user_crud.update_locked_pair.assert_not_called()
+        self.mock_di.user_repo.update_locked_pair.assert_not_called()
 
     def test_self_transfer_not_allowed(self):
-        self.mock_di.user_crud.get_by_telegram_username.return_value = self.sender.model_dump()
+        self.mock_di.user_repo.get_by_telegram_username.return_value = self.sender
 
         with self.assertRaises(ValidationError) as ctx:
             self.service.transfer_credits(
@@ -164,7 +164,7 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, SELF_TRANSFER_NOT_ALLOWED)
-        self.mock_di.user_crud.update_locked_pair.assert_not_called()
+        self.mock_di.user_repo.update_locked_pair.assert_not_called()
 
     def test_sponsored_sender_not_allowed(self):
         self.mock_di.sponsorship_repo.get_all_by_receiver.side_effect = lambda uid, limit = 1: (
@@ -180,7 +180,7 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, SPONSORED_USER_TRANSFER_NOT_ALLOWED)
-        self.mock_di.user_crud.update_locked_pair.assert_not_called()
+        self.mock_di.user_repo.update_locked_pair.assert_not_called()
 
     def test_sponsored_receiver_not_allowed(self):
         self.mock_di.sponsorship_repo.get_all_by_receiver.side_effect = lambda uid, limit = 1: (
@@ -196,21 +196,17 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, SPONSORED_USER_TRANSFER_NOT_ALLOWED)
-        self.mock_di.user_crud.update_locked_pair.assert_not_called()
+        self.mock_di.user_repo.update_locked_pair.assert_not_called()
 
     def test_transfer_insufficient_balance(self):
         broke_sender = _make_user(1, "sender_handle", credit_balance = 5.0)
-        self.mock_di.user_crud.get.side_effect = lambda uid: (
-            broke_sender.model_dump() if uid == broke_sender.id else
-            self.receiver.model_dump() if uid == self.receiver.id else None
+        self.mock_di.user_repo.get.side_effect = lambda uid: (
+            broke_sender if uid == broke_sender.id else
+            self.receiver if uid == self.receiver.id else None
         )
 
-        sender_db = Mock(spec = UserDB)
-        sender_db.credit_balance = 5.0
-        receiver_db = Mock(spec = UserDB)
-        receiver_db.credit_balance = 50.0
-        self.mock_di.user_crud.update_locked_pair.side_effect = (
-            lambda first_id, second_id, update_fn: update_fn(sender_db, receiver_db)
+        self.mock_di.user_repo.update_locked_pair.side_effect = (
+            lambda first_id, second_id, update_fn: update_fn(broke_sender, self.receiver)
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -222,7 +218,7 @@ class CreditTransferServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.error_code, INSUFFICIENT_CREDITS)
-        self.mock_di.user_crud.update_locked_pair.assert_called_once()
+        self.mock_di.user_repo.update_locked_pair.assert_called_once()
         self.mock_di.usage_record_repo.create.assert_not_called()
 
     def test_notification_failure_does_not_break_transfer(self):
@@ -245,8 +241,8 @@ class CreditTransferServiceTest(unittest.TestCase):
             amount = 30.0,
         )
 
-        self.mock_di.user_crud.update_locked_pair.assert_called_once()
-        args = self.mock_di.user_crud.update_locked_pair.call_args.args
+        self.mock_di.user_repo.update_locked_pair.assert_called_once()
+        args = self.mock_di.user_repo.update_locked_pair.call_args.args
         self.assertEqual(args[0], self.sender.id)
         self.assertEqual(args[1], self.receiver.id)
         self.assertTrue(callable(args[2]))

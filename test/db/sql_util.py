@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from db.crud.user import UserCRUD
 from db.sql import initialize_db
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
@@ -11,6 +10,7 @@ from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.currencies.price_alert_repo import PriceAlertRepository
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
+from features.users.user_repo import UserRepository
 
 
 class SQLUtil:
@@ -72,10 +72,10 @@ class SQLUtil:
             self.start_session()
         return ToolsCacheRepository(self.__session)
 
-    def user_crud(self) -> UserCRUD:
+    def user_repo(self) -> UserRepository:
         if not self.__is_session_active:
             self.start_session()
-        return UserCRUD(self.__session)
+        return UserRepository(self.__session)
 
     def price_alert_repo(self) -> PriceAlertRepository:
         if not self.__is_session_active:

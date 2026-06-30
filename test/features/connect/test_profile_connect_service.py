@@ -9,16 +9,16 @@ from db.model.chat_message import ChatMessageDB
 from db.model.price_alert import PriceAlertDB
 from db.model.sponsorship import SponsorshipDB
 from db.model.user import UserDB
-from db.schema.user import User, UserSave, generate_connect_key
 from features.connect.profile_connect_service import ProfileConnectService
+from features.users.user import User, generate_connect_key
 
 
 class ProfileConnectServiceTest(unittest.TestCase):
 
     def setUp(self):
-        self.mock_user_crud = Mock()
+        self.mock_user_repo = Mock()
         self.mock_di = Mock()
-        self.mock_di.user_crud = self.mock_user_crud
+        self.mock_di.user_repo = self.mock_user_repo
         self.mock_db = Mock()
         self.transaction_mock = Mock()
         self.transaction_mock.is_active = True
@@ -146,7 +146,7 @@ class ProfileConnectServiceTest(unittest.TestCase):
         )
         return classify_profiles(user1, user2)
 
-    def _merge_user_data(self, survivor: User, casualty: User) -> UserSave:
+    def _merge_user_data(self, survivor: User, casualty: User) -> User:
         merge_user_data = getattr(
             self.service,
             "_ProfileConnectService__merge_user_data",
@@ -396,7 +396,7 @@ class ProfileConnectServiceTest(unittest.TestCase):
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
-        self.mock_user_crud.get_by_connect_key.return_value = None
+        self.mock_user_repo.get_by_connect_key.return_value = None
 
         result, message = self.service.connect_profiles(requester, "INVALID-KEY-HERE")
 
@@ -415,7 +415,7 @@ class ProfileConnectServiceTest(unittest.TestCase):
         )
         casualty_id = UUID(int = 2)
         target_connect_key = "CAST-KEY-BBBB"
-        casualty_db = UserDB(
+        casualty = User(
             id = casualty_id,
             full_name = "Casualty",
             whatsapp_user_id = "wa-456",
@@ -428,36 +428,9 @@ class ProfileConnectServiceTest(unittest.TestCase):
             are_policies_accepted = True,
         )
 
-        merged_user_db = UserDB(
-            id = survivor_user.id,
-            full_name = survivor_user.full_name,
-            telegram_user_id = survivor_user.telegram_user_id,
-            whatsapp_user_id = casualty_db.whatsapp_user_id,
-            connect_key = survivor_user.connect_key,
-            group = UserDB.Group.developer,
-            created_at = survivor_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-        final_user_db = UserDB(
-            id = survivor_user.id,
-            full_name = survivor_user.full_name,
-            telegram_user_id = survivor_user.telegram_user_id,
-            whatsapp_user_id = casualty_db.whatsapp_user_id,
-            connect_key = "ABCD-EFGH-IJKL",
-            group = UserDB.Group.developer,
-            created_at = survivor_user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
-
-        self.mock_user_crud.get_by_connect_key.return_value = casualty_db
-        self.mock_user_crud.update.side_effect = [merged_user_db, final_user_db]
-        self.mock_user_crud.delete.return_value = casualty_db
+        self.mock_user_repo.get_by_connect_key.return_value = casualty
+        self.mock_user_repo.save.side_effect = lambda user, commit = True: user
+        self.mock_user_repo.delete.return_value = casualty
 
         result, message = self.service.connect_profiles(survivor_user, target_connect_key)
 
@@ -466,21 +439,21 @@ class ProfileConnectServiceTest(unittest.TestCase):
             message,
             "Profiles connected successfully! Data was merged and you have a new connect key on the new joint profile.",
         )
-        self.assertEqual(self.mock_user_crud.delete.call_count, 1)
-        self.assertEqual(self.mock_user_crud.update.call_count, 2)
-        first_update_save = self.mock_user_crud.update.call_args_list[0].args[0]
-        self.assertIsInstance(first_update_save, UserSave)
-        self.assertEqual(first_update_save.id, survivor_user.id)
-        self.assertEqual(first_update_save.whatsapp_user_id, casualty_db.whatsapp_user_id)
-        self.assertEqual(first_update_save.connect_key, survivor_user.connect_key)
-        second_update_save = self.mock_user_crud.update.call_args_list[1].args[0]
-        self.assertIsInstance(second_update_save, UserSave)
-        self.assertEqual(second_update_save.connect_key, "ABCD-EFGH-IJKL")
-        self.mock_user_crud.delete.assert_called_once_with(casualty_id, commit = False)
-        first_update_call = self.mock_user_crud.update.call_args_list[0]
-        self.assertEqual(first_update_call.kwargs, {"commit": False})
-        second_update_call = self.mock_user_crud.update.call_args_list[1]
-        self.assertEqual(second_update_call.kwargs, {"commit": False})
+        self.assertEqual(self.mock_user_repo.delete.call_count, 1)
+        self.assertEqual(self.mock_user_repo.save.call_count, 2)
+        first_saved_user = self.mock_user_repo.save.call_args_list[0].args[0]
+        self.assertIsInstance(first_saved_user, User)
+        self.assertEqual(first_saved_user.id, survivor_user.id)
+        self.assertEqual(first_saved_user.whatsapp_user_id, casualty.whatsapp_user_id)
+        self.assertEqual(first_saved_user.connect_key, survivor_user.connect_key)
+        second_saved_user = self.mock_user_repo.save.call_args_list[1].args[0]
+        self.assertIsInstance(second_saved_user, User)
+        self.assertEqual(second_saved_user.connect_key, "ABCD-EFGH-IJKL")
+        self.mock_user_repo.delete.assert_called_once_with(casualty_id, commit = False)
+        first_save_call = self.mock_user_repo.save.call_args_list[0]
+        self.assertEqual(first_save_call.kwargs, {"commit": False})
+        second_save_call = self.mock_user_repo.save.call_args_list[1]
+        self.assertEqual(second_save_call.kwargs, {"commit": False})
         mock_generate.assert_called_once()
         self.assertGreaterEqual(len(self.query_calls), 6)
         self._assert_migration_queries(survivor_user.id, casualty_id)
@@ -495,7 +468,7 @@ class ProfileConnectServiceTest(unittest.TestCase):
             group = UserDB.Group.standard,
             created_at = date(2023, 1, 1),
         )
-        updated_user_db = UserDB(
+        updated_user = User(
             id = user.id,
             full_name = user.full_name,
             telegram_user_id = user.telegram_user_id,
@@ -507,13 +480,13 @@ class ProfileConnectServiceTest(unittest.TestCase):
             is_invited_to_start = False,
             are_policies_accepted = True,
         )
-        self.mock_user_crud.update.return_value = updated_user_db
+        self.mock_user_repo.save.return_value = updated_user
 
         new_key = self.service.regenerate_connect_key(user)
 
         self.assertEqual(new_key, "NEW-KEY-9999")
-        self.mock_user_crud.update.assert_called_once()
-        saved_payload = self.mock_user_crud.update.call_args.args[0]
-        self.assertIsInstance(saved_payload, UserSave)
+        self.mock_user_repo.save.assert_called_once()
+        saved_payload = self.mock_user_repo.save.call_args.args[0]
+        self.assertIsInstance(saved_payload, User)
         self.assertEqual(saved_payload.connect_key, "NEW-KEY-9999")
         mock_generate.assert_called_once()

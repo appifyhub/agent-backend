@@ -8,7 +8,6 @@ from pydantic import SecretStr
 from api.authorization_service import AuthorizationService
 from api.purchases_controller import PurchasesController
 from db.model.user import UserDB
-from db.schema.user import User
 from di.di import DI
 from features.accounting.purchases.purchase_aggregates import (
     ProductAggregateStats,
@@ -17,6 +16,7 @@ from features.accounting.purchases.purchase_aggregates import (
 )
 from features.accounting.purchases.purchase_record import PurchaseRecord
 from features.accounting.purchases.purchase_service import PurchaseService
+from features.users.user import User
 from util.error_codes import NOT_TARGET_USER
 from util.errors import AuthorizationError, ValidationError
 

@@ -5,24 +5,23 @@ from uuid import uuid4
 from db.sql_util import SQLUtil
 
 from db.model.usage_record import UsageRecordDB
-from db.model.user import UserDB
-from db.schema.user import UserSave
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import CLAUDE_4_5_HAIKU, GPT_4O, TRANSFER_TOOL
+from features.users.user import User
 
 
 class UsageRecordRepositoryTest(unittest.TestCase):
 
     sql: SQLUtil
     repo: UsageRecordRepository
-    user: UserDB
+    user: User
 
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.usage_record_repo()
-        self.user = self.sql.user_crud().create(UserSave(connect_key = "TEST-KEY-1234"))
+        self.user = self.sql.user_repo().save(User(connect_key = "TEST-KEY-1234"))
 
     def tearDown(self):
         self.sql.end_session()
@@ -145,7 +144,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(len(records), 1)
 
     def test_get_by_user_include_sponsored(self):
-        sponsored_user = self.sql.user_crud().create(UserSave(connect_key = "SPONSORED-KEY"))
+        sponsored_user = self.sql.user_repo().save(User(connect_key = "SPONSORED-KEY"))
 
         self.repo.create(self._create_record(total_cost_credits = 10))
         self.repo.create(self._create_record(
@@ -159,7 +158,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(len(records), 2)
 
     def test_get_by_user_exclude_self(self):
-        sponsored_user = self.sql.user_crud().create(UserSave(connect_key = "SPONSORED-KEY"))
+        sponsored_user = self.sql.user_repo().save(User(connect_key = "SPONSORED-KEY"))
 
         self.repo.create(self._create_record(total_cost_credits = 10))
         self.repo.create(self._create_record(
@@ -257,7 +256,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(stats.total_cost_credits, 10.0)
 
     def test_get_aggregates_by_user_include_sponsored(self):
-        sponsored_user = self.sql.user_crud().create(UserSave(connect_key = "SPONSORED-KEY"))
+        sponsored_user = self.sql.user_repo().save(User(connect_key = "SPONSORED-KEY"))
 
         self.repo.create(self._create_record(total_cost_credits = 10))
         self.repo.create(self._create_record(
@@ -408,7 +407,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertNotIn(ToolType.chat.value, stats.all_purposes_used)
 
     def test_get_by_user_includes_incoming_transfer_as_counterpart(self):
-        other_user = self.sql.user_crud().create(UserSave(connect_key = "OTHER-KEY"))
+        other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
         self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(
             user_id = other_user.id,
@@ -427,7 +426,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertIn(ToolType.chat, purposes)
 
     def test_get_by_user_excludes_incoming_transfer_when_transfers_excluded(self):
-        other_user = self.sql.user_crud().create(UserSave(connect_key = "OTHER-KEY"))
+        other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
         self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(
             user_id = other_user.id,
@@ -444,7 +443,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(records[0].tool_purpose, ToolType.chat)
 
     def test_get_by_user_only_transfers_includes_counterpart(self):
-        other_user = self.sql.user_crud().create(UserSave(connect_key = "OTHER-KEY"))
+        other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
         self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(
             user_id = other_user.id,
@@ -462,7 +461,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(records[0].counterpart_id, self.user.id)
 
     def test_get_aggregates_includes_incoming_transfer_as_counterpart(self):
-        other_user = self.sql.user_crud().create(UserSave(connect_key = "OTHER-KEY"))
+        other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
         self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat, total_cost_credits = 10))
         self.repo.create(self._create_record(
             user_id = other_user.id,

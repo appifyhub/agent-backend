@@ -4,11 +4,8 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import requests_mock
-from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
-from db.schema.user import User
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.chat_image_edit_service import ChatImageEditService
 from features.chat.url_attachment_resolver import UrlAttachmentResolver
@@ -25,7 +22,6 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_platform_sdk = MagicMock()
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
         self.mock_di.telegram_bot_api = MagicMock()
-        self.mock_di.user_dao = MagicMock()
         self.mock_di.chat_message_attachment_repo = MagicMock()
         self.mock_di.access_token_resolver = MagicMock()
         mock_chat = MagicMock()
@@ -36,19 +32,6 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
         self.mock_di.tool_choice_resolver = MagicMock()
         self.mock_di.image_editor = MagicMock()
-
-        self.user = User(
-            id = UUID(hex = "123e4567-e89b-12d3-a456-426614174000"),
-            full_name = "Test User",
-            telegram_username = "test_username",
-            telegram_chat_id = "test_chat_id",
-            telegram_user_id = 1,
-            open_ai_key = SecretStr("test_api_key"),
-            replicate_key = SecretStr("test_replicate_key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
-        self.mock_di.user_dao.get.return_value = self.user
 
         self.attachment = ChatMessageAttachment(
             id = "attachment1",
