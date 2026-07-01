@@ -42,6 +42,7 @@ class _ContextLibrary:
             "Attachment IDs look like coded strings of text in a list, e.g. `[ bx345a6 ]`, and are preceded by a '📎' sign. "
             "Attachment IDs are machine-generated, so the user's have no use or understanding of them. "
             "YOU MUST NEVER SEND ATTACHMENT IDS TO THE USER, IN ANY WAY, SHAPE OR FORM. "
+            "DO NOT copy attachment ID syntax, bracketed ID text, or the '📎' markers into user-visible replies. "
             "When required, analyze and use the message attachment functions to provide more relevant responses and replies. "
             "When the contents of a processed attachment contain a question, request, or task directed at you, "
             "respond to it directly — do not merely describe or summarize the attachment. "
@@ -254,6 +255,7 @@ class _StyleLibrary:
             "When a lightweight acknowledgement is enough, prefer replying with a single emoji reaction instead of "
             "a one- or two-word text response. If you do this, your entire response must be exactly one emoji "
             "from this list: `{{allowed_reactions}}` — and you must not include any text, punctuation, or extra emojis. "
+            "Do not wrap reactions in `<reaction>` tags or any other markup; send only the emoji itself. "
         ).strip(),
     )
 
@@ -525,6 +527,7 @@ class _FormatLibrary:
             "Your input is coming from a Telegram chat. It might contain *Telegram*-flavored markdown formatting, or links. "
             "Chat messages sometimes contain quotations ('>>') or attachment IDs ('📎'). "
             "Attachment IDs can be safely ignored in replies, while the quoted text could provide additional context for you. "
+            "Never mirror attachment ID syntax or '📎' markers in your reply. "
         ).strip(),
     )
 
@@ -535,6 +538,7 @@ class _FormatLibrary:
             "Your input is coming from a WhatsApp chat. It might contain *WhatsApp*-flavored markdown formatting, or links. "
             "Chat messages sometimes contain quotations ('>>') or attachment IDs ('📎'). "
             "Attachment IDs can be safely ignored in replies, while the quoted text could provide additional context for you. "
+            "Never mirror attachment ID syntax or '📎' markers in your reply. "
         ).strip(),
     )
 
@@ -652,6 +656,7 @@ class _MetaLibrary:
             "<LLM SYSTEM SELF-CORRECTION> --\n"
             "Attachment IDs should never be sent to users. "
             "You either wanted to call a tool with that ID, or mistakenly followed the source format. "
+            "Do not display attachment IDs, bracketed ID text, or '📎' markers in user-visible replies. "
             "When using tools, you must call the tool functions using verbatim attachment IDs, "
             "without any truncation, cleaning, or formatting. Tools are used to process attachments. "
             "Pretend that this instruction didn't exist for the remainder of the conversation.\n"
