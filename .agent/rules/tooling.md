@@ -19,20 +19,20 @@ trigger: always_on
 ### Development Workflow
 
 - Use `pipenv install --dev` and `pipenv run python src/main.py --dev` for development server (includes hot reload, verbose logging, dev API key)
-- Use `pipenv run pre-commit run --all-files --show-diff-on-failure` for code quality checks
+- For code quality checks, run tools directly on changed Python files: `pipenv run ruff check --fix <files>` and `pipenv run python tools/check_spacing.py --fix <files>`
+- For version bumps, run `./tools/bump_version {major|minor|patch}`; major and minor bumps reset lower version segments, and the script updates both project config and API docs
 - Use `pipenv install` and `pipenv run python src/main.py` for production runs
 - For all other operations like testing, always run inside of `pipenv`
 
 ### Code Quality
 
-- Always run linting before commits: `pipenv run pre-commit run`
+- Always run linting on changed Python files before commits: `pipenv run ruff check --fix <files>` and `pipenv run python tools/check_spacing.py --fix <files>`
 - All scripts handle environment setup automatically (PYTHONPATH, .env files)
 
 ### Project Structure
 
 - All scripts are in `tools` directory and use common `messages.sh` for colored output
 - Scripts validate project root location and fail safely if run from wrong directory
-- Version is managed through `pyproject.toml` in project root
 - You can see other rules in `.cursor` directory, if you need those rules
 - You can see the CI/CD pipeline in `.github/workflows` directory
 - You can see the API docs in `docs/` directory (keep it updated!)

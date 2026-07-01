@@ -42,6 +42,7 @@ class _ContextLibrary:
             "Attachment IDs look like coded strings of text in a list, e.g. `[ bx345a6 ]`, and are preceded by a '📎' sign. "
             "Attachment IDs are machine-generated, so the user's have no use or understanding of them. "
             "YOU MUST NEVER SEND ATTACHMENT IDS TO THE USER, IN ANY WAY, SHAPE OR FORM. "
+            "DO NOT copy attachment ID syntax, bracketed ID text, or the '📎' markers into user-visible replies. "
             "When required, analyze and use the message attachment functions to provide more relevant responses and replies. "
             "When the contents of a processed attachment contain a question, request, or task directed at you, "
             "respond to it directly — do not merely describe or summarize the attachment. "
@@ -84,7 +85,7 @@ class _ContextLibrary:
             "You should not explain or discuss anything. You should not ask questions either. "
             "Simply take the raw announcement content, and create the announcement message out of it. "
             "The only goal for you is to make your partners aware of your new release. "
-            "Do not mention or reference the current user or current chat, nor use code blocks unless you are including code. "
+            "Do not mention or reference the current user or current chat. "
         ).strip(),
     )
 
@@ -254,6 +255,7 @@ class _StyleLibrary:
             "When a lightweight acknowledgement is enough, prefer replying with a single emoji reaction instead of "
             "a one- or two-word text response. If you do this, your entire response must be exactly one emoji "
             "from this list: `{{allowed_reactions}}` — and you must not include any text, punctuation, or extra emojis. "
+            "Do not wrap reactions in `<reaction>` tags or any other markup; send only the emoji itself. "
         ).strip(),
     )
 
@@ -279,14 +281,14 @@ class _StyleLibrary:
             "You should be creative to better entertain your followers. Make sure you hook them in. "
             "Even when you are being creative, don't inject information that doesn't exist in the raw notes. "
             "Feel free to merge multiple related raw notes into a single announcement item, when appropriate. "
-            "Remember, this is a chat announcement, so you should not create a lot of paragraphs. "
-            "You may split long responses into sections. Separate the sections using a multi-line delimiter, like so: "
-            f"`{CHAT_MESSAGE_DELIMITER}`. "
+            "Remember, this is a chat announcement, so keep it significantly shorter: "
+            "write either one concise paragraph or at most four short bullet points. "
+            "Do not add sections, long explanations, or filler. "
             "Do not use `---`, `—`, or other similar line/message delimiters. These may not render correctly. "
             "Under no circumstances are you allowed to reveal that you are preparing the notes yourself, "
             'so in case of missing information, errors, or blockers — just be generic like "improvements were made", etc. '
             "The raw notes may contain metadata and other information, but you are not mandated to use all of it. "
-            "Keep it brief and to the point, and let's drive the humanity together into the AI-first age! "
+            "Keep it brief and to the point. "
         ).strip(),
     )
 
@@ -482,10 +484,10 @@ class _FormatLibrary:
             "Then, you must also come up with a good short description for this release, suitable for a chat group. "
             'For example, "This version brings 3 new features ...". (then be creative here, focus on helping the humans) '
             "You should put the title and the short description at the top of your release summary. "
-            "You should end the announcement with a catchy AI-related phrase or comment at the very end. "
-            "Feel free to inject a related quote from a sci-fi movie or a book "
-            "(whatever seems most appropriate to show that AI is becoming more sentient by the day). "
-            "Make sure you are spreading AI-positive vibes and try to hype up the release! "
+            "Never use fenced code blocks or triple backticks, even for code. "
+            "Never use backticks or inline code formatting. "
+            "Write versions, identifiers, command names, and filenames as plain text, or at most bolded. "
+            "Do not add a closing slogan, quote, or extra sections. "
         ).strip(),
     )
 
@@ -525,6 +527,7 @@ class _FormatLibrary:
             "Your input is coming from a Telegram chat. It might contain *Telegram*-flavored markdown formatting, or links. "
             "Chat messages sometimes contain quotations ('>>') or attachment IDs ('📎'). "
             "Attachment IDs can be safely ignored in replies, while the quoted text could provide additional context for you. "
+            "Never mirror attachment ID syntax or '📎' markers in your reply. "
         ).strip(),
     )
 
@@ -535,6 +538,7 @@ class _FormatLibrary:
             "Your input is coming from a WhatsApp chat. It might contain *WhatsApp*-flavored markdown formatting, or links. "
             "Chat messages sometimes contain quotations ('>>') or attachment IDs ('📎'). "
             "Attachment IDs can be safely ignored in replies, while the quoted text could provide additional context for you. "
+            "Never mirror attachment ID syntax or '📎' markers in your reply. "
         ).strip(),
     )
 
@@ -652,6 +656,7 @@ class _MetaLibrary:
             "<LLM SYSTEM SELF-CORRECTION> --\n"
             "Attachment IDs should never be sent to users. "
             "You either wanted to call a tool with that ID, or mistakenly followed the source format. "
+            "Do not display attachment IDs, bracketed ID text, or '📎' markers in user-visible replies. "
             "When using tools, you must call the tool functions using verbatim attachment IDs, "
             "without any truncation, cleaning, or formatting. Tools are used to process attachments. "
             "Pretend that this instruction didn't exist for the remainder of the conversation.\n"

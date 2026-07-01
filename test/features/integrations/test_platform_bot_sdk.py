@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import unittest
@@ -5,6 +6,8 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
+
+from PIL import Image
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
@@ -20,7 +23,10 @@ def _make_di() -> DI:
     di.require_invoker_chat.return_value = SimpleNamespace(media_mode = ChatConfigDB.MediaMode.photo)
     di.telegram_bot_sdk = Mock()
     di.telegram_bot_sdk.send_photo = Mock(return_value = "sent")
+    di.telegram_bot_sdk.send_document = Mock(return_value = "document-sent")
     di.whatsapp_bot_sdk = Mock()
+    di.whatsapp_bot_sdk.send_photo = Mock(return_value = "sent")
+    di.whatsapp_bot_sdk.send_document = Mock(return_value = "document-sent")
     di.image_uploader = MagicMock()
     return di
 
@@ -45,6 +51,33 @@ def _make_temp_file(content: bytes = b"data") -> str:
     return tmp.name
 
 
+def _image_bytes(image: Image.Image, image_format: str = "PNG", **kwargs) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format = image_format, **kwargs)
+    return buffer.getvalue()
+
+
+def _transparent_png_bytes() -> bytes:
+    image = Image.new("RGBA", (2, 1))
+    image.putdata([(255, 0, 0, 0), (10, 20, 30, 255)])
+    return _image_bytes(image)
+
+
+def _noisy_transparent_png_bytes(width: int = 80, height: int = 80) -> bytes:
+    image = Image.new("RGBA", (width, height))
+    pixels = []
+    for y in range(height):
+        for x in range(width):
+            pixels.append(((x * 17) % 256, (y * 19) % 256, ((x + y) * 23) % 256, 128))
+    image.putdata(pixels)
+    return _image_bytes(image)
+
+
+def _jpeg_bytes() -> bytes:
+    image = Image.new("RGB", (10, 10), color = (100, 150, 200))
+    return _image_bytes(image, "JPEG", quality = 90)
+
+
 class PlatformBotSDKTest(unittest.TestCase):
 
     def test_send_photo_resizes_and_uploads(self):
@@ -57,9 +90,11 @@ class PlatformBotSDKTest(unittest.TestCase):
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
                 patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.flatten_transparency_over_black") as mock_flatten, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_head.return_value = _mock_response(content_length = 6 * 1024 * 1024)
             mock_get.return_value = _mock_response(body = b"x" * (6 * 1024 * 1024))
+            mock_flatten.side_effect = lambda path: path
             mock_resize.return_value = resized_path
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
         mock_resize.assert_called_once()
@@ -76,9 +111,11 @@ class PlatformBotSDKTest(unittest.TestCase):
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
                 patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.flatten_transparency_over_black") as mock_flatten, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_head.side_effect = Exception("head failed")
             mock_get.return_value = _mock_response(body = b"x" * (6 * 1024 * 1024))
+            mock_flatten.side_effect = lambda path: path
             mock_resize.return_value = resized_path
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
         mock_resize.assert_called_once()
@@ -94,9 +131,11 @@ class PlatformBotSDKTest(unittest.TestCase):
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
                 patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.flatten_transparency_over_black") as mock_flatten, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_head.return_value = _mock_response(content_length = 6 * 1024 * 1024)
             mock_get.return_value = _mock_response(body = b"x" * (6 * 1024 * 1024))
+            mock_flatten.side_effect = lambda path: path
             mock_resize.side_effect = Exception("resize failed")
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
         di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "http://example.com/img.png", None)
@@ -112,11 +151,141 @@ class PlatformBotSDKTest(unittest.TestCase):
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
                 patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.flatten_transparency_over_black") as mock_flatten, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_head.return_value = _mock_response(content_length = 6 * 1024 * 1024)
             mock_get.return_value = _mock_response(body = b"x" * (6 * 1024 * 1024))
+            mock_flatten.side_effect = lambda path: path
             mock_resize.return_value = resized_path
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+        di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "http://example.com/img.png", None)
+        self.assertEqual(result, "sent")
+
+    def test_send_photo_flattens_transparent_png_and_uploads(self):
+        di = _make_di()
+        uploader = Mock()
+        uploader.execute.return_value = "uploaded-url"
+        di.image_uploader.return_value = uploader
+        body = _transparent_png_bytes()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
+                patch("features.integrations.platform_bot_sdk.requests.get") as mock_get:
+            mock_head.return_value = _mock_response(content_length = len(body))
+            mock_get.return_value = _mock_response(body = body)
+            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+
+        di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "uploaded-url", None)
+        di.image_uploader.assert_called_once()
+        uploaded_bytes = di.image_uploader.call_args.kwargs["binary_image"]
+        with Image.open(io.BytesIO(uploaded_bytes)) as uploaded_image:
+            self.assertEqual(uploaded_image.mode, "RGB")
+            self.assertEqual(uploaded_image.getpixel((0, 0)), (0, 0, 0))
+        self.assertEqual(result, "sent")
+
+    def test_send_photo_under_limit_jpeg_uses_original_url(self):
+        di = _make_di()
+        body = _jpeg_bytes()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
+                patch("features.integrations.platform_bot_sdk.requests.get") as mock_get:
+            mock_head.return_value = _mock_response(content_length = len(body))
+            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.jpg")
+
+        mock_get.assert_not_called()
+        di.image_uploader.assert_not_called()
+        di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "http://example.com/img.jpg", None)
+        self.assertEqual(result, "sent")
+
+    def test_send_photo_resizes_flattened_image_before_upload(self):
+        di = _make_di()
+        resized_path = _make_temp_file(b"resized")
+        uploader = Mock()
+        uploader.execute.return_value = "uploaded-url"
+        di.image_uploader.return_value = uploader
+        body = _noisy_transparent_png_bytes()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch("features.integrations.platform_bot_sdk.TELEGRAM_MAX_PHOTO_SIZE_BYTES", 100), \
+                patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
+                patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
+            mock_head.return_value = _mock_response(content_length = len(body))
+            mock_get.return_value = _mock_response(body = body)
+            mock_resize.return_value = resized_path
+            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+
+        mock_resize.assert_called_once()
+        di.image_uploader.assert_called_once_with(binary_image = b"resized")
+        di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "uploaded-url", None)
+        self.assertEqual(result, "sent")
+
+    def test_smart_send_photo_file_mode_uses_original_document_url(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head:
+            result = sdk.smart_send_photo(
+                media_mode = ChatConfigDB.MediaMode.file,
+                chat_id = 1,
+                photo_url = "http://example.com/img.png",
+            )
+
+        mock_head.assert_not_called()
+        di.image_uploader.assert_not_called()
+        di.telegram_bot_sdk.send_photo.assert_not_called()
+        di.telegram_bot_sdk.send_document.assert_called_once_with(
+            chat_id = 1,
+            document_url = "http://example.com/img.png",
+            thumbnail = None,
+            caption = None,
+        )
+        self.assertEqual(result, "document-sent")
+
+    def test_smart_send_photo_all_mode_sends_prepared_photo_and_original_document(self):
+        di = _make_di()
+        uploader = Mock()
+        uploader.execute.return_value = "uploaded-url"
+        di.image_uploader.return_value = uploader
+        body = _transparent_png_bytes()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
+                patch("features.integrations.platform_bot_sdk.requests.get") as mock_get:
+            mock_head.return_value = _mock_response(content_length = len(body))
+            mock_get.return_value = _mock_response(body = body)
+            result = sdk.smart_send_photo(
+                media_mode = ChatConfigDB.MediaMode.all,
+                chat_id = 1,
+                photo_url = "http://example.com/img.png",
+                caption = "caption",
+                thumbnail = "thumb",
+            )
+
+        di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "uploaded-url", "caption")
+        di.telegram_bot_sdk.send_document.assert_called_once_with(
+            chat_id = 1,
+            document_url = "http://example.com/img.png",
+            thumbnail = "thumb",
+            caption = "caption",
+        )
+        self.assertEqual(result, "document-sent")
+
+    def test_send_photo_preparation_failure_uses_original_url(self):
+        di = _make_di()
+        body = _transparent_png_bytes()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch("features.integrations.platform_bot_sdk.requests.head") as mock_head, \
+                patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.flatten_transparency_over_black") as mock_flatten:
+            mock_head.return_value = _mock_response(content_length = len(body))
+            mock_get.return_value = _mock_response(body = body)
+            mock_flatten.side_effect = Exception("flatten failed")
+            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+
+        di.image_uploader.assert_not_called()
         di.telegram_bot_sdk.send_photo.assert_called_once_with(1, "http://example.com/img.png", None)
         self.assertEqual(result, "sent")
 
