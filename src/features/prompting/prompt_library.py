@@ -483,7 +483,8 @@ class _FormatLibrary:
             'For example, "This version brings 3 new features ...". (then be creative here, focus on helping the humans) '
             "You should put the title and the short description at the top of your release summary. "
             "Never use fenced code blocks or triple backticks, even for code. "
-            "Inline code is only allowed for short identifiers, command names, filenames, or version numbers. "
+            "Never use backticks or inline code formatting. "
+            "Write versions, identifiers, command names, and filenames as plain text, or at most bolded. "
             "Do not add a closing slogan, quote, or extra sections. "
         ).strip(),
     )
