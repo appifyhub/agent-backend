@@ -34,6 +34,7 @@ Never use generic `ValueError`, `AssertionError`, or bare `Exception` for raisin
 
 - Use `pipenv install --dev` and `pipenv run python src/main.py --dev` for development server (includes hot reload, verbose logging, dev API key)
 - For code quality checks, run tools directly on changed Python files: `pipenv run ruff check --fix <files>` and `pipenv run python tools/check_spacing.py --fix <files>`
+- For version bumps, run `./tools/bump_version {major|minor|patch}`; major and minor bumps reset lower version segments, and the script updates both project config and API docs
 - Use `pipenv install` and `pipenv run python src/main.py` for production runs
 - For all other operations like testing, always run inside of `pipenv`
 
@@ -46,7 +47,6 @@ Never use generic `ValueError`, `AssertionError`, or bare `Exception` for raisin
 
 - All scripts are in `tools` directory and use common `messages.sh` for colored output
 - Scripts validate project root location and fail safely if run from wrong directory
-- Version is managed through `pyproject.toml` in project root
 - You can see other rules in `.cursor` directory, if you need those rules
 - You can see the CI/CD pipeline in `.github/workflows` directory
 - You can see the API docs in `docs/` directory (keep it updated!)
