@@ -1,5 +1,7 @@
 import unittest
 
+from db.model.chat_config import ChatConfigDB
+from features.integrations import prompt_resolvers
 from features.prompting.prompt_composer import (
     SECTIONS_DIVIDER,
     PromptComposer,
@@ -121,3 +123,20 @@ class FunctionsTest(unittest.TestCase):
         composer = PromptComposer().add_fragments(frag1, frag2, frag3)
         result = composer.render()
         self.assertEqual(result, "[Context]\nReal content")
+
+    def test_chat_release_prompts_are_short_and_forbid_fenced_code_blocks(self):
+        for chat_type in (ChatConfigDB.ChatType.telegram, ChatConfigDB.ChatType.whatsapp):
+            prompt = prompt_resolvers.copywriting_new_release_version(chat_type, None)
+
+            self.assertIn("one concise paragraph or at most four short bullet points", prompt)
+            self.assertIn("Never use fenced code blocks or triple backticks", prompt)
+            self.assertIn("Inline code is only allowed", prompt)
+            self.assertIn("Do not add a closing slogan", prompt)
+            self.assertNotIn("including headers, code blocks", prompt)
+
+    def test_github_release_prompt_keeps_github_formatting(self):
+        prompt = prompt_resolvers.copywriting_new_release_version(ChatConfigDB.ChatType.github, None)
+
+        self.assertIn("including headers, code blocks", prompt)
+        self.assertIn("few paragraphs", prompt)
+        self.assertNotIn("Never use fenced code blocks", prompt)
