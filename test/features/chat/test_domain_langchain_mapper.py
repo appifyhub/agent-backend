@@ -174,12 +174,82 @@ class DomainLangchainMapperTest(unittest.TestCase):
         self.assertEqual(result[0].text, "Here:")
         self.assertEqual(result[1].text, "```python\nprint('hi')\n```")
 
+    def test_map_bot_message_to_storage_formats_thinking_block(self):
+        message = AIMessage(content = [
+            {"type": "thinking", "thinking": "some reasoning", "signature": "EqwH..."},
+            {"type": "text", "text": "Hello!"},
+        ])
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].text, "💭\n> some reasoning")
+        self.assertEqual(result[1].text, "Hello!")
+
+    def test_map_bot_message_to_storage_formats_multiline_thinking_block(self):
+        message = AIMessage(content = [
+            {"type": "thinking", "thinking": "line one\nline two\nline three", "signature": "EqwH..."},
+            {"type": "text", "text": "Answer."},
+        ])
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].text, "💭\n> line one\n> line two\n> line three")
+        self.assertEqual(result[1].text, "Answer.")
+
+    def test_map_bot_message_to_storage_skips_empty_thinking_block(self):
+        message = AIMessage(content = [
+            {"type": "thinking", "thinking": "", "signature": "EqwH..."},
+            {"type": "text", "text": "Hello!"},
+        ])
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].text, "Hello!")
+
+    def test_map_bot_message_to_storage_only_thinking_block(self):
+        message = AIMessage(content = [
+            {"type": "thinking", "thinking": "some reasoning", "signature": "EqwH..."},
+        ])
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].text, "💭\n> some reasoning")
+
+    def test_map_bot_message_to_storage_only_empty_thinking_block(self):
+        message = AIMessage(content = [
+            {"type": "thinking", "thinking": "", "signature": "EqwH..."},
+        ])
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 0)
+
+    def test_map_bot_message_to_storage_skips_redacted_thinking_block(self):
+        message = AIMessage(content = [
+            {"type": "redacted_thinking", "data": "opaque-data"},
+            {"type": "text", "text": "Hello!"},
+        ])
+        result = self.mapper.map_bot_message_to_storage(self.chat, message)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].text, "Hello!")
+
     def test_map_bot_message_to_storage_closes_unclosed_tilde_fence(self):
         content = "~~~\nsome code"
         message = AIMessage(content = content)
         result = self.mapper.map_bot_message_to_storage(self.chat, message)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "~~~\nsome code\n~~~")
+
+
+class FormatThinkingTest(unittest.TestCase):
+
+    def test_single_line(self):
+        self.assertEqual(DomainLangchainMapper._format_thinking("I think therefore I am"), "💭\n> I think therefore I am")
+
+    def test_multiple_lines(self):
+        result = DomainLangchainMapper._format_thinking("line one\nline two\nline three")
+        self.assertEqual(result, "💭\n> line one\n> line two\n> line three")
+
+    def test_single_line_with_special_chars(self):
+        self.assertEqual(DomainLangchainMapper._format_thinking("hello *world* `code`"), "💭\n> hello *world* `code`")
+
+    def test_preserves_empty_lines_in_middle(self):
+        result = DomainLangchainMapper._format_thinking("first\n\nthird")
+        self.assertEqual(result, "💭\n> first\n> \n> third")
 
 
 class SplitPreservingBlocksTest(unittest.TestCase):
