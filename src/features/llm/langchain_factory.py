@@ -6,7 +6,8 @@ from langchain_perplexity import ChatPerplexity
 from langchain_xai import ChatXAI
 
 from features.external_tools.configured_tool import ConfiguredTool
-from features.external_tools.external_tool import ExternalTool, ExternalToolProvider, ToolType
+from features.external_tools.external_tool import ExternalTool, ToolType
+from features.external_tools.external_tool_library import CLAUDE_5_FABLE, CLAUDE_5_SONNET
 from features.external_tools.external_tool_provider_library import (
     ANTHROPIC,
     GOOGLE_AI,
@@ -18,19 +19,26 @@ from util.config import config
 from util.error_codes import UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError
 
+NO_TEMPERATURE_MODELS = {
+    CLAUDE_5_SONNET.id,
+    CLAUDE_5_FABLE.id,
+}
+
 
 def create(configured_tool: ConfiguredTool, max_tokens: int) -> BaseChatModel:
     definition = configured_tool.definition
     purpose = configured_tool.purpose
 
+    temperature = __normalize_temperature(purpose.temperature_percent, definition)
     model_args = {
         "model": definition.id,
-        "temperature": __normalize_temperature(purpose.temperature_percent, definition.provider),
         "max_tokens": max_tokens,
         "timeout": __get_timeout(purpose, definition),
         "max_retries": config.web_retries,
         "api_key": configured_tool.token,
     }
+    if temperature is not None:
+        model_args["temperature"] = temperature
 
     match definition.provider.id:
         case OPEN_AI.id:
@@ -46,8 +54,10 @@ def create(configured_tool: ConfiguredTool, max_tokens: int) -> BaseChatModel:
     raise ConfigurationError(f"{definition.provider.name}/{definition.name} does not support LLMs", UNSUPPORTED_PROVIDER)
 
 
-def __normalize_temperature(temperature_percent: float, provider: ExternalToolProvider) -> float:
-    match provider.id:
+def __normalize_temperature(temperature_percent: float, tool: ExternalTool) -> float | None:
+    if tool.id in NO_TEMPERATURE_MODELS:
+        return None
+    match tool.provider.id:
         case OPEN_AI.id:
             return temperature_percent * 2
         case ANTHROPIC.id:
@@ -58,7 +68,7 @@ def __normalize_temperature(temperature_percent: float, provider: ExternalToolPr
             return temperature_percent * 2
         case XAI.id:
             return temperature_percent * 2
-    raise ConfigurationError(f"{provider.name}/{provider.id} does not support temperature", UNSUPPORTED_PROVIDER)
+    raise ConfigurationError(f"{tool.provider.name}/{tool.provider.id} does not support temperature", UNSUPPORTED_PROVIDER)
 
 
 def __get_timeout(tool_type: ToolType, tool: ExternalTool) -> float:

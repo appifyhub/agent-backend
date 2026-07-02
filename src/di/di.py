@@ -591,10 +591,10 @@ class DI:
         configured_tool: ConfiguredTool,
     ) -> "ChatModelUsageTrackingDecorator":
         from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
-        from features.llm import langchain_creator
+        from features.llm import langchain_factory
 
         resolved_max_tokens = self.__resolve_max_output_tokens(configured_tool)
-        base_model = langchain_creator.create(configured_tool, resolved_max_tokens)
+        base_model = langchain_factory.create(configured_tool, resolved_max_tokens)
         return ChatModelUsageTrackingDecorator(
             base_model,
             self.usage_tracking_service,
