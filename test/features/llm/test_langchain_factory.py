@@ -11,11 +11,11 @@ from pydantic import SecretStr
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
 from features.external_tools.external_tool_provider_library import ANTHROPIC, GOOGLE_AI, OPEN_AI, PERPLEXITY
-from features.llm.langchain_creator import create
+from features.llm.langchain_factory import create
 from util.errors import ConfigurationError
 
 
-class LangchainCreatorTest(unittest.TestCase):
+class LangchainFactoryTest(unittest.TestCase):
 
     def setUp(self):
         self.mock_openai_provider = OPEN_AI
@@ -65,7 +65,7 @@ class LangchainCreatorTest(unittest.TestCase):
             uses_credits = False,
         )
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_create_openai_chat_model(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
@@ -77,7 +77,7 @@ class LangchainCreatorTest(unittest.TestCase):
 
         self.assertIsInstance(result, ChatOpenAI)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_create_anthropic_reasoning_model(self, mock_config):
         mock_config.web_retries = 5
         mock_config.web_timeout_s = 15
@@ -89,7 +89,7 @@ class LangchainCreatorTest(unittest.TestCase):
 
         self.assertIsInstance(result, ChatAnthropic)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_create_perplexity_search_model(self, mock_config):
         mock_config.web_retries = 2
         mock_config.web_timeout_s = 20
@@ -101,7 +101,7 @@ class LangchainCreatorTest(unittest.TestCase):
 
         self.assertIsInstance(result, ChatPerplexity)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_create_google_ai_chat_model(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
@@ -113,7 +113,7 @@ class LangchainCreatorTest(unittest.TestCase):
 
         self.assertIsInstance(result, ChatGoogleGenerativeAI)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_create_copywriting_model(self, mock_config):
         mock_config.web_retries = 1
         mock_config.web_timeout_s = 30
@@ -125,7 +125,7 @@ class LangchainCreatorTest(unittest.TestCase):
 
         self.assertIsInstance(result, ChatOpenAI)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_create_vision_model(self, mock_config):
         mock_config.web_retries = 4
         mock_config.web_timeout_s = 25
@@ -214,7 +214,7 @@ class LangchainCreatorTest(unittest.TestCase):
 
         self.assertIn("does not support temperature", str(context.exception))
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_all_supported_tool_types_with_openai(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
@@ -236,7 +236,7 @@ class LangchainCreatorTest(unittest.TestCase):
                 result = create(configured_tool, 4096)
                 self.assertIsInstance(result, ChatOpenAI)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_all_supported_tool_types_with_anthropic(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
@@ -257,7 +257,7 @@ class LangchainCreatorTest(unittest.TestCase):
                 result = create(configured_tool, 4096)
                 self.assertIsInstance(result, ChatAnthropic)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_all_supported_tool_types_with_perplexity(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
@@ -278,7 +278,7 @@ class LangchainCreatorTest(unittest.TestCase):
                 result = create(configured_tool, 4096)
                 self.assertIsInstance(result, ChatPerplexity)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_all_supported_tool_types_with_google_ai(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
@@ -299,7 +299,7 @@ class LangchainCreatorTest(unittest.TestCase):
                 result = create(configured_tool, 4096)
                 self.assertIsInstance(result, ChatGoogleGenerativeAI)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_config_values_are_used(self, mock_config):
         """Test that config values are properly passed to model creation"""
         mock_config.web_retries = 7
@@ -316,7 +316,7 @@ class LangchainCreatorTest(unittest.TestCase):
         """Test that different tool types result in different model instances"""
         api_key = SecretStr("test-key")
 
-        with patch("features.llm.langchain_creator.config") as mock_config:
+        with patch("features.llm.langchain_factory.config") as mock_config:
             mock_config.web_retries = 3
             mock_config.web_timeout_s = 10
 
@@ -333,7 +333,7 @@ class LangchainCreatorTest(unittest.TestCase):
             self.assertIsInstance(reasoning_result, ChatOpenAI)
             self.assertIsInstance(copywriting_result, ChatOpenAI)
 
-    @patch("features.llm.langchain_creator.config")
+    @patch("features.llm.langchain_factory.config")
     def test_reasoning_tool_has_longer_timeout(self, mock_config):
         mock_config.web_retries = 3
         mock_config.web_timeout_s = 10
