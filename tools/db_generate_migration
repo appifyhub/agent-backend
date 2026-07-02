@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-. "$(dirname "$0")/messages.sh"
+. "$(dirname "$0")/messages"
 
 if [ ! -f "Pipfile" ]; then
     echowarn "No 'Pipfile' found. This script must be run from the project root!" >&2

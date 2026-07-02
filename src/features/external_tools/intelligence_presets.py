@@ -3,9 +3,10 @@ from enum import Enum
 
 from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import (
-    CLAUDE_4_6_OPUS,
     CLAUDE_4_6_SONNET,
-    CLAUDE_4_7_OPUS,
+    CLAUDE_4_8_OPUS,
+    CLAUDE_5_FABLE,
+    CLAUDE_5_SONNET,
     CRYPTO_CURRENCY_EXCHANGE,
     FIAT_CURRENCY_EXCHANGE,
     GEMINI_FLASH_LATEST,
@@ -85,9 +86,9 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
     ),
 
     IntelligencePreset.highest_price: PresetChoices(
-        chat = CLAUDE_4_7_OPUS,
-        copywriting = CLAUDE_4_7_OPUS,
-        reasoning = CLAUDE_4_6_OPUS,
+        chat = CLAUDE_5_SONNET,
+        copywriting = CLAUDE_4_8_OPUS,
+        reasoning = CLAUDE_5_FABLE,
         vision = GPT_5_2,
         hearing = GPT_4O_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
