@@ -142,6 +142,11 @@ class DomainLangchainMapper:
 
         def extract_text_from_dict(item: dict) -> str:
             # Handle LangChain content block format: {'type': 'text', 'text': '...', ...}
+            if item.get("type") == "thinking":
+                thinking = item.get("thinking", "")
+                return DomainLangchainMapper._format_thinking(thinking) if thinking else ""
+            if item.get("type") == "redacted_thinking":
+                return ""
             if "text" in item:
                 return item["text"]
             # Fallback to pretty print for other dict formats
@@ -166,9 +171,14 @@ class DomainLangchainMapper:
                     messages.append(extract_text_from_dict(item))
                 else:
                     messages.append(str(item))
-            return CHAT_MESSAGE_DELIMITER.join(messages)
+            return CHAT_MESSAGE_DELIMITER.join(m for m in messages if m)
         # noinspection PyUnreachableCode
         return str(message.content)
+
+    @staticmethod
+    def _format_thinking(thinking: str) -> str:
+        lines = "\n".join(f"> {line}" for line in thinking.splitlines())
+        return f"💭\n{lines}"
 
     @staticmethod
     def __construct_bot_message_id(chat_id: UUID, sent_at: datetime) -> str:
