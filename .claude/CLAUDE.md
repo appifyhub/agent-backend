@@ -26,9 +26,9 @@ Never use generic `ValueError`, `AssertionError`, or bare `Exception` for raisin
 
 ## Database Migrations
 
-- Ask the user to run `./tools/db_generate_migration.sh -y` to generate new Alembic migrations (auto-generates based on model changes)
-- Ask the user to run `./tools/db_apply_migration.sh` to apply migrations to database (only with user's approval)
-- Always check if model imports in `src/db/alembic/env.py` are up to date before running `db_generate_migration.sh`
+- Ask the user to run `./tools/db_generate_migration -y` to generate new Alembic migrations (auto-generates based on model changes)
+- Ask the user to run `./tools/db_apply_migration` to apply migrations to database (only with user's approval)
+- Always check if model imports in `src/db/alembic/env.py` are up to date before running `db_generate_migration`
 
 ## Development Workflow
 
@@ -45,7 +45,7 @@ Never use generic `ValueError`, `AssertionError`, or bare `Exception` for raisin
 
 ## Project Structure
 
-- All scripts are in `tools` directory and use common `messages.sh` for colored output
+- All scripts are in `tools` directory and use common `messages` for colored output
 - Scripts validate project root location and fail safely if run from wrong directory
 - You can see other rules in `.cursor` directory, if you need those rules
 - You can see the CI/CD pipeline in `.github/workflows` directory
