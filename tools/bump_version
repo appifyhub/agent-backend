@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-. "$(dirname "$0")/messages.sh"
+. "$(dirname "$0")/messages"
 
 usage() {
     echoerr "Usage: $0 {major|minor|patch}"
