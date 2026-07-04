@@ -60,6 +60,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.issue_templates_abs_path, ".github/ISSUE_TEMPLATE")
         self.assertEqual(config.jwt_expires_in_minutes, 30)
         self.assertEqual(config.backoffice_url_base, "http://localhost:5173")
+        self.assertEqual(config.public_api_base_url, "http://localhost:80")
         self.assertEqual(config.main_language_name, "English")
         self.assertEqual(config.main_language_iso_code, "en")
         self.assertEqual(config.uploadcare_public_key, "invalid")
@@ -70,6 +71,10 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.products_config_path, "config/products.yaml")
         self.assertEqual(config.logos_config_path, "config/logos.yaml")
         self.assertEqual(config.fonts_dir, "src/assets/fonts")
+        self.assertEqual(config.s3_base_url, "")
+        self.assertEqual(config.s3_region, "eu-central-1")
+        self.assertEqual(config.s3_bucket, "the-agent")
+        self.assertEqual(config.attachment_public_token_ttl_seconds, 600)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://root:root@localhost:5432/agent")
         self.assertTrue(config.api_key.get_secret_value())  # Check if API key is generated
@@ -93,6 +98,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_coinmarketcap_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_x_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "invalid")
+        self.assertEqual(config.s3_access_key.get_secret_value(), "local")
+        self.assertEqual(config.s3_secret_key.get_secret_value(), "invalid")
 
     def test_custom_config(self):
         os.environ["LOG_LEVEL"] = "DEBUG"
@@ -130,6 +137,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["THE_AGENT_ISSUE_TEMPLATES_PATH"] = "issue_templates"
         os.environ["JWT_EXPIRES_IN_MINUTES"] = "10"
         os.environ["BACKOFFICE_URL_BASE"] = "https://example.com"
+        os.environ["PUBLIC_API_BASE_URL"] = "https://api.example.com"
         os.environ["MAIN_LANGUAGE_NAME"] = "German"
         os.environ["MAIN_LANGUAGE_ISO_CODE"] = "de"
         os.environ["UPLOADCARE_PUBLIC_KEY"] = "public-key-123"
@@ -138,6 +146,10 @@ class ConfigTest(unittest.TestCase):
         os.environ["VERSION"] = "custom"
         os.environ["USAGE_MAINTENANCE_FEE_CREDITS"] = "0.5"
         os.environ["FONTS_DIR"] = "/custom/path/fonts"
+        os.environ["S3_BASE_URL"] = "https://s3.example.com"
+        os.environ["S3_REGION"] = "eu-west-1"
+        os.environ["S3_BUCKET"] = "custom-agent"
+        os.environ["ATTACHMENT_PUBLIC_TOKEN_TTL_SECONDS"] = "300"
 
         os.environ["POSTGRES_USER"] = "admin"
         os.environ["POSTGRES_PASS"] = "admin123"
@@ -165,6 +177,8 @@ class ConfigTest(unittest.TestCase):
         os.environ["PLATFORM_COINMARKETCAP_KEY"] = "platform-coinmarketcap-key"
         os.environ["PLATFORM_X_KEY"] = "platform-x-key"
         os.environ["PLATFORM_X_AI_KEY"] = "platform-x-ai-key"
+        os.environ["S3_ACCESS_KEY"] = "s3-access-key"
+        os.environ["S3_SECRET_KEY"] = "s3-secret-key"
 
         config = Config()
 
@@ -203,6 +217,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.issue_templates_abs_path, "issue_templates")
         self.assertEqual(config.jwt_expires_in_minutes, 10)
         self.assertEqual(config.backoffice_url_base, "https://example.com")
+        self.assertEqual(config.public_api_base_url, "https://api.example.com")
         self.assertEqual(config.main_language_name, "German")
         self.assertEqual(config.main_language_iso_code, "de")
         self.assertEqual(config.uploadcare_public_key, "public-key-123")
@@ -211,6 +226,10 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.version, "custom")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.5)
         self.assertEqual(config.fonts_dir, "/custom/path/fonts")
+        self.assertEqual(config.s3_base_url, "https://s3.example.com")
+        self.assertEqual(config.s3_region, "eu-west-1")
+        self.assertEqual(config.s3_bucket, "custom-agent")
+        self.assertEqual(config.attachment_public_token_ttl_seconds, 300)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://admin:admin123@db.example.com:5432/test_db")
         self.assertEqual(config.api_key.get_secret_value(), "1111-2222-3333-4444")
@@ -235,6 +254,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_coinmarketcap_key.get_secret_value(), "platform-coinmarketcap-key")
         self.assertEqual(config.platform_x_key.get_secret_value(), "platform-x-key")
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "platform-x-ai-key")
+        self.assertEqual(config.s3_access_key.get_secret_value(), "s3-access-key")
+        self.assertEqual(config.s3_secret_key.get_secret_value(), "s3-secret-key")
 
     def test_products_loaded_from_yaml(self):
         config = Config(def_products_config_path = PRODUCTS_FIXTURE_PATH)

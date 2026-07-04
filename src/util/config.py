@@ -59,6 +59,7 @@ class Config(metaclass = Singleton):
     issue_templates_abs_path: str
     jwt_expires_in_minutes: int
     backoffice_url_base: str
+    public_api_base_url: str
     main_language_name: str = "English"
     main_language_iso_code: str = "en"
     uploadcare_public_key: str
@@ -71,6 +72,10 @@ class Config(metaclass = Singleton):
     logos_config_path: str
     logos: dict[str, str]
     fonts_dir: str
+    s3_base_url: str
+    s3_region: str
+    s3_bucket: str
+    attachment_public_token_ttl_seconds: int
 
     platform_open_ai_key: SecretStr
     platform_anthropic_key: SecretStr
@@ -96,6 +101,8 @@ class Config(metaclass = Singleton):
     token_encrypt_secret: SecretStr
     uploadcare_private_key: SecretStr
     url_shortener_api_key: SecretStr
+    s3_access_key: SecretStr
+    s3_secret_key: SecretStr
 
     def all_secrets(self) -> list[SecretStr]:
         return [
@@ -122,6 +129,8 @@ class Config(metaclass = Singleton):
             self.platform_coinmarketcap_key,
             self.platform_x_key,
             self.platform_x_ai_key,
+            self.s3_access_key,
+            self.s3_secret_key,
         ]
 
     def __init__(
@@ -161,6 +170,7 @@ class Config(metaclass = Singleton):
         def_issue_templates_path: str = ".github/ISSUE_TEMPLATE",
         def_jwt_expires_in_minutes: int = 30,
         def_backoffice_url_base: str = "http://localhost:5173",
+        def_public_api_base_url: str = "http://localhost:80",
         def_main_language_name: str = "English",
         def_main_language_iso_code: str = "en",
         def_uploadcare_public_key: str = "invalid",
@@ -171,6 +181,10 @@ class Config(metaclass = Singleton):
         def_products_config_path: str = "config/products.yaml",
         def_logos_config_path: str = "config/logos.yaml",
         def_fonts_dir: str = "src/assets/fonts",
+        def_s3_base_url: str = "",  # if not set, uses the local disk
+        def_s3_region: str = "eu-central-1",
+        def_s3_bucket: str = "the-agent",
+        def_attachment_public_token_ttl_seconds: int = 600,
         def_platform_open_ai_key: SecretStr = SecretStr("invalid"),
         def_platform_anthropic_key: SecretStr = SecretStr("invalid"),
         def_platform_google_ai_key: SecretStr = SecretStr("invalid"),
@@ -197,6 +211,8 @@ class Config(metaclass = Singleton):
         def_token_encrypt_secret: SecretStr = SecretStr("default"),
         def_uploadcare_private_key: SecretStr = SecretStr("invalid"),
         def_url_shortener_api_key: SecretStr = SecretStr("invalid"),
+        def_s3_access_key: SecretStr = SecretStr("local"),
+        def_s3_secret_key: SecretStr = SecretStr("invalid"),
     ):
         # @formatter:off
         self.max_sponsorships_per_user = int(self.__env("MAX_SPONSORSHIPS_PER_USER", lambda: str(def_max_sponsorships_per_user)))
@@ -234,6 +250,7 @@ class Config(metaclass = Singleton):
         self.issue_templates_abs_path = self.__env("THE_AGENT_ISSUE_TEMPLATES_PATH", lambda: def_issue_templates_path)
         self.jwt_expires_in_minutes = int(self.__env("JWT_EXPIRES_IN_MINUTES", lambda: str(def_jwt_expires_in_minutes)))
         self.backoffice_url_base = self.__env("BACKOFFICE_URL_BASE", lambda: def_backoffice_url_base)
+        self.public_api_base_url = self.__env("PUBLIC_API_BASE_URL", lambda: def_public_api_base_url)
         self.main_language_name = self.__env("MAIN_LANGUAGE_NAME", lambda: def_main_language_name)
         self.main_language_iso_code = self.__env("MAIN_LANGUAGE_ISO_CODE", lambda: def_main_language_iso_code)
         self.uploadcare_public_key = self.__env("UPLOADCARE_PUBLIC_KEY", lambda: def_uploadcare_public_key)
@@ -246,6 +263,10 @@ class Config(metaclass = Singleton):
         self.logos_config_path = self.__env("LOGOS_CONFIG_PATH", lambda: def_logos_config_path)
         self.logos = self.__load_logos()
         self.fonts_dir = self.__env("FONTS_DIR", lambda: def_fonts_dir)
+        self.s3_base_url = self.__env("S3_BASE_URL", lambda: def_s3_base_url)
+        self.s3_region = self.__env("S3_REGION", lambda: def_s3_region)
+        self.s3_bucket = self.__env("S3_BUCKET", lambda: def_s3_bucket)
+        self.attachment_public_token_ttl_seconds = int(self.__env("ATTACHMENT_PUBLIC_TOKEN_TTL_SECONDS", lambda: str(def_attachment_public_token_ttl_seconds)))
 
         self.__set_up_db(def_db_user, def_db_pass, def_db_host, def_db_name)
         self.api_key = self.__senv("API_KEY", lambda: def_api_key)
@@ -270,6 +291,8 @@ class Config(metaclass = Singleton):
         self.platform_coinmarketcap_key = self.__senv("PLATFORM_COINMARKETCAP_KEY", lambda: def_platform_coinmarketcap_key)
         self.platform_x_key = self.__senv("PLATFORM_X_KEY", lambda: def_platform_x_key)
         self.platform_x_ai_key = self.__senv("PLATFORM_X_AI_KEY", lambda: def_platform_x_ai_key)
+        self.s3_access_key = self.__senv("S3_ACCESS_KEY", lambda: def_s3_access_key)
+        self.s3_secret_key = self.__senv("S3_SECRET_KEY", lambda: def_s3_secret_key)
         # @formatter:on
 
     def __set_up_db(self, def_db_user: SecretStr, def_db_pass: SecretStr, def_db_host: SecretStr, def_db_name: SecretStr):
