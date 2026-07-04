@@ -1,6 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
+
+from util.functions import generate_short_uuid
 
 
 @dataclass(kw_only = True)
@@ -8,7 +10,7 @@ class ChatMessageAttachment:
 
     chat_id: UUID
     message_id: str
-    id: str | None = None
+    id: str = field(default_factory = generate_short_uuid)
     external_id: str | None = None
     size: int | None = None
     last_url: str | None = None
@@ -22,3 +24,8 @@ class ChatMessageAttachment:
         expiration_timestamp = self.last_url_until or 0
         is_url_expired = expiration_timestamp <= int(datetime.now().timestamp())
         return is_missing_url or is_url_expired
+
+    @property
+    def uri(self) -> str:
+        suffix = f".{self.extension}" if self.extension else ""
+        return f"chats/{self.chat_id}/messages/{self.message_id}/attachments/{self.id}{suffix}"

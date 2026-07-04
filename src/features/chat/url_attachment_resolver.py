@@ -1,11 +1,10 @@
-import urllib.parse
 from uuid import UUID
 
 import requests
 
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.supported_files import KNOWN_FILE_FORMATS
+from features.chat.supported_files import is_supported_mime_type, resolve_file_type
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util.config import config
 from util.error_codes import UNSUPPORTED_MEDIA_TYPE
@@ -23,13 +22,9 @@ class UrlAttachmentResolver:
         self.__chat_id = UUID(di.invoker_chat_id)
 
     def execute(self) -> ChatMessageAttachment:
-        mime_type: str | None = self.__mime_from_head() or self.__mime_from_extension()
+        mime_type, extension = resolve_file_type(mime_type = self.__mime_from_head(), uri = self.__url)
         if not mime_type:
-            raise ValidationError(
-                f"Cannot determine a supported media type for URL: {self.__url}",
-                UNSUPPORTED_MEDIA_TYPE,
-            )
-        ext = self.__extension_for(mime_type)
+            raise ValidationError(f"Cannot determine a supported media type for URL: {self.__url}", UNSUPPORTED_MEDIA_TYPE)
         attachment_id = f"url-{digest_md5(self.__url)}"
         return ChatMessageAttachment(
             id = attachment_id,
@@ -37,7 +32,7 @@ class UrlAttachmentResolver:
             message_id = f"virtual-{attachment_id}",
             last_url = self.__url,
             mime_type = mime_type,
-            extension = ext,
+            extension = extension,
         )
 
     def __mime_from_head(self) -> str | None:
@@ -51,23 +46,8 @@ class UrlAttachmentResolver:
             content_type = response.headers.get("Content-Type", "")
             if content_type:
                 candidate = content_type.split(";")[0].strip()
-                if candidate in KNOWN_FILE_FORMATS.values():
+                if is_supported_mime_type(candidate):
                     return candidate
         except Exception:
             pass
         return None
-
-    def __mime_from_extension(self) -> str | None:
-        path = urllib.parse.urlparse(self.__url).path
-        if "." in path:
-            ext = path.rsplit(".", 1)[-1].lower()
-            return KNOWN_FILE_FORMATS.get(ext)
-        return None
-
-    def __extension_for(self, mime_type: str) -> str | None:
-        path = urllib.parse.urlparse(self.__url).path
-        if "." in path:
-            ext = path.rsplit(".", 1)[-1].lower()
-            if ext in KNOWN_FILE_FORMATS:
-                return ext
-        return next((k for k, v in KNOWN_FILE_FORMATS.items() if v == mime_type), None)

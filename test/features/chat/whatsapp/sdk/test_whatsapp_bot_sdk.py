@@ -234,11 +234,12 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
         self.assertEqual(result.id, self.attachment.id)
         self.assertEqual(result.size, media_info.file_size)
-        self.assertEqual(result.extension, self.attachment.extension)
+        self.assertEqual(result.extension, "png")
         self.assertEqual(result.mime_type, media_info.mime_type)
         self.assertEqual(result.last_url, self.mock_file_uploader.execute.return_value)
         self.assertGreater(result.last_url_until, self.attachment.last_url_until)
         self.assertEqual(self.attachment.last_url, "https://old.example/media")
+        self.mock_di.file_uploader.assert_called_once_with(b"image content", f"{self.message_id[:10]}_attachment.png")
         self.mock_di.chat_message_attachment_repo.save.assert_called_once_with(result)
 
     @patch("features.chat.whatsapp.sdk.whatsapp_bot_sdk.requests.get")
@@ -255,6 +256,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
 
         self.assertEqual(result.mime_type, "image/png")
+        self.assertEqual(result.extension, "png")
         self.assertEqual(result.last_url, self.mock_file_uploader.execute.return_value)
         self.assertEqual(self.mock_di.chat_message_attachment_repo.save.call_count, 2)
         self.mock_di.file_uploader.assert_called_once_with(
@@ -278,6 +280,8 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
 
         self.assertEqual(result.last_url, media_url)
+        self.assertEqual(result.mime_type, "image/png")
+        self.assertEqual(result.extension, "png")
         self.assertEqual(self.mock_di.chat_message_attachment_repo.save.call_count, 1)
 
     def test_send_button_link(self):

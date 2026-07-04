@@ -47,7 +47,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         self,
         chat_id: UUID,
         message_id: str,
-        attachment_id: str | None = "attach1",
+        attachment_id: str = "attach1",
         external_id: str = "external1",
     ) -> ChatMessageAttachment:
         return ChatMessageAttachment(
@@ -62,16 +62,24 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
             mime_type = "image/jpeg",
         )
 
-    def test_save_generates_missing_id(self):
+    def test_new_attachment_generates_id_before_save(self):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
-        attachment = self._attachment(chat.chat_id, "message1", attachment_id = None)
+        attachment = ChatMessageAttachment(
+            external_id = "external1",
+            chat_id = chat.chat_id,
+            message_id = "message1",
+            size = 1024,
+            last_url = "https://example.com/file.jpg",
+            last_url_until = 1234567890,
+            extension = "jpg",
+            mime_type = "image/jpeg",
+        )
 
         result = self.repo.save(attachment)
 
-        self.assertIsNotNone(result.id)
         self.assertEqual(len(result.id), 8)
-        self.assertEqual(result, replace(attachment, id = result.id))
+        self.assertEqual(result, attachment)
 
     def test_save_preserves_deterministic_id(self):
         chat = self._create_chat("chat1")
@@ -150,6 +158,23 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         result = self.repo.save(replacement)
 
         self.assertEqual(result, replacement)
+
+    def test_save_replaces_by_remote_identity_when_id_differs(self):
+        chat = self._create_chat("chat1")
+        self._create_message(chat.chat_id, "message1")
+        created = self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "old-id"))
+        replacement = replace(
+            created,
+            id = "new-id",
+            size = 2048,
+            last_url = "https://example.com/new.jpg",
+        )
+
+        result = self.repo.save(replacement)
+
+        self.assertEqual(result, replace(replacement, id = created.id))
+        self.assertEqual(self.repo.get("old-id"), result)
+        self.assertIsNone(self.repo.get("new-id"))
 
     def test_delete_returns_deleted_attachment(self):
         chat = self._create_chat("chat1")

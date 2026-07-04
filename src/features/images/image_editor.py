@@ -2,14 +2,13 @@ import base64
 import contextlib
 import os
 import tempfile
-from urllib.parse import urlparse
 
 import requests
 from google.genai.types import GenerateContentConfig, ImageConfig
 from PIL import Image
 
 from di.di import DI
-from features.chat.supported_files import KNOWN_IMAGE_FORMATS
+from features.chat.supported_files import resolve_file_type
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_provider_library import GOOGLE_AI, REPLICATE, XAI
@@ -20,7 +19,7 @@ from util import log
 from util.config import config
 from util.error_codes import EXTERNAL_EMPTY_RESPONSE, TOO_MANY_INPUT_IMAGES, UNEXPECTED_ERROR, UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError, ExternalServiceError, InternalError, ValidationError
-from util.functions import extract_url_from_replicate_result, first_key_with_value
+from util.functions import extract_url_from_replicate_result
 
 BOOT_AND_RUN_TIMEOUT_S = 120
 
@@ -78,7 +77,8 @@ class ImageEditor:
         try:
             # not using the URL directly because it contains the bot token in its path
             for url, mime_type in zip(self.__image_urls, self.__input_mime_types):
-                suffix = self.__get_suffix(url, mime_type)
+                _, extension = resolve_file_type(mime_type = mime_type, uri = url)
+                suffix = f".{extension}" if extension else ""
                 temp_file = tempfile.NamedTemporaryFile(delete = False, suffix = suffix)
                 response = requests.get(url, headers = DEFAULT_HEADERS)
                 temp_file.write(response.content)
@@ -245,14 +245,3 @@ class ImageEditor:
         if not response.url:
             raise ExternalServiceError("No image URL returned from xAI", EXTERNAL_EMPTY_RESPONSE)
         return response.url
-
-    def __get_suffix(self, url: str, mime_type: str | None) -> str:
-        # check if the URL already contains a file extension
-        url_path = urlparse(url).path
-        file_with_extension = os.path.splitext(url_path)[1]
-        if file_with_extension:
-            return f".{file_with_extension.lstrip('.')}"
-        # if no extension in URL, use MIME type to determine extension
-        if mime_type:
-            return first_key_with_value(KNOWN_IMAGE_FORMATS, mime_type) or ".none"
-        return ""

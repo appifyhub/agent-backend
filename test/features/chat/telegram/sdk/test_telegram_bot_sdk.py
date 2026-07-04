@@ -318,6 +318,51 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.assertEqual(result.extension, "png")
         self.assertEqual(result.mime_type, "image/png")
 
+    def test_refresh_attachment_trusts_mime_type_before_file_path(self):
+        attachment = replace(
+            self.attachment,
+            extension = None,
+            mime_type = "application/pdf",
+            last_url = None,
+            last_url_until = None,
+        )
+        self.api_file_info.file_path = "documents/photo.png"
+
+        result = self.sdk.refresh_attachment(attachment)
+
+        self.assertEqual(result.extension, "pdf")
+        self.assertEqual(result.mime_type, "application/pdf")
+
+    def test_refresh_attachment_infers_missing_mime_type_from_extension(self):
+        attachment = replace(
+            self.attachment,
+            extension = "png",
+            mime_type = None,
+            last_url = None,
+            last_url_until = None,
+        )
+        self.api_file_info.file_path = "documents/photo.png"
+
+        result = self.sdk.refresh_attachment(attachment)
+
+        self.assertEqual(result.extension, "png")
+        self.assertEqual(result.mime_type, "image/png")
+
+    @patch("features.chat.telegram.sdk.telegram_bot_sdk.requests.get")
+    def test_refresh_attachment_does_not_detect_image_format_when_mime_type_exists(self, mock_requests):
+        attachment = replace(
+            self.attachment,
+            extension = None,
+            mime_type = "application/octet-stream",
+        )
+        self.api_file_info.file_path = None
+
+        result = self.sdk.refresh_attachment(attachment)
+
+        self.assertIsNone(result.extension)
+        self.assertEqual(result.mime_type, "application/octet-stream")
+        mock_requests.assert_not_called()
+
     def test_refresh_attachment_instances(self):
         attachments = [
             replace(self.attachment, id = "id1"),

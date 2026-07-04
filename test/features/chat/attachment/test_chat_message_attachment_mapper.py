@@ -99,12 +99,17 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(self.db_model.extension, domain_model.extension)
         self.assertEqual(self.db_model.mime_type, domain_model.mime_type)
 
-    def test_db_leaves_missing_id_for_database_generation(self):
-        self.domain_model.id = None
+    def test_new_domain_model_generates_id_before_db_mapping(self):
+        domain_model = ChatMessageAttachment(
+            external_id = "external3",
+            chat_id = self.chat_id,
+            message_id = "message3",
+        )
 
-        result = db(self.domain_model)
+        result = db(domain_model)
 
-        self.assertIsNone(result.id)
+        self.assertEqual(result.id, domain_model.id)
+        self.assertEqual(len(result.id), 8)
 
     def test_from_remote_data_creates_complete_domain_state(self):
         remote_data = ChatMessageAttachmentRemoteData(

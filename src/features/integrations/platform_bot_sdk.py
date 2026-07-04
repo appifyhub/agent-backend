@@ -2,7 +2,6 @@ from enum import Enum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Literal
-from urllib.parse import urlparse
 
 import requests
 
@@ -11,6 +10,7 @@ from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
+from features.chat.supported_files import OPAQUE_IMAGE_FORMATS, resolve_file_type
 from features.images.image_bitmap_utils import flatten_transparency_over_black
 from features.images.image_size_utils import resize_file
 from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYTES, WHATSAPP_MAX_PHOTO_SIZE_BYTES
@@ -213,16 +213,17 @@ class PlatformBotSDK:
         resized_path: str | None = None
 
         try:
+            _, extension = resolve_file_type(uri = photo_url)
             content_length = self.__get_photo_content_length(photo_url)
             if (
                 content_length is not None
                 and content_length <= max_size_bytes
-                and self.__can_skip_download_for_under_limit_photo(photo_url)
+                and extension in OPAQUE_IMAGE_FORMATS
             ):
-                log.t("JPEG image is within size limit, no preparation needed")
+                log.t("Opaque image is within size limit, no preparation needed")
                 return photo_url
 
-            temp_path = self.__download_photo(photo_url)
+            temp_path = self.__download_photo(photo_url, extension)
             prepared_path = flatten_transparency_over_black(temp_path)
             if prepared_path != temp_path:
                 flattened_path = prepared_path
@@ -264,12 +265,8 @@ class PlatformBotSDK:
             return None
 
     @staticmethod
-    def __can_skip_download_for_under_limit_photo(photo_url: str) -> bool:
-        return Path(urlparse(photo_url).path).suffix.lower() in [".jpg", ".jpeg"]
-
-    @staticmethod
-    def __download_photo(photo_url: str) -> str:
-        suffix = Path(urlparse(photo_url).path).suffix or ".img"
+    def __download_photo(photo_url: str, extension: str | None) -> str:
+        suffix = f".{extension}" if extension else ".img"
         with NamedTemporaryFile(delete = False, suffix = suffix) as tmp:
             temp_path = tmp.name
             log.t(f"Downloading image to temp file: {temp_path}")

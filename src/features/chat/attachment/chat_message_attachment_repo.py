@@ -49,18 +49,27 @@ class ChatMessageAttachmentRepository:
         return [domain(db_model) for db_model in db_models if db_model is not None]
 
     def save(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
-        existing: ChatMessageAttachmentDB | None = None
-        if attachment.id is not None:
+        # identity check first
+        existing: ChatMessageAttachmentDB | None = self._db.query(ChatMessageAttachmentDB).filter(
+            ChatMessageAttachmentDB.id == attachment.id,
+        ).first()
+
+        # if not found by ID, try to find by external_id
+        if existing is None and attachment.external_id:
             existing = self._db.query(ChatMessageAttachmentDB).filter(
-                ChatMessageAttachmentDB.id == attachment.id,
+                ChatMessageAttachmentDB.chat_id == attachment.chat_id,
+                ChatMessageAttachmentDB.message_id == attachment.message_id,
+                ChatMessageAttachmentDB.external_id == attachment.external_id,
             ).first()
 
+        # we found an existing record, let's update
         if existing is not None:
             apply_to_db_model(attachment, existing)
             self._db.commit()
             self._db.refresh(existing)
             return domain(existing)
 
+        # no existing record found, let's create a new one
         db_model = db(attachment)
         self._db.add(db_model)
         self._db.commit()

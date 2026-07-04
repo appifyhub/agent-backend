@@ -80,6 +80,13 @@ class UrlAttachmentResolverTest(unittest.TestCase):
         self.assertEqual(result.mime_type, "image/png")
 
     @requests_mock.Mocker()
+    def test_unknown_url_extension_does_not_override_head_content_type(self, m: requests_mock.Mocker):
+        m.head(UNSUPPORTED_URL, headers = {"Content-Type": "image/png"}, status_code = 200)
+        result = self._resolver(UNSUPPORTED_URL).execute()
+        self.assertEqual(result.mime_type, "image/png")
+        self.assertEqual(result.extension, "png")
+
+    @requests_mock.Mocker()
     def test_url_with_query_params_extension_parsed_correctly(self, m: requests_mock.Mocker):
         url_with_query = "https://example.com/photo.jpg?token=abc&size=large"
         m.head(url_with_query, exc = ConnectionError("timeout"))

@@ -8,7 +8,7 @@ import requests
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.message.chat_message import ChatMessage
-from features.chat.supported_files import KNOWN_FILE_FORMATS
+from features.chat.supported_files import resolve_file_type
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.model.message import Message
@@ -17,7 +17,7 @@ from util import log
 from util.config import config
 from util.error_codes import ATTACHMENT_NOT_FOUND, MISSING_EXTERNAL_ATTACHMENT_ID, PLATFORM_MAPPING_FAILED
 from util.errors import InternalError, NotFoundError
-from util.functions import detect_image_format, first_key_with_value
+from util.functions import detect_image_format
 
 
 class TelegramBotSDK:
@@ -167,37 +167,32 @@ class TelegramBotSDK:
             last_url = f"{file_api_endpoint}/bot{bot_token}/{api_file.file_path}"
             updated_attachment = replace(updated_attachment, last_url = last_url, last_url_until = self._nearest_hour_epoch())
 
-        # let's set the additional available properties
-        if not updated_attachment.extension:
-            if api_file.file_path and "." in api_file.file_path:
-                mime_type = updated_attachment.mime_type
-                extension = api_file.file_path.lower().split(".")[-1] or updated_attachment.extension
-                if not mime_type and extension:
-                    mime_type = KNOWN_FILE_FORMATS.get(extension) or mime_type
-                updated_attachment = replace(updated_attachment, extension = extension, mime_type = mime_type)
-            elif updated_attachment.mime_type:
-                extension = first_key_with_value(KNOWN_FILE_FORMATS, updated_attachment.mime_type) or updated_attachment.extension
-                # reverse engineer the extension
-                updated_attachment = replace(updated_attachment, extension = extension)
+        # let's set the additional available metadata
+        if not updated_attachment.extension or not updated_attachment.mime_type:
+            mime_type, extension = resolve_file_type(
+                mime_type = updated_attachment.mime_type,
+                extension = updated_attachment.extension,
+                uri = api_file.file_path,
+            )
+            if mime_type or extension:
+                updated_attachment = replace(updated_attachment, mime_type = mime_type, extension = extension)
             elif updated_attachment.last_url:
-                updated_attachment = self.__update_image_format(updated_attachment)
+                updated_attachment = self.__update_image_metadata(updated_attachment)
 
         # final version of the attachment is ready, store it
         return self.__di.chat_message_attachment_repo.save(updated_attachment)
 
-    def __update_image_format(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
-        log.d("Both extension and mime_type are None, detecting from content")
+    def __update_image_metadata(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
+        log.d("Detecting image format from content")
         if not attachment.last_url:
             return attachment
         try:
             response = requests.get(attachment.last_url, timeout = 10)
             if response.status_code == 200:
-                detected_format = detect_image_format(response.content)
-                if detected_format and detected_format in KNOWN_FILE_FORMATS:
-                    # detected format names match our KNOWN_FILE_FORMATS keys directly
-                    mime_type = KNOWN_FILE_FORMATS[detected_format]
-                    log.t(f"Detected format: {detected_format} -> {mime_type}")
-                    return replace(attachment, extension = detected_format, mime_type = mime_type)
+                mime_type, extension = resolve_file_type(extension = detect_image_format(response.content))
+                if extension and mime_type:
+                    log.t(f"Detected format: {extension} -> {mime_type}")
+                    return replace(attachment, extension = extension, mime_type = mime_type)
         except Exception as e:
             log.w("Failed to detect image format", e)
         return attachment

@@ -7,7 +7,6 @@ from util.errors import ExternalServiceError
 from util.functions import (
     detect_image_format,
     extract_url_from_replicate_result,
-    first_key_with_value,
     generate_short_uuid,
     mask_secret,
     parse_gumroad_form,
@@ -55,26 +54,6 @@ class FunctionsTest(unittest.TestCase):
     def test_silent_lambda_with_exception(self):
         result = silent(lambda: 10 / 0)()
         self.assertIsNone(result)
-
-    def test_first_key_with_value_returns_correct_key(self):
-        source = {1: "a", 2: "b", 3: "c"}
-        value = "b"
-        self.assertEqual(first_key_with_value(source, value), 2)
-
-    def test_first_key_with_value_returns_none_for_nonexistent_value(self):
-        source = {1: "a", 2: "b", 3: "c"}
-        value = "d"
-        self.assertIsNone(first_key_with_value(source, value))
-
-    def test_first_key_with_value_returns_none_for_empty_dict(self):
-        source = {}
-        value = "a"
-        self.assertIsNone(first_key_with_value(source, value))
-
-    def test_first_key_with_value_returns_first_key_for_duplicate_values(self):
-        source = {1: "a", 2: "b", 3: "b"}
-        value = "b"
-        self.assertEqual(first_key_with_value(source, value), 2)
 
     def test_detect_image_format(self):
         pattern = [

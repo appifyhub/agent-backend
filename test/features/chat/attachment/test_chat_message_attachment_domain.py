@@ -42,3 +42,39 @@ class ChatMessageAttachmentDomainTest(unittest.TestCase):
         )
 
         self.assertFalse(attachment.has_stale_data)
+
+    def test_uri_uses_attachment_identity(self):
+        attachment = ChatMessageAttachment(
+            chat_id = UUID("11111111-1111-1111-1111-111111111111"),
+            message_id = "message-id",
+            id = "attachment-id",
+        )
+
+        self.assertEqual(
+            attachment.uri,
+            "chats/11111111-1111-1111-1111-111111111111/messages/message-id/attachments/attachment-id",
+        )
+
+    def test_uri_appends_extension_when_available(self):
+        attachment = ChatMessageAttachment(
+            chat_id = UUID("11111111-1111-1111-1111-111111111111"),
+            message_id = "message-id",
+            id = "attachment-id",
+            extension = "png",
+        )
+
+        self.assertEqual(
+            attachment.uri,
+            "chats/11111111-1111-1111-1111-111111111111/messages/message-id/attachments/attachment-id.png",
+        )
+
+    def test_uri_uses_generated_attachment_id(self):
+        attachment = ChatMessageAttachment(
+            chat_id = UUID("11111111-1111-1111-1111-111111111111"),
+            message_id = "message-id",
+        )
+
+        self.assertEqual(
+            attachment.uri,
+            f"chats/11111111-1111-1111-1111-111111111111/messages/message-id/attachments/{attachment.id}",
+        )

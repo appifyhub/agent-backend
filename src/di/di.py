@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from features.announcements.sys_announcements_service import SysAnnouncementsService
     from features.audio.audio_transcriber import AudioTranscriber
     from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
+    from features.chat.attachment.storage.attachment_storage import AttachmentStorage
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
     from features.chat.chat_image_edit_service import ChatImageEditService
@@ -125,6 +126,7 @@ class DI:
     _purchase_record_repo: "PurchaseRecordRepository | None"
     # Services
     _cleanup_service: "CleanupService | None"
+    _attachment_storage: "AttachmentStorage | None"
     _sponsorship_service: "SponsorshipService | None"
     _credit_transfer_service: "CreditTransferService | None"
     _profile_connect_service: "ProfileConnectService | None"
@@ -184,6 +186,7 @@ class DI:
         self._purchase_record_repo = None
         # Services
         self._cleanup_service = None
+        self._attachment_storage = None
         self._sponsorship_service = None
         self._credit_transfer_service = None
         self._profile_connect_service = None
@@ -427,6 +430,18 @@ class DI:
             from features.cleanup.cleanup_service import CleanupService
             self._cleanup_service = CleanupService(self)
         return self._cleanup_service
+
+    @property
+    def attachment_storage(self) -> "AttachmentStorage":
+        if self._attachment_storage is None:
+            if config.s3_base_url:
+                from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
+                self._attachment_storage = S3AttachmentStorage()
+            else:
+                from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
+                self._attachment_storage = LocalAttachmentStorage()
+            self._attachment_storage.ensure_ready()
+        return self._attachment_storage
 
     @property
     def sponsorship_service(self) -> "SponsorshipService":
