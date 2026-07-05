@@ -40,6 +40,7 @@ python-multipart = "*"
 langchain-xai = "*"
 xai-sdk = "*"
 python-docx = "*"
+boto3 = "*"
 
 [dev-packages]
 pytest = "*"
