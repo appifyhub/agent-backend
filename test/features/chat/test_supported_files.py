@@ -1,6 +1,14 @@
 import unittest
+from io import BytesIO
 
-from features.chat.supported_files import is_supported_extension, is_supported_mime_type, resolve_file_type
+from PIL import Image
+
+from features.chat.supported_files import (
+    detect_image_format,
+    is_supported_extension,
+    is_supported_mime_type,
+    resolve_file_type,
+)
 
 
 class SupportedFilesTest(unittest.TestCase):
@@ -50,6 +58,19 @@ class SupportedFilesTest(unittest.TestCase):
 
         self.assertEqual(result, ("application/pdf", "pdf"))
 
+    def test_resolve_file_type_resolves_from_content(self):
+        result = resolve_file_type(content = b"\x89PNG\r\n\x1a\ncontent")
+
+        self.assertEqual(result, ("image/png", "png"))
+
+    def test_resolve_file_type_uses_content_before_uri(self):
+        result = resolve_file_type(
+            uri = "https://example.com/files/photo.jpg",
+            content = b"\x89PNG\r\n\x1a\ncontent",
+        )
+
+        self.assertEqual(result, ("image/png", "png"))
+
     def test_resolve_file_type_uses_uri_when_mime_type_extension_is_unknown(self):
         result = resolve_file_type(mime_type = "application/x-custom", uri = "s3://bucket/file.png")
 
@@ -75,3 +96,37 @@ class SupportedFilesTest(unittest.TestCase):
         self.assertTrue(is_supported_extension("PNG"))
         self.assertFalse(is_supported_extension("unknown"))
         self.assertFalse(is_supported_extension(None))
+
+    def test_detect_image_format(self):
+        pattern = [
+            "bbbbwwww",
+            "bbbbwwww",
+            "bbbbwwww",
+            "bbbbwwww",
+            "wwwwbbbb",
+            "wwwwbbbb",
+            "wwwwbbbb",
+            "wwwwbbbb",
+        ]
+        image = Image.new("RGB", (8, 8))
+        for y, row in enumerate(pattern):
+            for x, pixel in enumerate(row):
+                color = (0, 0, 0) if pixel == "b" else (255, 255, 255)
+                image.putpixel((x, y), color)
+
+        formats = {
+            "PNG": "png",
+            "JPEG": "jpeg",
+            "GIF": "gif",
+            "BMP": "bmp",
+            "WEBP": "webp",
+            "TIFF": "tiff",
+        }
+        for encoded_format, expected in formats.items():
+            with self.subTest(encoded_format = encoded_format):
+                output = BytesIO()
+                image.save(output, format = encoded_format)
+                self.assertEqual(detect_image_format(output.getvalue()), expected)
+
+    def test_detect_image_format_returns_none_for_unknown_content(self):
+        self.assertIsNone(detect_image_format(b"unknown content"))

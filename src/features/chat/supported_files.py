@@ -88,6 +88,7 @@ def resolve_file_type(
     mime_type: str | None = None,
     extension: str | None = None,
     uri: str | None = None,
+    content: bytes | None = None,
 ) -> tuple[str | None, str | None]:
     """
     Extracts mime type and extension using the available file information.
@@ -102,6 +103,9 @@ def resolve_file_type(
     if not resolved_extension and mime_type:
         # only mime type is given, try to resolve extension from it
         resolved_extension = __extension_for_mime_type(mime_type)
+    if not resolved_extension and content:
+        # use content before URI because bytes describe the actual file
+        resolved_extension = detect_image_format(content)
     if not resolved_extension:
         # mime type is not given or could not be resolved, try to resolve extension from URI
         resolved_extension = __extension_from_uri(uri)
@@ -114,6 +118,24 @@ def resolve_file_type(
 
     # 3. return whatever we have at this point
     return resolved_mime_type, resolved_extension
+
+
+def detect_image_format(content: bytes) -> str | None:
+    if len(content) < 8:
+        return None
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if content[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if content[:2] == b"BM":
+        return "bmp"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    if content[:4] in (b"II*\x00", b"MM\x00*"):
+        return "tiff"
+    return None
 
 
 def is_supported_mime_type(mime_type: str | None) -> bool:
