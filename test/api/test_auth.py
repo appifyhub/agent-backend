@@ -1,4 +1,5 @@
 import unittest
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
@@ -9,16 +10,20 @@ from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from api.auth import (
     create_jwt_token,
+    create_public_resource_token,
     get_chat_type_from_jwt,
     get_user_id_from_jwt,
     verify_api_key,
     verify_gumroad_auth_key,
     verify_jwt_credentials,
+    verify_jwt_token,
+    verify_public_resource_token,
     verify_telegram_auth_key,
     verify_whatsapp_signature,
     verify_whatsapp_webhook_challenge,
 )
 from util.config import config
+from util.error_codes import INVALID_RESOURCE_TOKEN
 from util.errors import AuthenticationError
 
 
@@ -100,13 +105,88 @@ class AuthTest(unittest.TestCase):
 
     def test_create_jwt_token(self):
         payload = {"sub": "1234"}
-        encoded_token = create_jwt_token(payload, expires_in_minutes = 1)
+        encoded_token = create_jwt_token(payload, expires_in = timedelta(minutes = 1))
         decoded_token = jwt.decode(encoded_token, config.jwt_secret_key.get_secret_value())
         self.assertIsNotNone(encoded_token, str)
         self.assertIsInstance(encoded_token, str)
         self.assertIsNotNone(decoded_token["exp"])
         self.assertIsNotNone(decoded_token["iat"])
         self.assertIsNotNone(decoded_token["version"])
+
+    def test_create_public_resource_token(self):
+        encoded_token = create_public_resource_token("resource-id", "download", "principal-id", ttl_seconds = 123)
+        decoded_token = verify_jwt_token(encoded_token)
+
+        self.assertEqual(decoded_token["resource_id"], "resource-id")
+        self.assertEqual(decoded_token["principal_id"], "principal-id")
+        self.assertEqual(decoded_token["purpose"], "download")
+        self.assertEqual(decoded_token["exp"] - decoded_token["iat"], 123)
+
+    def test_verify_public_resource_token(self):
+        encoded_token = create_public_resource_token("resource-id", "download", "principal-id", ttl_seconds = 123)
+
+        claims = verify_public_resource_token(encoded_token)
+
+        self.assertEqual(claims.resource_id, "resource-id")
+        self.assertEqual(claims.principal_id, "principal-id")
+        self.assertEqual(claims.purpose, "download")
+
+    def test_verify_public_resource_token_rejects_expired_token(self):
+        encoded_token = create_jwt_token(
+            {
+                "principal_id": "principal-id",
+                "resource_id": "resource-id",
+                "purpose": "download",
+            },
+            timedelta(seconds = -1),
+        )
+
+        with self.assertRaises(AuthenticationError) as context:
+            verify_public_resource_token(encoded_token)
+
+        self.assertEqual(context.exception.error_code, INVALID_RESOURCE_TOKEN)
+
+    def test_verify_public_resource_token_rejects_missing_resource_id(self):
+        encoded_token = create_jwt_token(
+            {
+                "principal_id": "principal-id",
+                "purpose": "download",
+            },
+            expires_in = timedelta(minutes = 1),
+        )
+
+        with self.assertRaises(AuthenticationError) as context:
+            verify_public_resource_token(encoded_token)
+
+        self.assertEqual(context.exception.error_code, INVALID_RESOURCE_TOKEN)
+
+    def test_verify_public_resource_token_rejects_missing_purpose(self):
+        encoded_token = create_jwt_token(
+            {
+                "principal_id": "principal-id",
+                "resource_id": "resource-id",
+            },
+            expires_in = timedelta(minutes = 1),
+        )
+
+        with self.assertRaises(AuthenticationError) as context:
+            verify_public_resource_token(encoded_token)
+
+        self.assertEqual(context.exception.error_code, INVALID_RESOURCE_TOKEN)
+
+    def test_verify_public_resource_token_rejects_missing_principal_id(self):
+        encoded_token = create_jwt_token(
+            {
+                "resource_id": "resource-id",
+                "purpose": "download",
+            },
+            expires_in = timedelta(minutes = 1),
+        )
+
+        with self.assertRaises(AuthenticationError) as context:
+            verify_public_resource_token(encoded_token)
+
+        self.assertEqual(context.exception.error_code, INVALID_RESOURCE_TOKEN)
 
     def test_get_user_id_from_jwt_valid(self):
         claims = {"sub": "user-123"}
