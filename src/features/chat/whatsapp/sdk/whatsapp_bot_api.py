@@ -119,8 +119,13 @@ class WhatsAppBotAPI:
         log.t("Downloading media bytes from URL")
         headers = {"Authorization": f"Bearer {config.whatsapp_bot_token.get_secret_value()}"}
         file_response = requests.get(media_url, headers = headers, timeout = config.web_timeout_s)
+        content_length = len(file_response.content or b"")
+        if file_response.status_code != 200 or content_length == 0:
+            log.w(f"Could not download WhatsApp media: status={file_response.status_code}, bytes={content_length}")
         self.__raise_for_status(file_response)
-        log.t(f"Media downloaded successfully ({len(file_response.content)} bytes)")
+        if content_length == 0:
+            return None
+        log.t(f"Media downloaded successfully ({content_length} bytes)")
         return file_response.content
 
     def __create_payload(

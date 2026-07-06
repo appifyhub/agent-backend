@@ -45,8 +45,8 @@ if TYPE_CHECKING:
     from features.announcements.release_summary_service import ReleaseSummaryService
     from features.announcements.sys_announcements_service import SysAnnouncementsService
     from features.audio.audio_transcriber import AudioTranscriber
-    from features.chat.attachment.attachment_service import AttachmentService
     from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
+    from features.chat.attachment.chat_message_attachment_service import ChatMessageAttachmentService
     from features.chat.attachment.storage.attachment_storage import AttachmentStorage
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
@@ -127,7 +127,7 @@ class DI:
     _purchase_record_repo: "PurchaseRecordRepository | None"
     # Services
     _cleanup_service: "CleanupService | None"
-    _attachment_service: "AttachmentService | None"
+    _chat_message_attachment_service: "ChatMessageAttachmentService | None"
     _attachment_storage: "AttachmentStorage | None"
     _sponsorship_service: "SponsorshipService | None"
     _credit_transfer_service: "CreditTransferService | None"
@@ -188,7 +188,7 @@ class DI:
         self._purchase_record_repo = None
         # Services
         self._cleanup_service = None
-        self._attachment_service = None
+        self._chat_message_attachment_service = None
         self._attachment_storage = None
         self._sponsorship_service = None
         self._credit_transfer_service = None
@@ -435,11 +435,11 @@ class DI:
         return self._cleanup_service
 
     @property
-    def attachment_service(self) -> "AttachmentService":
-        if self._attachment_service is None:
-            from features.chat.attachment.attachment_service import AttachmentService
-            self._attachment_service = AttachmentService(self)
-        return self._attachment_service
+    def chat_message_attachment_service(self) -> "ChatMessageAttachmentService":
+        if self._chat_message_attachment_service is None:
+            from features.chat.attachment.chat_message_attachment_service import ChatMessageAttachmentService
+            self._chat_message_attachment_service = ChatMessageAttachmentService(self)
+        return self._chat_message_attachment_service
 
     @property
     def attachment_storage(self) -> "AttachmentStorage":

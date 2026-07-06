@@ -3,21 +3,17 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Literal
 
-import requests
-
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.message.chat_message import ChatMessage
-from features.chat.supported_files import resolve_file_type
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.update import Update
 from util import log
 from util.config import config
-from util.error_codes import ATTACHMENT_NOT_FOUND, MISSING_EXTERNAL_ATTACHMENT_ID, PLATFORM_MAPPING_FAILED
-from util.errors import InternalError, NotFoundError
-from util.functions import detect_image_format
+from util.error_codes import ATTACHMENT_NOT_FOUND, MEDIA_DOWNLOAD_FAILED, MISSING_EXTERNAL_ATTACHMENT_ID, PLATFORM_MAPPING_FAILED
+from util.errors import ExternalServiceError, InternalError, NotFoundError
 
 
 class TelegramBotSDK:
@@ -151,51 +147,31 @@ class TelegramBotSDK:
         if not attachment.has_stale_data:
             log.t(f"Attachment '{attachment.id}': data is already fresh")
             # we store it anyway because it may contain fresh data from the API
-            return self.__di.chat_message_attachment_repo.save(attachment)
+            return self.__di.chat_message_attachment_service.save(attachment)
 
-        # data is stale or missing, we need to fetch the attachment data from remote
+        # data is stale or missing, we need to fetch the attachment data from remote: get file info from Telegram API
         if not attachment.external_id:
             raise InternalError("No external ID provided for the attachment", MISSING_EXTERNAL_ATTACHMENT_ID)
         log.t(f"Refreshing attachment data for external ID '{attachment.external_id}'")
         api_file: File = self.__di.telegram_bot_api.get_file_info(attachment.external_id)
+        if not api_file.file_path:
+            raise ExternalServiceError(f"No file path returned for Telegram file '{attachment.external_id}'", MEDIA_DOWNLOAD_FAILED)  # noqa: E501
 
-        # let's populate the attachment with the data from the API
-        updated_attachment = replace(attachment, size = api_file.file_size or attachment.size)
-        if api_file.file_path:
-            file_api_endpoint = f"{config.telegram_api_base_url}/file"
-            bot_token = config.telegram_bot_token.get_secret_value()
-            last_url = f"{file_api_endpoint}/bot{bot_token}/{api_file.file_path}"
-            updated_attachment = replace(updated_attachment, last_url = last_url, last_url_until = self._nearest_hour_epoch())
+        # download the actual file bytes
+        media_bytes: bytes | None = self.__di.telegram_bot_api.download_file_bytes(api_file.file_path)
+        if not media_bytes:
+            raise ExternalServiceError(f"Could not download Telegram file '{attachment.external_id}'", MEDIA_DOWNLOAD_FAILED)
 
-        # let's set the additional available metadata
-        if not updated_attachment.extension or not updated_attachment.mime_type:
-            mime_type, extension = resolve_file_type(
-                mime_type = updated_attachment.mime_type,
-                extension = updated_attachment.extension,
-                uri = api_file.file_path,
-            )
-            if mime_type or extension:
-                updated_attachment = replace(updated_attachment, mime_type = mime_type, extension = extension)
-            elif updated_attachment.last_url:
-                updated_attachment = self.__update_image_metadata(updated_attachment)
+        # update attachment metadata with fresh info
+        file_api_endpoint = f"{config.telegram_api_base_url}/file"
+        bot_token = config.telegram_bot_token.get_secret_value()
+        last_url = f"{file_api_endpoint}/bot{bot_token}/{api_file.file_path}"
+        updated_attachment = replace(attachment, last_url = last_url, last_url_until = self._nearest_hour_epoch())
 
-        # final version of the attachment is ready, store it
-        return self.__di.chat_message_attachment_repo.save(updated_attachment)
-
-    def __update_image_metadata(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
-        log.d("Detecting image format from content")
-        if not attachment.last_url:
-            return attachment
-        try:
-            response = requests.get(attachment.last_url, timeout = 10)
-            if response.status_code == 200:
-                mime_type, extension = resolve_file_type(extension = detect_image_format(response.content))
-                if extension and mime_type:
-                    log.t(f"Detected format: {extension} -> {mime_type}")
-                    return replace(attachment, extension = extension, mime_type = mime_type)
-        except Exception as e:
-            log.w("Failed to detect image format", e)
-        return attachment
+        # store in service-owned storage (also saves to DB with all metadata)
+        stored_attachment = self.__di.chat_message_attachment_service.save(updated_attachment, media_bytes)
+        log.t(f"Successfully stored Telegram attachment '{stored_attachment.id}'")
+        return stored_attachment
 
     @staticmethod
     def _nearest_hour_epoch() -> int:

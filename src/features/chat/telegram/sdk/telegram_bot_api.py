@@ -24,6 +24,21 @@ class TelegramBotAPI:
         self.__raise_for_status(response)
         return File(**response.json()["result"])
 
+    def download_file_bytes(self, file_path: str) -> bytes | None:
+        log.t("Downloading Telegram file bytes")
+        bot_token = config.telegram_bot_token.get_secret_value()
+        url = f"{config.telegram_api_base_url}/file/bot{bot_token}/{file_path}"
+        response = requests.get(url, timeout = config.web_timeout_s)
+        content_length = len(response.content or b"")
+        if response.status_code != 200 or content_length == 0:
+            file_name = file_path.rsplit("/", 1)[-1]
+            log.w(f"Could not download Telegram file '{file_name}': status={response.status_code}, bytes={content_length}")
+        self.__raise_for_status(response)
+        if content_length == 0:
+            return None
+        log.t(f"Telegram file downloaded successfully ({content_length} bytes)")
+        return response.content
+
     def send_text_message(
         self,
         chat_id: int | str,

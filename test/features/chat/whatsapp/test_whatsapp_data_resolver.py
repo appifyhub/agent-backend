@@ -10,6 +10,7 @@ from db.model.user import UserDB
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from features.chat.attachment.chat_message_attachment_service import ChatMessageAttachmentService
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message import ChatMessage
@@ -42,6 +43,8 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.mock_di.chat_message_repo = self.sql.chat_message_repo()
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_attachment_repo = self.sql.chat_message_attachment_repo()
+        # noinspection PyPropertyAccess
+        self.mock_di.chat_message_attachment_service = ChatMessageAttachmentService(self.mock_di)
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_bot_api = MagicMock()
         # Ensure resolver uses a real SDK instance rather than an auto-created Mock

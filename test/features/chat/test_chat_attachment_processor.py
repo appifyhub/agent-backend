@@ -54,6 +54,9 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.mock_access_token_resolver = MagicMock()
         self.mock_di.tools_cache_repo = self.mock_cache_repo
         self.mock_di.chat_message_attachment_repo = self.mock_chat_message_attachment_repo
+        self.mock_di.chat_message_attachment_service.save.side_effect = (
+            lambda attachment, content = None: self.mock_chat_message_attachment_repo.save(attachment)
+        )
         self.mock_di.access_token_resolver = self.mock_access_token_resolver
         self.mock_di.invoker_chat_id = UUID(int = 1).hex
         mock_chat = MagicMock()

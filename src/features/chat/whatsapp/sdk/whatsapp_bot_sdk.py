@@ -8,7 +8,6 @@ from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.message.chat_message import ChatMessage
-from features.chat.supported_files import resolve_file_type
 from features.chat.whatsapp.model.media_info import MediaInfo
 from features.chat.whatsapp.model.response import MessageResponse
 from features.integrations.integration_config import THE_AGENT
@@ -22,9 +21,7 @@ from util.error_codes import (
     MISSING_EXTERNAL_ATTACHMENT_ID,
 )
 from util.errors import ExternalServiceError, InternalError, NotFoundError
-from util.functions import detect_image_format
 
-ATTACHMENT_URL_EXPIRATION = 23 * 60 * 60  # 23 hours in seconds
 WHATSAPP_MEDIA_URL_EXPIRATION = 5 * 60  # 5 minutes in seconds
 
 
@@ -106,24 +103,6 @@ class WhatsAppBotSDK:
 
     # === Data utilities ===
 
-    def __reupload_media_and_store(
-        self,
-        media_bytes: bytes,
-        attachment: ChatMessageAttachment,
-        extension: str | None = None,
-    ) -> ChatMessageAttachment:
-        msg_id_short = attachment.message_id[:10]
-        local_id_short = str(attachment.id)[:10]
-        suffix = f".{extension}" if extension else ""
-        filename = f"{msg_id_short}_{local_id_short}{suffix}"
-        file_uploader = self.__di.file_uploader(media_bytes, filename)
-        uploaded_url = file_uploader.execute()
-        permanent_url_until = int((datetime.now() + timedelta(seconds = ATTACHMENT_URL_EXPIRATION)).timestamp())
-        attachment = replace(attachment, last_url = uploaded_url, last_url_until = permanent_url_until)
-        attachment = self.__di.chat_message_attachment_repo.save(attachment)
-        log.t(f"Successfully re-uploaded media to permanent storage: {uploaded_url}")
-        return attachment
-
     def __store_api_response_as_message(
         self,
         raw_api_response: MessageResponse,
@@ -147,53 +126,6 @@ class WhatsAppBotSDK:
         )
         return self.__di.chat_message_repo.save(message)
 
-    def __store_attachment_for_sent_media(
-        self,
-        message_id: str,
-        chat_id: UUID,
-        media_url: str,
-    ) -> ChatMessageAttachment:
-        log.t("Storing attachment for sent media...")
-        local_id = f"agent_media_wa_{message_id}"
-        wa_url_until = int((datetime.now() + timedelta(seconds = WHATSAPP_MEDIA_URL_EXPIRATION)).timestamp())
-
-        # Download media to detect format and prepare for re-upload
-        media_bytes: bytes | None = None
-        extension: str | None = None
-        mime_type: str | None = None
-        try:
-            response = requests.get(media_url, timeout = config.web_timeout_s * 3)
-            if response.status_code == 200:
-                media_bytes = response.content
-                if media_bytes:
-                    mime_type, extension = resolve_file_type(extension = detect_image_format(media_bytes))
-                    if extension and mime_type:
-                        log.t(f"Detected media format: {extension} -> {mime_type}")
-        except Exception as e:
-            log.w(f"Failed to download media from {media_url}", e)
-
-        # Store initial attachment with original WhatsApp URL (short-lived)
-        attachment = ChatMessageAttachment(
-            id = local_id,
-            external_id = message_id,
-            message_id = message_id,
-            chat_id = chat_id,
-            last_url = media_url,
-            last_url_until = wa_url_until,
-            extension = extension,
-            mime_type = mime_type,
-        )
-        attachment = self.__di.chat_message_attachment_repo.save(attachment)
-
-        # Try to re-upload to a more permanent storage
-        if media_bytes:
-            try:
-                attachment = self.__reupload_media_and_store(media_bytes, attachment, extension)
-            except Exception as e:
-                log.w("Failed to re-upload media to permanent storage, keeping original URL", e)
-
-        return attachment
-
     def refresh_attachments_by_ids(self, attachment_ids: list[str]) -> list[ChatMessageAttachment]:
         log.d(f"Refreshing {len(attachment_ids)} attachments by IDs")
         attachments: list[ChatMessageAttachment] = []
@@ -208,43 +140,71 @@ class WhatsAppBotSDK:
         log.d(f"Refreshing {len(attachments)} attachment instances")
         return [self.refresh_attachment(attachment) for attachment in attachments]
 
-    def refresh_attachment(
-        self,
-        attachment: ChatMessageAttachment,
-    ) -> ChatMessageAttachment:
+    def refresh_attachment(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
         log.d(f"Refreshing attachment '{attachment.id}'")
 
         # check if instance data is already fresh
         if not attachment.has_stale_data:
             log.t(f"Attachment '{attachment.id}': data is already fresh")
             # we store it anyway because it may contain fresh data from the API
-            return self.__di.chat_message_attachment_repo.save(attachment)
+            return self.__di.chat_message_attachment_service.save(attachment)
 
-        # data is stale or missing, we need to fetch the attachment data from remote
+        # data is stale or missing, we need to fetch the attachment data from remote: get media info from WhatsApp API
         if not attachment.external_id:
             raise InternalError("No external ID provided for the attachment", MISSING_EXTERNAL_ATTACHMENT_ID)
         log.t(f"Refreshing attachment data for external ID '{attachment.external_id}'")
-
-        # Get media info from WhatsApp API
         media_info: MediaInfo | None = self.__di.whatsapp_bot_api.get_media_info(attachment.external_id)
         if not media_info:
             raise ExternalServiceError(f"Could not get media info for external ID '{attachment.external_id}'", MEDIA_INFO_FAILED)  # noqa: E501
 
-        # Download media bytes
+        # download the actual media bytes
         media_bytes: bytes | None = self.__di.whatsapp_bot_api.download_media_bytes(media_info.url)
         if not media_bytes:
             raise ExternalServiceError(f"Could not download media for external ID '{attachment.external_id}'", MEDIA_DOWNLOAD_FAILED)  # noqa: E501
 
-        # Populate all metadata before re-upload
-        size = media_info.file_size or attachment.size
-        mime_type, extension = resolve_file_type(
+        # update attachment metadata with fresh info
+        updated_attachment = replace(
+            attachment,
             mime_type = media_info.mime_type or attachment.mime_type,  # prefer fresh value
             extension = None if media_info.mime_type else attachment.extension,  # prefer fresh resolution
         )
-        updated_attachment = replace(attachment, size = size, mime_type = mime_type, extension = extension)
 
-        # Re-upload to permanent storage (also saves to DB with all metadata)
-        return self.__reupload_media_and_store(media_bytes, updated_attachment, extension)
+        # store in service-owned storage (also saves to DB with all metadata)
+        stored_attachment = self.__di.chat_message_attachment_service.save(updated_attachment, media_bytes)
+        log.t(f"Successfully stored media attachment '{stored_attachment.id}'")
+        return stored_attachment
+
+    def __store_attachment_for_sent_media(self, message_id: str, chat_id: UUID, media_url: str) -> ChatMessageAttachment:
+        log.t("Storing attachment for sent media...")
+        # download media bytes to prepare for storage
+        media_bytes: bytes
+        try:
+            response = requests.get(media_url, timeout = config.web_timeout_s * 3)
+            if response.status_code != 200 or not response.content:
+                log.w(
+                    f"Could not download sent media for message '{message_id}': "
+                    f"status={response.status_code}, bytes={len(response.content or b"")}",
+                )
+                raise ExternalServiceError(f"Could not download sent media for message '{message_id}'", MEDIA_DOWNLOAD_FAILED)
+            media_bytes = response.content
+        except ExternalServiceError:
+            raise
+        except Exception as e:
+            raise ExternalServiceError(f"Could not download sent media for message '{message_id}'", MEDIA_DOWNLOAD_FAILED) from e
+
+        # prepare the initial attachment metadata (keeping the original short-lived URL)
+        last_url_until = int((datetime.now() + timedelta(seconds = WHATSAPP_MEDIA_URL_EXPIRATION)).timestamp())
+        attachment = ChatMessageAttachment(
+            id = f"agent_media_wa_{message_id}",
+            external_id = message_id,
+            message_id = message_id,
+            chat_id = chat_id,
+            last_url = media_url,
+            last_url_until = last_url_until,
+        )
+
+        # store the attachment and the media bytes (if available) in our storage
+        return self.__di.chat_message_attachment_service.save(attachment, media_bytes)
 
     @staticmethod
     def _nearest_hour_epoch() -> int:

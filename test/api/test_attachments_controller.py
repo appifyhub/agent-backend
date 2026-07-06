@@ -13,8 +13,11 @@ from api.auth import (
     create_public_resource_token,
 )
 from db.sql import get_session
-from features.chat.attachment.attachment_service import ATTACHMENT_PUBLIC_READ_PURPOSE, AttachmentService
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_message_attachment_service import (
+    ATTACHMENT_PUBLIC_READ_PURPOSE,
+    ChatMessageAttachmentService,
+)
 from features.chat.membership.chat_membership import ChatMembership
 from features.users.user import User
 from main import app
@@ -37,7 +40,7 @@ class FakeDI:
         self.chat_membership_service.get.return_value = membership
         self.attachment_storage = Mock()
         self.attachment_storage.open.side_effect = lambda _: BytesIO(content)
-        self.attachment_service = AttachmentService(self)
+        self.chat_message_attachment_service = ChatMessageAttachmentService(self)
 
 
 class AttachmentsControllerTest(unittest.TestCase):

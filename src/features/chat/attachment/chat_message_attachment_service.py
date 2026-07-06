@@ -25,7 +25,7 @@ class AttachmentPublicUrl:
     valid_until: int
 
 
-class AttachmentService:
+class ChatMessageAttachmentService:
 
     __di: DI
 
@@ -36,35 +36,39 @@ class AttachmentService:
         if token_claims.purpose != ATTACHMENT_PUBLIC_READ_PURPOSE:
             raise AuthenticationError("Invalid attachment public token purpose", INVALID_RESOURCE_TOKEN)
 
-    def save_attachment_bytes(self, attachment: ChatMessageAttachment, content: bytes) -> ChatMessageAttachment:
-        if not content:
-            raise ValidationError("Attachment content must be provided", MISSING_CONTENT)
-
-        # resolve the latest, most correct metadata
+    def save(
+        self,
+        attachment: ChatMessageAttachment,
+        content: bytes | None = None,
+    ) -> ChatMessageAttachment:
         mime_type, extension = resolve_file_type(
             mime_type = attachment.mime_type,
             extension = attachment.extension,
-            uri = attachment.uri,
+            uri = attachment.last_url or attachment.uri,
             content = content,
         )
-        stored_attachment = replace(
+        updated_attachment = replace(
             attachment,
-            size = len(content),
             mime_type = mime_type,
             extension = extension,
         )
 
-        # store the updated attachment content in the attachment storage
-        self.__di.attachment_storage.put(stored_attachment, content)
+        if content is not None:
+            if not content:
+                raise ValidationError("Attachment content must be provided", MISSING_CONTENT)
+            # persist the content in the file storage
+            self.__di.attachment_storage.put(updated_attachment, content)
+            # regenerate public URL metadata
+            public_url = self.create_public_url(updated_attachment)
+            updated_attachment = replace(
+                updated_attachment,
+                size = len(content),
+                last_url = public_url.url,
+                last_url_until = public_url.valid_until,
+            )
 
-        # create a new public, time-limited and signed URL for the attachment, and save it
-        public_url = self.create_public_url(stored_attachment)
-        complete_attachment = self.__di.chat_message_attachment_repo.save(replace(
-            stored_attachment,
-            last_url = public_url.url,
-            last_url_until = public_url.valid_until,
-        ))
-        return complete_attachment
+        # finally, store in DB whatever we have at the end of this process
+        return self.__di.chat_message_attachment_repo.save(updated_attachment)
 
     def create_public_url(self, attachment: ChatMessageAttachment) -> AttachmentPublicUrl:
         valid_until = datetime.now() + timedelta(seconds = config.attachment_public_token_ttl_seconds)
@@ -81,18 +85,15 @@ class AttachmentService:
         )
 
     def open_attachment(self, attachment_id: str) -> ResolvedAttachmentStream:
-        # must fetch this first to get the attachment's chat_id
         attachment = self.__di.chat_message_attachment_repo.get(attachment_id)
         if attachment is None:
             raise NotFoundError(f"Attachment '{attachment_id}' not found", ATTACHMENT_NOT_FOUND)
 
-        # chat is known now, so we can check if the invoker has access to it
         membership = self.__di.chat_membership_service.get(self.__di.invoker.id, attachment.chat_id)
         if membership is None:
             message = f"User '{self.__di.invoker.id.hex}' is not a member of chat '{attachment.chat_id.hex}'"
             raise AuthorizationError(message, NOT_CHAT_MEMBER)
 
-        # we can proceed to open the attachment now
         mime_type, _ = resolve_file_type(
             mime_type = attachment.mime_type,
             extension = attachment.extension,
