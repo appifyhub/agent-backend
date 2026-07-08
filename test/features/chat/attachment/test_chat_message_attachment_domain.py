@@ -14,6 +14,7 @@ class ChatMessageAttachmentDomainTest(unittest.TestCase):
     ) -> ChatMessageAttachment:
         return ChatMessageAttachment(
             chat_id = UUID(int = 1),
+            uploader_user_id = UUID(int = 9),
             message_id = "message1",
             last_url = last_url,
             last_url_until = last_url_until,
@@ -46,35 +47,35 @@ class ChatMessageAttachmentDomainTest(unittest.TestCase):
     def test_uri_uses_attachment_identity(self):
         attachment = ChatMessageAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
-            message_id = "message-id",
+            uploader_user_id = UUID(int = 9),
             id = "attachment-id",
         )
 
         self.assertEqual(
             attachment.uri,
-            "chats/11111111-1111-1111-1111-111111111111/messages/message-id/attachments/attachment-id",
+            "chats/11111111-1111-1111-1111-111111111111/attachments/attachment-id",
         )
 
-    def test_uri_appends_extension_when_available(self):
+    def test_uri_includes_extension_when_available(self):
         attachment = ChatMessageAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
-            message_id = "message-id",
+            uploader_user_id = UUID(int = 9),
             id = "attachment-id",
             extension = "png",
         )
 
         self.assertEqual(
             attachment.uri,
-            "chats/11111111-1111-1111-1111-111111111111/messages/message-id/attachments/attachment-id.png",
+            "chats/11111111-1111-1111-1111-111111111111/attachments/attachment-id.png",
         )
 
     def test_uri_uses_generated_attachment_id(self):
         attachment = ChatMessageAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
-            message_id = "message-id",
+            uploader_user_id = UUID(int = 9),
         )
 
         self.assertEqual(
             attachment.uri,
-            f"chats/11111111-1111-1111-1111-111111111111/messages/message-id/attachments/{attachment.id}",
+            f"chats/11111111-1111-1111-1111-111111111111/attachments/{attachment.id}",
         )

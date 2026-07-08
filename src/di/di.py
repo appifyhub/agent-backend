@@ -64,7 +64,6 @@ if TYPE_CHECKING:
     from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
     from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
     from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
-    from features.chat.url_attachment_resolver import UrlAttachmentResolver
     from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
     from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
     from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
@@ -929,7 +928,7 @@ class DI:
         name: str | None = None,
     ) -> "ImageUploader":
         from features.images.image_uploader import ImageUploader
-        return ImageUploader(binary_image, base64_image, expiration_s, name)
+        return ImageUploader(self, binary_image, base64_image, expiration_s, name)
 
     # noinspection PyMethodMayBeStatic
     def file_uploader(
@@ -1016,10 +1015,6 @@ class DI:
             transcriber_tool, copywriter_tool, self,
             def_extension, audio_content,
         )
-
-    def url_attachment_resolver(self, url: str) -> "UrlAttachmentResolver":
-        from features.chat.url_attachment_resolver import UrlAttachmentResolver
-        return UrlAttachmentResolver(url, self)
 
     def chat_attachment_processor(
         self,

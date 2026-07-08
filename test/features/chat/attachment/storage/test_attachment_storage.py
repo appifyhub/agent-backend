@@ -96,6 +96,7 @@ class LocalAttachmentStorageTest(unittest.TestCase):
     def __metadata(self, attachment_id: str = "attachment-id") -> ChatMessageAttachment:
         return ChatMessageAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
+            uploader_user_id = UUID(int = 9),
             message_id = "message-id",
             id = attachment_id,
             mime_type = "text/plain",
@@ -225,6 +226,7 @@ class S3AttachmentStorageTest(unittest.TestCase):
     ) -> ChatMessageAttachment:
         return ChatMessageAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
+            uploader_user_id = UUID(int = 9),
             message_id = "message-id",
             id = "attachment-id",
             mime_type = mime_type,

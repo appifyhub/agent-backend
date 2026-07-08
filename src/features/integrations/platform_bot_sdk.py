@@ -2,6 +2,7 @@ from enum import Enum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Literal
+from urllib.parse import urlparse
 
 import requests
 
@@ -17,8 +18,9 @@ from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYT
 from features.integrations.integrations import is_own_chat
 from features.users.user import User
 from util import log
-from util.error_codes import UNSUPPORTED_CHAT_TYPE
-from util.errors import ConfigurationError
+from util.config import config
+from util.error_codes import EXTERNAL_EMPTY_RESPONSE, MEDIA_DOWNLOAD_FAILED, UNSUPPORTED_CHAT_TYPE
+from util.errors import ConfigurationError, ExternalServiceError
 from util.functions import delete_file_safe
 
 
@@ -54,7 +56,8 @@ class PlatformBotSDK:
         photo_url: str,
         caption: str | None = None,
     ) -> ChatMessage:
-        prepared_url = self.__prepare_photo_for_delivery(photo_url)
+        prepared_url = self.__prepare_photo_for_delivery(photo_url, caption)
+        prepared_url = self.__normalize_delivery_url(prepared_url, caption)
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
                 return self.__di.telegram_bot_sdk.send_photo(chat_id, prepared_url, caption)
@@ -94,6 +97,9 @@ class PlatformBotSDK:
         caption: str | None = None,
         thumbnail: str | None = None,
     ) -> ChatMessage:
+        document_url = self.__normalize_delivery_url(document_url, caption)
+        if thumbnail:
+            thumbnail = self.__normalize_delivery_url(thumbnail, caption)
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
                 return self.__di.telegram_bot_sdk.send_document(
@@ -194,7 +200,7 @@ class PlatformBotSDK:
             case _:
                 return None
 
-    def __prepare_photo_for_delivery(self, photo_url: str) -> str:
+    def __prepare_photo_for_delivery(self, photo_url: str, message_text: str | None) -> str:
         chat_type = self.__di.require_invoker_chat_type()
         match chat_type:
             case ChatConfigDB.ChatType.whatsapp:
@@ -249,6 +255,51 @@ class PlatformBotSDK:
             delete_file_safe(resized_path if resized_path not in [temp_path, flattened_path] else None)
             delete_file_safe(flattened_path if flattened_path != temp_path else None)
             delete_file_safe(temp_path)
+
+    def __normalize_delivery_url(self, url: str, message_text: str | None) -> str:
+        if self.__di.chat_message_attachment_service.is_own_public_url(url):
+            return url
+
+        content = self.__download_delivery_content(url)
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            ChatMessageAttachment(
+                chat_id = chat.chat_id,
+                uploader_user_id = self.__di.invoker.id,
+            ),
+            content,
+            remote_url = url,
+        )
+        public_url = self.__di.chat_message_attachment_service.create_public_url(attachment)
+        if not public_url.url:
+            raise ExternalServiceError("Could not create public attachment URL", EXTERNAL_EMPTY_RESPONSE)
+        log.t(f"Prepared public delivery URL for attachment '{attachment.id}'")
+        return public_url.url
+
+    @staticmethod
+    def __download_delivery_content(url: str) -> bytes:
+        try:
+            response = requests.get(url, timeout = config.web_timeout_s * 3)
+            content_length = len(response.content or b"")
+            if response.status_code != 200 or content_length == 0:
+                log.w(
+                    f"Could not download outbound media '{PlatformBotSDK.__url_tail(url)}': "
+                    f"status={response.status_code}, bytes={content_length}",
+                )
+                raise ExternalServiceError("Could not download outbound media", MEDIA_DOWNLOAD_FAILED)
+            return response.content
+        except ExternalServiceError:
+            raise
+        except Exception as e:
+            log.w(f"Could not download outbound media '{PlatformBotSDK.__url_tail(url)}'", e)
+            raise ExternalServiceError("Could not download outbound media", MEDIA_DOWNLOAD_FAILED) from e
+
+    @staticmethod
+    def __url_tail(url: str) -> str:
+        path = urlparse(url).path.rstrip("/")
+        if not path:
+            return "<empty-path>"
+        return path.rsplit("/", 1)[-1]
 
     @staticmethod
     def __get_photo_content_length(photo_url: str) -> int | None:

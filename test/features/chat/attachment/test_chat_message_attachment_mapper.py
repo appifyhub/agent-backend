@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from uuid import UUID
 
 from db.model.chat_message_attachment import ChatMessageAttachmentDB
@@ -11,6 +12,7 @@ from features.chat.attachment.chat_message_attachment_mapper import (
     from_remote_data,
 )
 from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from util.functions import generate_deterministic_short_uuid
 
 
 class ChatMessageAttachmentMapperTest(unittest.TestCase):
@@ -21,9 +23,13 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
 
     def setUp(self):
         self.chat_id = UUID("11111111-1111-1111-1111-111111111111")
+        self.uploader_user_id = UUID("22222222-2222-2222-2222-222222222222")
+        self.created_at = datetime(2026, 1, 2, 3, 4, 5)
         self.db_model = ChatMessageAttachmentDB(
             id = "attach1",
             external_id = "external1",
+            uploader_user_id = self.uploader_user_id,
+            created_at = self.created_at,
             chat_id = self.chat_id,
             message_id = "message1",
             size = 1024,
@@ -35,6 +41,8 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.domain_model = ChatMessageAttachment(
             id = "attach1",
             external_id = "external1",
+            uploader_user_id = self.uploader_user_id,
+            created_at = self.created_at,
             chat_id = self.chat_id,
             message_id = "message1",
             size = 1024,
@@ -61,6 +69,8 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.id, self.domain_model.id)
         self.assertEqual(result.external_id, self.domain_model.external_id)
+        self.assertEqual(result.uploader_user_id, self.domain_model.uploader_user_id)
+        self.assertEqual(result.created_at, self.domain_model.created_at)
         self.assertEqual(result.chat_id, self.domain_model.chat_id)
         self.assertEqual(result.message_id, self.domain_model.message_id)
         self.assertEqual(result.size, self.domain_model.size)
@@ -74,10 +84,12 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
 
         self.assertEqual(result, self.domain_model)
 
-    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
+    def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity_and_creation_metadata(self):
         domain_model = ChatMessageAttachment(
             id = "different-id",
             external_id = None,
+            uploader_user_id = UUID("44444444-4444-4444-4444-444444444444"),
+            created_at = datetime(2026, 2, 3, 4, 5, 6),
             chat_id = UUID("33333333-3333-3333-3333-333333333333"),
             message_id = "message2",
             size = None,
@@ -91,6 +103,8 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
 
         self.assertEqual(self.db_model.id, "attach1")
         self.assertIsNone(self.db_model.external_id)
+        self.assertEqual(self.db_model.uploader_user_id, self.uploader_user_id)
+        self.assertEqual(self.db_model.created_at, self.created_at)
         self.assertEqual(self.db_model.chat_id, domain_model.chat_id)
         self.assertEqual(self.db_model.message_id, domain_model.message_id)
         self.assertIsNone(self.db_model.size)
@@ -103,6 +117,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         domain_model = ChatMessageAttachment(
             external_id = "external3",
             chat_id = self.chat_id,
+            uploader_user_id = self.uploader_user_id,
             message_id = "message3",
         )
 
@@ -122,10 +137,11 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             mime_type = "image/png",
         )
 
-        result = from_remote_data(remote_data, self.chat_id)
+        result = from_remote_data(remote_data, self.chat_id, self.uploader_user_id)
 
-        self.assertEqual(result.id, "778202be")
+        self.assertEqual(result.id, generate_deterministic_short_uuid(remote_data.external_id))
         self.assertEqual(result.external_id, remote_data.external_id)
+        self.assertEqual(result.uploader_user_id, self.uploader_user_id)
         self.assertEqual(result.chat_id, self.chat_id)
         self.assertEqual(result.message_id, remote_data.message_id)
         self.assertEqual(result.size, remote_data.size)

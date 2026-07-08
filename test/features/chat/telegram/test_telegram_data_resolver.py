@@ -22,6 +22,7 @@ from features.integrations.integrations import resolve_agent_user
 from features.users.user import User
 from features.users.user_remote_data import UserRemoteData
 from util.config import config
+from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
 
 
@@ -70,19 +71,11 @@ class TelegramDataResolverTest(unittest.TestCase):
             sent_at = datetime.now(),
             text = "This is a message",
         )
-        attachment_data = ChatMessageAttachmentRemoteData(
-            external_id = "e1",
-            message_id = message_data.message_id,
-            last_url = "path/to/file.jpg",
-            last_url_until = self.valid_url_timestamp(),
-            extension = "jpg",
-            mime_type = "image/jpeg",
-        )
         mapping_result = TelegramDomainMapper.Result(
             chat = chat_config_data,
             author = None,
             message = message_data,
-            attachments = [attachment_data],
+            attachments = [],
         )
 
         result = self.resolver.resolve(mapping_result)
@@ -94,9 +87,33 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message.chat_id, result.chat.chat_id)
         self.assertEqual(result.message.message_id, message_data.message_id)
         self.assertIsNone(result.message.author_id)
-        self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
-        self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
-        self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
+        self.assertEqual(result.attachments, [])
+
+    def test_resolve_no_author_with_attachment_raises(self):
+        mapping_result = TelegramDomainMapper.Result(
+            chat = ChatConfigRemoteData(
+                external_id = "c1",
+                title = "Chat Title",
+                is_private = True,
+                chat_type = ChatConfigDB.ChatType.telegram,
+            ),
+            author = None,
+            message = ChatMessageRemoteData(
+                message_id = "m1",
+                sent_at = datetime.now(),
+                text = "This is a message",
+            ),
+            attachments = [
+                ChatMessageAttachmentRemoteData(
+                    external_id = "e1",
+                    message_id = "m1",
+                    mime_type = "image/jpeg",
+                ),
+            ],
+        )
+
+        with self.assertRaises(InternalError):
+            self.resolver.resolve(mapping_result)
 
     def test_resolve_with_author_bot(self):
         chat_config_data = ChatConfigRemoteData(
@@ -143,8 +160,10 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message.message_id, message_data.message_id)
         self.assertIsNotNone(result.message.author_id)
         self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
+        self.assertEqual(result.attachments[0].external_id, attachment_data.external_id)
         self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
+        self.assertEqual(result.attachments[0].uploader_user_id, result.author.id)
         self.mock_di.chat_membership_service.sync.assert_not_called()
 
     def test_resolve_with_author_normal(self):
@@ -192,8 +211,10 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message.message_id, message_data.message_id)
         self.assertIsNotNone(result.message.author_id)
         self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
+        self.assertEqual(result.attachments[0].external_id, attachment_data.external_id)
         self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
+        self.assertEqual(result.attachments[0].uploader_user_id, result.author.id)
         self.mock_di.chat_membership_service.sync.assert_called_once()
 
     def test_resolve_author_none(self):
@@ -460,6 +481,7 @@ class TelegramDataResolverTest(unittest.TestCase):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
+        uploader = self.sql.user_repo().save(User(full_name = "Uploader", telegram_user_id = 123))
         self.sql.chat_message_repo().save(ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"))
         mapped_data = ChatMessageAttachmentRemoteData(
             external_id = "e1",
@@ -470,11 +492,13 @@ class TelegramDataResolverTest(unittest.TestCase):
             mime_type = "image/jpeg",
         )
 
-        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id)
-        saved_attachment = self.sql.chat_message_attachment_repo().get_by_external_id(mapped_data.external_id)
+        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id, uploader.id)
+        saved_attachment = self.sql.chat_message_attachment_repo().get_by_external_id(chat.chat_id, mapped_data.external_id)
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, generate_deterministic_short_uuid(mapped_data.external_id))
+        self.assertEqual(result.external_id, mapped_data.external_id)
+        self.assertEqual(result.uploader_user_id, uploader.id)
         self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
         self.assertEqual(result.size, mapped_data.size)
@@ -488,10 +512,12 @@ class TelegramDataResolverTest(unittest.TestCase):
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         self.sql.chat_message_repo().save(ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"))
+        uploader = self.sql.user_repo().save(User(full_name = "Uploader", telegram_user_id = 123))
         old_attachment_data = ChatMessageAttachment(
             id = "i1",
             external_id = "e1",
             chat_id = chat.chat_id,
+            uploader_user_id = uploader.id,
             message_id = "m1",
             size = 1,
             last_url = "path/to/file.jpg",
@@ -502,11 +528,12 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.sql.chat_message_attachment_repo().save(old_attachment_data)
 
         mapped_data = ChatMessageAttachmentRemoteData(external_id = "e1", message_id = "m1")
-        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id)
+        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id, uploader.id)
         saved_attachment = self.sql.chat_message_attachment_repo().get("i1")
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, old_attachment_data.id)
+        self.assertEqual(result.uploader_user_id, old_attachment_data.uploader_user_id)
         self.assertEqual(result.chat_id, old_attachment_data.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
         self.assertEqual(result.size, old_attachment_data.size)

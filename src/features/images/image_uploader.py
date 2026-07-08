@@ -1,81 +1,64 @@
 import base64
+import binascii
 import re
 
-import requests
-from requests import Response
-
+from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from util import log
-from util.config import config
-from util.error_codes import EXTERNAL_EMPTY_RESPONSE, FILE_UPLOAD_FAILED, MISSING_IMAGE_INPUTS
+from util.error_codes import FILE_UPLOAD_FAILED, INVALID_IMAGE_FORMAT, MISSING_CONTENT, MISSING_IMAGE_INPUTS
 from util.errors import ExternalServiceError, ValidationError
 
-UPLOAD_URL = "https://api.imgbb.com/1/upload"
-DEFAULT_EXPIRATION_M = 5  # minutes
 
-
-# Not tested as it's just a proxy
 class ImageUploader:
 
-    __base64_image: str
-    __expiration_s: int
+    __di: DI
+    __content: bytes
     __name: str | None
 
     def __init__(
         self,
+        di: DI,
         binary_image: bytes | None = None,
         base64_image: str | None = None,
         expiration_s: int | None = None,
         name: str | None = None,
     ):
+        self.__di = di
         if binary_image is None and base64_image is None:
             raise ValidationError("Either binary_image or base64_image must be provided", MISSING_IMAGE_INPUTS)
-        if binary_image:
-            self.__base64_image = base64.b64encode(binary_image).decode("utf-8")
-        if base64_image:
-            self.__base64_image = base64_image
-        # get rid of data URI prefixes
-        self.__base64_image = re.sub(r"^data:image/[^;]+;base64,", "", self.__base64_image)
-        self.__expiration_s = expiration_s or (DEFAULT_EXPIRATION_M * 60)
+        if binary_image is not None:
+            self.__content = binary_image
+        else:
+            base64_image = re.sub(r"^data:image/[^;]+;base64,", "", base64_image or "")
+            try:
+                self.__content = base64.b64decode(base64_image)
+            except binascii.Error as e:
+                raise ValidationError("Invalid base64 image input", INVALID_IMAGE_FORMAT) from e
+        if not self.__content:
+            raise ValidationError("Image content must be provided", MISSING_CONTENT)
         self.__name = name
-        image_size_kb = len(base64.b64decode(self.__base64_image)) / 1024
+        image_size_kb = len(self.__content) / 1024
         log.t(f"Ready to upload image! Size: {image_size_kb:.2f} KB")
 
     def execute(self) -> str:
-        response: Response | None = None
         try:
-            log.t("Uploading image now...")
-            data = {
-                "key": config.free_img_host_token.get_secret_value(),
-                "image": self.__base64_image,
-                "expiration": self.__expiration_s,
-            }
-            if self.__name:
-                data["name"] = self.__name
-            response = requests.post(UPLOAD_URL, data = data, timeout = config.web_timeout_s * 2)
-            log.t(f"Response HTTP-{response.status_code} received!")
-            response.raise_for_status()
-            response_data = response.json()
-
-            # Check if the response indicates success
-            if not response_data.get("success", False):
-                error_msg = response_data.get("error", {}).get("message", "Unknown error")
-                raise ExternalServiceError(f"Image upload failed: {error_msg}", FILE_UPLOAD_FAILED)
-
-            # Try to get the image URL from the response
-            # The API documentation doesn't specify the exact structure, so we'll try common patterns
-            image_url: str | None = (
-                response_data.get("data", {}).get("url") or
-                response_data.get("image", {}).get("url") or
-                response_data.get("url")
+            log.t("Uploading image to attachment storage...")
+            chat = self.__di.require_invoker_chat()
+            attachment: ChatMessageAttachment = self.__di.chat_message_attachment_service.save(
+                ChatMessageAttachment(
+                    chat_id = chat.chat_id,
+                    uploader_user_id = self.__di.invoker.id,
+                ),
+                self.__content,
+                remote_url = self.__name,
             )
-
-            if not image_url:
-                raise ExternalServiceError("Image upload failed: No image URL returned in response", EXTERNAL_EMPTY_RESPONSE)
-            log.t("Image uploaded successfully!")
-            return image_url
+            if not attachment.last_url:
+                raise ExternalServiceError("Image upload failed: No image URL returned", FILE_UPLOAD_FAILED)
+            public_url = self.__di.chat_message_attachment_service.create_public_url(attachment)
+            log.t(f"Image uploaded successfully as attachment '{attachment.id}'")
+            return public_url.url
         except ExternalServiceError:
             raise  # don't re-wrap intentional errors in the generic handler below
         except Exception as e:
-            response_text = {response.text if response is not None else "No response"}
-            log.w("Image upload failed!", response_text, e)
+            log.w("Image upload failed!", e)
             raise ExternalServiceError("Image upload failed", FILE_UPLOAD_FAILED) from e

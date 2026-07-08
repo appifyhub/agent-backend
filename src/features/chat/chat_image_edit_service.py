@@ -2,7 +2,6 @@ from enum import Enum
 
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.chat_attachment_utils import resolve_all_attachments
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.image_editor import ImageEditor
 from util import log
@@ -34,7 +33,7 @@ class ChatImageEditService:
         di: DI,
     ):
         self.__di = di
-        self.__attachments = resolve_all_attachments(attachment_ids, urls, self.__di)
+        self.__attachments = self.__di.chat_message_attachment_service.resolve_attachments(attachment_ids, urls)
         self.__operation_guidance = operation_guidance
         self.__aspect_ratio = aspect_ratio
         self.__output_size = output_size

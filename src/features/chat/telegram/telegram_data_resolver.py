@@ -22,6 +22,8 @@ from features.users.user_mapper import from_remote_data as from_remote_data_user
 from features.users.user_remote_data import UserRemoteData
 from util import log
 from util.config import config
+from util.error_codes import PLATFORM_MAPPING_FAILED
+from util.errors import InternalError
 
 
 class TelegramDataResolver:
@@ -62,10 +64,18 @@ class TelegramDataResolver:
             chat_id = resolved_chat_config.chat_id,
             author_id = resolved_author.id if resolved_author else None,
         )
-        resolved_attachments = [
-            self.resolve_chat_message_attachment(attachment, resolved_chat_message.chat_id)
-            for attachment in mapping_result.attachments
-        ]
+        resolved_attachments: list[ChatMessageAttachment] = []
+        if mapping_result.attachments:
+            if not resolved_author or not resolved_author.id:
+                raise InternalError("Telegram attachment cannot be resolved without a message author", PLATFORM_MAPPING_FAILED)
+            resolved_attachments = [
+                self.resolve_chat_message_attachment(
+                    attachment,
+                    resolved_chat_message.chat_id,
+                    resolved_author.id,
+                )
+                for attachment in mapping_result.attachments
+            ]
         return TelegramDataResolver.Result(
             chat = resolved_chat_config,
             author = resolved_author,
@@ -105,12 +115,13 @@ class TelegramDataResolver:
         self,
         mapped_data: ChatMessageAttachmentRemoteData,
         chat_id: UUID,
+        uploader_user_id: UUID,
     ) -> ChatMessageAttachment:
         log.t(f"  Resolving chat message attachment: {mapped_data}")
-        old_attachment = self.__di.chat_message_attachment_repo.get_by_external_id(mapped_data.external_id)
+        old_attachment = self.__di.chat_message_attachment_repo.get_by_external_id(chat_id, mapped_data.external_id)
         attachment = (
             apply_remote_data_attachment(old_attachment, mapped_data)
             if old_attachment
-            else from_remote_data_attachment(mapped_data, chat_id)
+            else from_remote_data_attachment(mapped_data, chat_id, uploader_user_id)
         )
         return self.__di.telegram_bot_sdk.refresh_attachment(attachment)

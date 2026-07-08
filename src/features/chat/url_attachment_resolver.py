@@ -16,10 +16,12 @@ class UrlAttachmentResolver:
 
     __url: str
     __chat_id: UUID
+    __uploader_user_id: UUID
 
     def __init__(self, url: str, di: DI):
         self.__url = url
         self.__chat_id = UUID(di.invoker_chat_id)
+        self.__uploader_user_id = di.invoker.id
 
     def execute(self) -> ChatMessageAttachment:
         mime_type, extension = resolve_file_type(mime_type = self.__mime_from_head(), uri = self.__url)
@@ -29,6 +31,7 @@ class UrlAttachmentResolver:
         return ChatMessageAttachment(
             id = attachment_id,
             chat_id = self.__chat_id,
+            uploader_user_id = self.__uploader_user_id,
             message_id = f"virtual-{attachment_id}",
             last_url = self.__url,
             mime_type = mime_type,

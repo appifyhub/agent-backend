@@ -8,7 +8,6 @@ from langchain_core.documents import Document
 from di.di import DI
 from features.audio.audio_transcriber import AudioTranscriber
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.chat_attachment_utils import resolve_all_attachments
 from features.chat.supported_files import KNOWN_AUDIO_FORMATS, KNOWN_DOCS_FORMATS, KNOWN_IMAGE_FORMATS
 from features.documents.document_search import DocumentSearch
 from features.external_tools.intelligence_presets import default_tool_for
@@ -54,7 +53,7 @@ class ChatAttachmentProcessor:
             f"Validating {len(attachment_ids or [])} attachment IDs "
             f"and {len(urls or [])} URLs in chat '{self.__di.invoker_chat_id}'",
         )
-        self.__attachments = resolve_all_attachments(attachment_ids, urls, self.__di)
+        self.__attachments = self.__di.chat_message_attachment_service.resolve_attachments(attachment_ids, urls)
 
     @property
     def __resolution_status(self) -> Result:

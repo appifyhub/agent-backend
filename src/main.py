@@ -24,7 +24,7 @@ from api.auth import (
     verify_api_key,
     verify_gumroad_auth_key,
     verify_jwt_credentials,
-    verify_public_resource_token,
+    verify_public_attachment_token,
     verify_telegram_auth_key,
     verify_whatsapp_signature,
     verify_whatsapp_webhook_challenge,
@@ -217,8 +217,8 @@ def get_public_attachment(
     token: str,
     db = Depends(get_session),
 ) -> StreamingResponse:
-    token_claims = verify_public_resource_token(token)  # it's not header auth, so we can't use Depends here
-    invoker_id_hex = token_claims.principal_id
+    token_claims = verify_public_attachment_token(token)  # it's not header auth, so we can't use Depends here
+    invoker_id_hex = token_claims.issuer_user_id
     return AttachmentsController(DI(db, invoker_id_hex)).stream_public_attachment(token_claims)
 
 

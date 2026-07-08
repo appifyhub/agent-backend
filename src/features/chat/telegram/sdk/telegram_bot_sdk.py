@@ -143,6 +143,10 @@ class TelegramBotSDK:
     def refresh_attachment(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
         log.d(f"Refreshing attachment '{attachment.id}'")
 
+        if self.__di.chat_message_attachment_service.is_own_storage_uri(attachment.last_url):
+            log.t(f"Attachment '{attachment.id}': data is already in attachment storage")
+            return attachment
+
         # check if instance data is already fresh
         if not attachment.has_stale_data:
             log.t(f"Attachment '{attachment.id}': data is already fresh")

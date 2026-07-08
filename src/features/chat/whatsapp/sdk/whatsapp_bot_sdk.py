@@ -143,6 +143,10 @@ class WhatsAppBotSDK:
     def refresh_attachment(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
         log.d(f"Refreshing attachment '{attachment.id}'")
 
+        if self.__di.chat_message_attachment_service.is_own_storage_uri(attachment.last_url):
+            log.t(f"Attachment '{attachment.id}': data is already in attachment storage")
+            return attachment
+
         # check if instance data is already fresh
         if not attachment.has_stale_data:
             log.t(f"Attachment '{attachment.id}': data is already fresh")
@@ -195,8 +199,8 @@ class WhatsAppBotSDK:
         # prepare the initial attachment metadata (keeping the original short-lived URL)
         last_url_until = int((datetime.now() + timedelta(seconds = WHATSAPP_MEDIA_URL_EXPIRATION)).timestamp())
         attachment = ChatMessageAttachment(
-            id = f"agent_media_wa_{message_id}",
             external_id = message_id,
+            uploader_user_id = self.__di.invoker.id,
             message_id = message_id,
             chat_id = chat_id,
             last_url = media_url,

@@ -9,6 +9,9 @@ from db.model.chat_message_attachment import ChatMessageAttachmentDB
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_mapper import apply_to_db_model, db, domain
 
+PREFIX_OUTGOING = "outgoing-"
+PREFIX_EXTERNAL = "external-"
+
 
 class ChatMessageAttachmentRepository:
 
@@ -23,8 +26,9 @@ class ChatMessageAttachmentRepository:
         ).first()
         return domain(db_model)
 
-    def get_by_external_id(self, external_id: str) -> ChatMessageAttachment | None:
+    def get_by_external_id(self, chat_id: UUID, external_id: str) -> ChatMessageAttachment | None:
         db_model = self._db.query(ChatMessageAttachmentDB).filter(
+            ChatMessageAttachmentDB.chat_id == chat_id,
             ChatMessageAttachmentDB.external_id == external_id,
         ).first()
         return domain(db_model)
@@ -50,15 +54,16 @@ class ChatMessageAttachmentRepository:
 
     def save(self, attachment: ChatMessageAttachment) -> ChatMessageAttachment:
         # identity check first
-        existing: ChatMessageAttachmentDB | None = self._db.query(ChatMessageAttachmentDB).filter(
-            ChatMessageAttachmentDB.id == attachment.id,
-        ).first()
+        existing: ChatMessageAttachmentDB | None = (
+            self._db.query(ChatMessageAttachmentDB)
+                .filter(ChatMessageAttachmentDB.id == attachment.id)
+                .first()
+        )
 
         # if not found by ID, try to find by external_id
         if existing is None and attachment.external_id:
             existing = self._db.query(ChatMessageAttachmentDB).filter(
                 ChatMessageAttachmentDB.chat_id == attachment.chat_id,
-                ChatMessageAttachmentDB.message_id == attachment.message_id,
                 ChatMessageAttachmentDB.external_id == attachment.external_id,
             ).first()
 

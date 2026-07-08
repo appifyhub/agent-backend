@@ -1,6 +1,7 @@
 import unittest
 from dataclasses import replace
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import UUID
 
@@ -43,8 +44,10 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = Mock()
         self.mock_di.chat_message_repo.save.side_effect = lambda msg: msg
+        self.mock_di.invoker = SimpleNamespace(id = UUID(int = 9))
         self.mock_chat_message_attachment_service = Mock()
-        self.stored_media_url = "http://localhost:80/attachments/public/token"
+        self.stored_media_url = "s3://the-agent/chats/chat-id/attachments/attachment-id"
+        self.mock_chat_message_attachment_service.is_own_storage_uri.return_value = False
         self.mock_chat_message_attachment_service.save.side_effect = self.__save_attachment
         self.mock_di.chat_message_attachment_service = self.mock_chat_message_attachment_service
 
@@ -82,6 +85,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             id = "attachment1",
             external_id = "media1",
             chat_id = self.chat_uuid,
+            uploader_user_id = UUID(int = 9),
             message_id = self.message_id,
             size = 1000,
             last_url = "https://old.example/media",
@@ -110,7 +114,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             mime_type = mime_type,
             extension = extension,
             last_url = self.stored_media_url,
-            last_url_until = int(datetime.now().timestamp()) + 600,
+            last_url_until = None,
         )
 
     @staticmethod
@@ -273,7 +277,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(result.extension, "png")
         self.assertEqual(result.mime_type, media_info.mime_type)
         self.assertEqual(result.last_url, self.stored_media_url)
-        self.assertGreater(result.last_url_until, self.attachment.last_url_until)
+        self.assertIsNone(result.last_url_until)
         self.assertEqual(self.attachment.last_url, "https://old.example/media")
         self.mock_chat_message_attachment_service.save.assert_called_once()
         stored_attachment, stored_content = self.mock_chat_message_attachment_service.save.call_args.args
@@ -299,9 +303,24 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(result.last_url, self.stored_media_url)
         self.mock_chat_message_attachment_service.save.assert_called_once()
         stored_attachment, stored_content = self.mock_chat_message_attachment_service.save.call_args.args
-        self.assertEqual(stored_attachment.id, f"agent_media_wa_{self.message_id}")
+        self.assertEqual(len(stored_attachment.id), 8)
+        self.assertEqual(stored_attachment.external_id, self.message_id)
         self.assertIsNone(stored_attachment.extension)
         self.assertEqual(stored_content, mock_requests.return_value.content)
+
+    def test_refresh_attachment_keeps_storage_backed_attachment(self):
+        attachment = replace(
+            self.attachment,
+            last_url = "s3://the-agent/chats/chat-id/attachments/attachment-id",
+            last_url_until = None,
+        )
+        self.mock_chat_message_attachment_service.is_own_storage_uri.return_value = True
+
+        result = self.sdk.refresh_attachment(attachment)
+
+        self.assertEqual(result, attachment)
+        self.mock_di.whatsapp_bot_api.get_media_info.assert_not_called()
+        self.mock_chat_message_attachment_service.save.assert_not_called()
 
     @patch("features.chat.whatsapp.sdk.whatsapp_bot_sdk.requests.get")
     def test_store_sent_media_fails_when_download_fails(self, mock_requests):

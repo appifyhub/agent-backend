@@ -35,7 +35,8 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.mock_di.chat_message_attachment_repo = Mock()
         self.mock_di.chat_message_attachment_repo.save.side_effect = lambda attachment: attachment
         self.mock_chat_message_attachment_service = Mock()
-        self.stored_media_url = "http://localhost:80/attachments/public/token"
+        self.stored_media_url = "s3://the-agent/chats/chat-id/attachments/attachment-id"
+        self.mock_chat_message_attachment_service.is_own_storage_uri.return_value = False
         self.mock_chat_message_attachment_service.save.side_effect = self.__save_attachment
         self.mock_di.chat_message_attachment_service = self.mock_chat_message_attachment_service
 
@@ -65,6 +66,7 @@ class TelegramBotSDKTest(unittest.TestCase):
             id = "short123",
             external_id = "telegram_file_456",
             chat_id = UUID(int = 1),
+            uploader_user_id = UUID(int = 9),
             message_id = "msg_123",
             size = 1000,
             last_url = "http://old.url",
@@ -99,7 +101,7 @@ class TelegramBotSDKTest(unittest.TestCase):
             mime_type = mime_type,
             extension = extension,
             last_url = self.stored_media_url,
-            last_url_until = int(datetime.now().timestamp()) + 600,
+            last_url_until = None,
         )
 
     @patch.object(TelegramDomainMapper, "map_update")
@@ -306,7 +308,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.assertEqual(result.external_id, self.attachment.external_id)
         self.assertEqual(result.size, len(media_bytes))
         self.assertEqual(result.last_url, self.stored_media_url)
-        self.assertGreater(result.last_url_until, self.attachment.last_url_until)
+        self.assertIsNone(result.last_url_until)
         self.mock_di.telegram_bot_api.get_file_info.assert_called_once_with(self.attachment.external_id)
         self.mock_di.telegram_bot_api.download_file_bytes.assert_called_once_with(self.api_file_info.file_path)
         self.mock_chat_message_attachment_service.save.assert_called_once()
@@ -314,6 +316,20 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.assertTrue(stored_attachment.last_url.endswith(self.api_file_info.file_path))
         self.assertEqual(stored_content, media_bytes)
         self.assertEqual(self.attachment.last_url, "http://old.url")
+
+    def test_refresh_attachment_keeps_storage_backed_attachment(self):
+        attachment = replace(
+            self.attachment,
+            last_url = "s3://the-agent/chats/chat-id/attachments/attachment-id",
+            last_url_until = None,
+        )
+        self.mock_chat_message_attachment_service.is_own_storage_uri.return_value = True
+
+        result = self.sdk.refresh_attachment(attachment)
+
+        self.assertEqual(result, attachment)
+        self.mock_di.telegram_bot_api.get_file_info.assert_not_called()
+        self.mock_chat_message_attachment_service.save.assert_not_called()
 
     def test_refresh_attachment_fresh_data_skips_api(self):
         attachment = replace(

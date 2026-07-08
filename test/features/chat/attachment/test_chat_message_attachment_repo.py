@@ -10,6 +10,7 @@ from features.chat.attachment.chat_message_attachment import ChatMessageAttachme
 from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
+from features.users.user import User
 
 
 class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
@@ -20,6 +21,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.chat_message_attachment_repo()
+        self.uploader = self.sql.user_repo().save(User(full_name = "Uploader"))
 
     def tearDown(self):
         self.sql.end_session()
@@ -46,7 +48,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
     def _attachment(
         self,
         chat_id: UUID,
-        message_id: str,
+        message_id: str | None,
         attachment_id: str = "attach1",
         external_id: str = "external1",
     ) -> ChatMessageAttachment:
@@ -54,6 +56,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
             id = attachment_id,
             external_id = external_id,
             chat_id = chat_id,
+            uploader_user_id = self.uploader.id,
             message_id = message_id,
             size = 1024,
             last_url = "https://example.com/file.jpg",
@@ -68,6 +71,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         attachment = ChatMessageAttachment(
             external_id = "external1",
             chat_id = chat.chat_id,
+            uploader_user_id = self.uploader.id,
             message_id = "message1",
             size = 1024,
             last_url = "https://example.com/file.jpg",
@@ -90,6 +94,15 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
 
         self.assertEqual(result, attachment)
 
+    def test_save_allows_chat_owned_attachment_without_message_id(self):
+        chat = self._create_chat("chat1")
+        attachment = self._attachment(chat.chat_id, None, attachment_id = "chat-attachment")
+
+        result = self.repo.save(attachment)
+
+        self.assertEqual(result, attachment)
+        self.assertIsNone(result.message_id)
+
     def test_get_returns_saved_attachment(self):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
@@ -102,24 +115,39 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
     def test_get_returns_none_when_missing(self):
         self.assertIsNone(self.repo.get("missing"))
 
-    def test_get_by_external_id_returns_first_match(self):
+    def test_get_by_external_id_returns_chat_match(self):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
         first = self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach1"))
-        self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach2"))
+        self.repo.save(self._attachment(
+            chat.chat_id,
+            "message1",
+            attachment_id = "attach2",
+            external_id = "external2",
+        ))
 
-        result = self.repo.get_by_external_id("external1")
+        result = self.repo.get_by_external_id(chat.chat_id, "external1")
 
         self.assertEqual(result, first)
 
     def test_get_by_external_id_returns_none_when_missing(self):
-        self.assertIsNone(self.repo.get_by_external_id("missing"))
+        chat = self._create_chat("chat1")
+
+        self.assertIsNone(self.repo.get_by_external_id(chat.chat_id, "missing"))
+
+    def test_get_by_external_id_returns_none_for_other_chat(self):
+        first_chat = self._create_chat("chat1")
+        second_chat = self._create_chat("chat2")
+        self._create_message(first_chat.chat_id, "message1")
+        self.repo.save(self._attachment(first_chat.chat_id, "message1", attachment_id = "attach1"))
+
+        self.assertIsNone(self.repo.get_by_external_id(second_chat.chat_id, "external1"))
 
     def test_get_all_applies_pagination(self):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
-        self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach1"))
-        self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach2"))
+        self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach1", external_id = "external1"))
+        self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach2", external_id = "external2"))
 
         result = self.repo.get_all(skip = 0, limit = 1)
 
@@ -129,9 +157,9 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
         self._create_message(chat.chat_id, "message2")
-        first = self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach1"))
-        second = self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach2"))
-        self.repo.save(self._attachment(chat.chat_id, "message2", attachment_id = "attach3"))
+        first = self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach1", external_id = "external1"))
+        second = self.repo.save(self._attachment(chat.chat_id, "message1", attachment_id = "attach2", external_id = "external2"))
+        self.repo.save(self._attachment(chat.chat_id, "message2", attachment_id = "attach3", external_id = "external3"))
 
         result = self.repo.get_all_by_message(chat.chat_id, "message1")
 
@@ -176,6 +204,25 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get("old-id"), result)
         self.assertIsNone(self.repo.get("new-id"))
 
+    def test_save_does_not_replace_remote_identity_from_another_chat(self):
+        first_chat = self._create_chat("chat1")
+        second_chat = self._create_chat("chat2")
+        self._create_message(first_chat.chat_id, "message1")
+        self._create_message(second_chat.chat_id, "message2")
+        first = self.repo.save(self._attachment(first_chat.chat_id, "message1", attachment_id = "first-id"))
+        second = self._attachment(
+            second_chat.chat_id,
+            "message2",
+            attachment_id = "second-id",
+            external_id = first.external_id,
+        )
+
+        result = self.repo.save(second)
+
+        self.assertEqual(result, second)
+        self.assertEqual(self.repo.get("first-id"), first)
+        self.assertEqual(self.repo.get("second-id"), second)
+
     def test_delete_returns_deleted_attachment(self):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
@@ -195,9 +242,9 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         self._create_message(chat.chat_id, "old", sent_at = cutoff - timedelta(seconds = 1))
         self._create_message(chat.chat_id, "boundary", sent_at = cutoff)
         self._create_message(chat.chat_id, "new", sent_at = cutoff + timedelta(seconds = 1))
-        self.repo.save(self._attachment(chat.chat_id, "old", attachment_id = "old"))
-        self.repo.save(self._attachment(chat.chat_id, "boundary", attachment_id = "boundary"))
-        self.repo.save(self._attachment(chat.chat_id, "new", attachment_id = "new"))
+        self.repo.save(self._attachment(chat.chat_id, "old", attachment_id = "old", external_id = "external-old"))
+        self.repo.save(self._attachment(chat.chat_id, "boundary", attachment_id = "boundary", external_id = "external-boundary"))
+        self.repo.save(self._attachment(chat.chat_id, "new", attachment_id = "new", external_id = "external-new"))
 
         deleted_count = self.repo.delete_by_old_messages(cutoff)
 

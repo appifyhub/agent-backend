@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_message_attachment_service import ChatMessageAttachmentService
 from features.chat.chat_attachment_processor import CACHE_PREFIX, CACHE_TTL, SEARCH_THRESHOLD_TOKENS, ChatAttachmentProcessor
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.url_attachment_resolver import UrlAttachmentResolver
@@ -33,6 +34,7 @@ def _make_attachment(
         id = id,
         external_id = f"external_{id}",
         chat_id = UUID(int = 1),
+        uploader_user_id = UUID(int = 9),
         message_id = id,
         mime_type = mime_type,
         extension = extension,
@@ -57,6 +59,8 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.mock_di.chat_message_attachment_service.save.side_effect = (
             lambda attachment, content = None: self.mock_chat_message_attachment_repo.save(attachment)
         )
+        attachment_service = ChatMessageAttachmentService(self.mock_di)
+        self.mock_di.chat_message_attachment_service.resolve_attachments.side_effect = attachment_service.resolve_attachments
         self.mock_di.access_token_resolver = self.mock_access_token_resolver
         self.mock_di.invoker_chat_id = UUID(int = 1).hex
         mock_chat = MagicMock()

@@ -8,10 +8,12 @@ from util.functions import generate_short_uuid
 @dataclass(kw_only = True)
 class ChatMessageAttachment:
 
-    chat_id: UUID
-    message_id: str
     id: str = field(default_factory = generate_short_uuid)
+    chat_id: UUID
+    uploader_user_id: UUID
+    message_id: str | None = None
     external_id: str | None = None
+    created_at: datetime = field(default_factory = datetime.now)
     size: int | None = None
     last_url: str | None = None
     last_url_until: int | None = None
@@ -28,4 +30,4 @@ class ChatMessageAttachment:
     @property
     def uri(self) -> str:
         suffix = f".{self.extension}" if self.extension else ""
-        return f"chats/{self.chat_id}/messages/{self.message_id}/attachments/{self.id}{suffix}"
+        return f"chats/{self.chat_id}/attachments/{self.id}{suffix}"

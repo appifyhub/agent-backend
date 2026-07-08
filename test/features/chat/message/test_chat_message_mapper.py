@@ -26,6 +26,7 @@ class ChatMessageMapperTest(unittest.TestCase):
             author_id = self.author_id,
             sent_at = self.sent_at,
             text = "Hello",
+            is_temporary = True,
         )
         self.domain_model = ChatMessage(
             chat_id = self.chat_id,
@@ -33,6 +34,7 @@ class ChatMessageMapperTest(unittest.TestCase):
             author_id = self.author_id,
             sent_at = self.sent_at,
             text = "Hello",
+            is_temporary = True,
         )
 
     def test_domain_returns_none_for_none_input(self):
@@ -55,6 +57,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.assertEqual(result.author_id, self.domain_model.author_id)
         self.assertEqual(result.sent_at, self.domain_model.sent_at)
         self.assertEqual(result.text, self.domain_model.text)
+        self.assertEqual(result.is_temporary, self.domain_model.is_temporary)
 
     def test_roundtrip_domain_to_db_to_domain(self):
         result = domain(db(self.domain_model))
@@ -68,6 +71,7 @@ class ChatMessageMapperTest(unittest.TestCase):
             author_id = None,
             sent_at = self.sent_at + timedelta(minutes = 1),
             text = "Replacement",
+            is_temporary = False,
         )
 
         apply_to_db_model(domain_model, self.db_model)
@@ -77,6 +81,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.assertIsNone(self.db_model.author_id)
         self.assertEqual(self.db_model.sent_at, domain_model.sent_at)
         self.assertEqual(self.db_model.text, domain_model.text)
+        self.assertEqual(self.db_model.is_temporary, domain_model.is_temporary)
 
     def test_from_remote_data_creates_complete_domain_state(self):
         remote_data = ChatMessageRemoteData(
@@ -92,6 +97,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.assertEqual(result.author_id, self.author_id)
         self.assertEqual(result.sent_at, remote_data.sent_at)
         self.assertEqual(result.text, remote_data.text)
+        self.assertFalse(result.is_temporary)
 
     def test_apply_remote_data_preserves_identity_and_applies_resolved_author(self):
         new_author_id = UUID("33333333-3333-3333-3333-333333333333")
@@ -108,6 +114,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.assertEqual(result.author_id, new_author_id)
         self.assertEqual(result.sent_at, remote_data.sent_at)
         self.assertEqual(result.text, remote_data.text)
+        self.assertEqual(result.is_temporary, self.domain_model.is_temporary)
 
     def test_apply_remote_data_preserves_existing_author_when_unresolved(self):
         remote_data = ChatMessageRemoteData(

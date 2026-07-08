@@ -14,10 +14,10 @@ from util.config import config
 from util.error_codes import EMPTY_TOKEN, INVALID_RESOURCE_TOKEN, NO_USER_ID_IN_TOKEN
 from util.errors import AuthenticationError
 
+__CLAIM_CHAT_ID = "chat_id"
+__CLAIM_ATTACHMENT_ID = "attachment_id"
+__CLAIM_ISSUER_USER_ID = "issuer_user_id"
 __JWT_ALGORITHM = "HS256"
-__PUBLIC_RESOURCE_TOKEN_PURPOSE_CLAIM = "purpose"
-__PUBLIC_RESOURCE_TOKEN_PRINCIPAL_ID_CLAIM = "principal_id"
-__PUBLIC_RESOURCE_TOKEN_RESOURCE_ID_CLAIM = "resource_id"
 
 api_key_header = APIKeyHeader(name = "X-API-Key", auto_error = True)
 telegram_auth_key_header = APIKeyHeader(name = "X-Telegram-Bot-Api-Secret-Token", auto_error = False)
@@ -25,10 +25,10 @@ jwt_header = HTTPBearer(bearerFormat = "JWT", auto_error = True)
 
 
 @dataclass(frozen = True)
-class PublicResourceTokenClaims:
-    resource_id: str
-    principal_id: str
-    purpose: str
+class PublicAttachmentTokenClaims:
+    chat_id: str
+    attachment_id: str
+    issuer_user_id: str
 
 
 def verify_api_key(api_key: str = Security(api_key_header)) -> str:
@@ -143,39 +143,37 @@ def create_jwt_token(payload: Dict[str, Any], expires_in: timedelta) -> str:
     return encoded_jwt
 
 
-def create_public_resource_token(resource_id: str, purpose: str, principal_id: str, ttl_seconds: int) -> str:
+def create_public_attachment_token(chat_id: str, attachment_id: str, issuer_user_id: str, ttl_seconds: int) -> str:
     return create_jwt_token(
         {
-            __PUBLIC_RESOURCE_TOKEN_PRINCIPAL_ID_CLAIM: principal_id,
-            __PUBLIC_RESOURCE_TOKEN_RESOURCE_ID_CLAIM: resource_id,
-            __PUBLIC_RESOURCE_TOKEN_PURPOSE_CLAIM: purpose,
+            __CLAIM_CHAT_ID: chat_id,
+            __CLAIM_ATTACHMENT_ID: attachment_id,
+            __CLAIM_ISSUER_USER_ID: issuer_user_id,
         },
         timedelta(seconds = ttl_seconds),
     )
 
 
-def verify_public_resource_token(token: str) -> PublicResourceTokenClaims:
+def verify_public_attachment_token(token: str) -> PublicAttachmentTokenClaims:
     try:
         claims = verify_jwt_token(token)
     except ExpiredSignatureError as e:
-        raise AuthenticationError("Public resource token expired", INVALID_RESOURCE_TOKEN) from e
+        raise AuthenticationError("Public attachment token expired", INVALID_RESOURCE_TOKEN) from e
     except Exception as e:
-        raise AuthenticationError("Invalid public resource token", INVALID_RESOURCE_TOKEN) from e
+        raise AuthenticationError("Invalid public attachment token", INVALID_RESOURCE_TOKEN) from e
 
-    token_purpose = claims.get(__PUBLIC_RESOURCE_TOKEN_PURPOSE_CLAIM)
-    if not token_purpose:
-        raise AuthenticationError("Public resource token is missing purpose", INVALID_RESOURCE_TOKEN)
+    chat_id = claims.get(__CLAIM_CHAT_ID)
+    if not chat_id:
+        raise AuthenticationError("Public attachment token is missing chat ID", INVALID_RESOURCE_TOKEN)
+    attachment_id = claims.get(__CLAIM_ATTACHMENT_ID)
+    if not attachment_id:
+        raise AuthenticationError("Public attachment token is missing attachment ID", INVALID_RESOURCE_TOKEN)
+    issuer_user_id = claims.get(__CLAIM_ISSUER_USER_ID)
+    if not issuer_user_id:
+        raise AuthenticationError("Public attachment token is missing issuer user ID", INVALID_RESOURCE_TOKEN)
 
-    resource_id = claims.get(__PUBLIC_RESOURCE_TOKEN_RESOURCE_ID_CLAIM)
-    if not resource_id:
-        raise AuthenticationError("Public resource token is missing resource ID", INVALID_RESOURCE_TOKEN)
-
-    principal_id = claims.get(__PUBLIC_RESOURCE_TOKEN_PRINCIPAL_ID_CLAIM)
-    if not principal_id:
-        raise AuthenticationError("Public resource token is missing principal ID", INVALID_RESOURCE_TOKEN)
-
-    return PublicResourceTokenClaims(
-        resource_id = str(resource_id),
-        principal_id = str(principal_id),
-        purpose = str(token_purpose),
+    return PublicAttachmentTokenClaims(
+        chat_id = str(chat_id),
+        attachment_id = str(attachment_id),
+        issuer_user_id = str(issuer_user_id),
     )

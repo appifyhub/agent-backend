@@ -14,6 +14,8 @@ def domain(db_model: ChatMessageAttachmentDB | None) -> ChatMessageAttachment | 
     return ChatMessageAttachment(
         id = db_model.id,
         external_id = db_model.external_id,
+        uploader_user_id = db_model.uploader_user_id,
+        created_at = db_model.created_at,
         chat_id = db_model.chat_id,
         message_id = db_model.message_id,
         size = db_model.size,
@@ -31,6 +33,8 @@ def db(domain_model: ChatMessageAttachment | None) -> ChatMessageAttachmentDB | 
     return ChatMessageAttachmentDB(
         id = domain_model.id,
         external_id = domain_model.external_id,
+        uploader_user_id = domain_model.uploader_user_id,
+        created_at = domain_model.created_at,
         chat_id = domain_model.chat_id,
         message_id = domain_model.message_id,
         size = domain_model.size,
@@ -58,10 +62,12 @@ def apply_to_db_model(
 def from_remote_data(
     remote_data: ChatMessageAttachmentRemoteData,
     chat_id: UUID,
+    uploader_user_id: UUID,
 ) -> ChatMessageAttachment:
     return ChatMessageAttachment(
         id = generate_deterministic_short_uuid(remote_data.external_id),
         external_id = remote_data.external_id,
+        uploader_user_id = uploader_user_id,
         chat_id = chat_id,
         message_id = remote_data.message_id,
         size = remote_data.size,
