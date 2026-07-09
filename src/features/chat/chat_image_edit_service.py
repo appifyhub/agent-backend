@@ -41,17 +41,18 @@ class ChatImageEditService:
     def __edit_image(self) -> tuple[Result, URLList, ErrorList]:
         log.t(f"Editing {len(self.__attachments)} images in aspect ratio {self.__aspect_ratio}")
 
-        # Collect valid attachments; track missing URLs as partial failures
+        # collect valid attachments; track missing storage as partial failures
         image_urls: list[str] = []
         mime_types: list[str | None] = []
         skip_errors: list[str | None] = []
         for attachment in self.__attachments:
             if not attachment.last_url:
-                message = f"Attachment '{attachment.id}' has no URL, skipping"
+                message = f"Attachment '{attachment.id}' has no stored content, skipping"
                 log.w(message)
                 skip_errors.append(message)
             else:
-                image_urls.append(attachment.last_url)
+                public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+                image_urls.append(public_url)
                 mime_types.append(attachment.mime_type)
                 skip_errors.append(None)
 

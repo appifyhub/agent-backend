@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
+from io import BytesIO
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -12,7 +13,6 @@ from features.chat.attachment.chat_message_attachment import ChatMessageAttachme
 from features.chat.attachment.chat_message_attachment_service import ChatMessageAttachmentService
 from features.chat.chat_attachment_processor import CACHE_PREFIX, CACHE_TTL, SEARCH_THRESHOLD_TOKENS, ChatAttachmentProcessor
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
-from features.chat.url_attachment_resolver import UrlAttachmentResolver
 from features.documents.docx_loader import DocxLoader
 from features.documents.plain_text_loader import PlainTextLoader
 from features.integrations.platform_bot_sdk import PlatformBotSDK
@@ -101,9 +101,16 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
         self.mock_di.telegram_bot_sdk = TelegramBotSDK(self.mock_di)
         self.mock_di.platform_bot_sdk = MagicMock(return_value = PlatformBotSDK(self.mock_di))
-        self.mock_di.url_attachment_resolver.side_effect = lambda url: UrlAttachmentResolver(url, self.mock_di)
         self.mock_di.plain_text_loader.side_effect = lambda job_id, document_url: PlainTextLoader(job_id, document_url)
         self.mock_di.docx_loader.side_effect = lambda job_id, document_url: DocxLoader(job_id, document_url)
+
+        # storage reads return attachment content directly
+        self.mock_di.attachment_storage.open.side_effect = lambda att: BytesIO(b"image data")
+
+        # public URL generation returns the original last_url (so requests_mock still intercepts)
+        self.mock_di.chat_message_attachment_service.create_public_url.side_effect = (
+            lambda att: MagicMock(url = att.last_url)
+        )
 
     # ── Image cache tests (unchanged behavior) ────────────────────────────
 
@@ -192,7 +199,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
                 urls = None,
                 di = self.mock_di,
             )
-        self.assertIn("No attachment IDs provided", str(context.exception))
+        self.assertIn("No attachment IDs or URLs provided", str(context.exception))
 
     def test_empty_attachment_id_string(self):
         with self.assertRaises(ValidationError) as context:
@@ -214,7 +221,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
                 urls = None,
                 di = self.mock_di,
             )
-        self.assertIn("not found in DB", str(context.exception))
+        self.assertIn("not found", str(context.exception))
 
     # ── Audio path (unchanged behavior) ──────────────────────────────────
 
@@ -536,8 +543,7 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
         self.assertEqual(result, ChatAttachmentProcessor.Result.success)
         self.assertEqual(len(resolver.result), 1)
-        self.assertTrue(resolver.result[0]["id"].startswith("url-"))
-        self.mock_chat_message_attachment_repo.get.assert_not_called()
+        self.assertIsNotNone(resolver.result[0]["id"])
 
     @requests_mock.Mocker()
     def test_url_resolved_merged_with_db_attachments(self, m: requests_mock.Mocker):
@@ -562,7 +568,6 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         self.assertEqual(result, ChatAttachmentProcessor.Result.success)
         self.assertEqual(len(resolver.result), 2)
         result_ids = {r["id"] for r in resolver.result}
-        self.assertTrue(any(rid.startswith("url-") for rid in result_ids))
         self.assertIn("1", result_ids)
 
     def test_empty_ids_and_no_urls_raises_error(self):
@@ -573,4 +578,4 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
                 urls = None,
                 di = self.mock_di,
             )
-        self.assertIn("No attachment IDs provided", str(context.exception))
+        self.assertIn("No attachment IDs or URLs provided", str(context.exception))

@@ -10,6 +10,7 @@ from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.supported_files import is_supported_mime_type, resolve_file_type
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
+from util import log
 from util.config import config
 from util.error_codes import (
     ATTACHMENT_NOT_FOUND,
@@ -221,6 +222,23 @@ class ChatMessageAttachmentService:
             raise
         except Exception as e:
             raise ExternalServiceError("Attachment content could not be accessed", MEDIA_DOWNLOAD_FAILED) from e
+
+    def cleanup_old_attachments(self, cutoff: datetime) -> int:
+        deleted = self.__di.chat_message_attachment_repo.delete_stale(cutoff)
+        self.__delete_storage_objects(deleted)
+        return len(deleted)
+
+    def cleanup_orphaned_attachments(self, cutoff: datetime) -> int:
+        deleted = self.__di.chat_message_attachment_repo.delete_stale(cutoff, only_orphans = True)
+        self.__delete_storage_objects(deleted)
+        return len(deleted)
+
+    def __delete_storage_objects(self, attachments: list[ChatMessageAttachment]) -> None:
+        for attachment in attachments:
+            try:
+                self.__di.attachment_storage.delete(attachment)
+            except Exception as e:
+                log.e(f"Could not delete storage object for attachment '{attachment.id}'", e)
 
     def __find_internal_attachment(self, url: str) -> ChatMessageAttachment | None:
         if self.is_own_storage_uri(url):

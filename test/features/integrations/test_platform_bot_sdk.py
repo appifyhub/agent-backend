@@ -245,7 +245,7 @@ class PlatformBotSDKTest(unittest.TestCase):
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
 
         mock_resize.assert_called_once()
-        di.image_uploader.assert_called_once_with(binary_image = b"resized", message_text = None)
+        di.image_uploader.assert_called_once_with(binary_image = b"resized")
         di.telegram_bot_sdk.send_photo.assert_called_once_with(1, uploaded_url, None)
         self.assertEqual(result, "sent")
 

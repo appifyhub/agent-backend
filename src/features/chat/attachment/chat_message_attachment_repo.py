@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from db.model.chat_message import ChatMessageDB
@@ -92,15 +92,23 @@ class ChatMessageAttachmentRepository:
         self._db.commit()
         return snapshot
 
-    def delete_by_old_messages(self, cutoff: datetime) -> int:
-        old_message_pairs = select(ChatMessageDB.chat_id, ChatMessageDB.message_id).where(
-            ChatMessageDB.sent_at < cutoff,
-        )
-        deleted_count = self._db.query(ChatMessageAttachmentDB).filter(
-            tuple_(
-                ChatMessageAttachmentDB.chat_id,
-                ChatMessageAttachmentDB.message_id,
-            ).in_(old_message_pairs),
-        ).delete(synchronize_session = False)
+    def delete_stale(self, cutoff: datetime, only_orphans: bool = False) -> list[ChatMessageAttachment]:
+        if only_orphans:
+            attachments_db = self._db.query(ChatMessageAttachmentDB).filter(
+                ChatMessageAttachmentDB.message_id.is_(None),
+                ChatMessageAttachmentDB.created_at < cutoff,
+            ).all()
+        else:
+            attachments_db = self._db.query(ChatMessageAttachmentDB).join(
+                ChatMessageDB,
+                and_(
+                    ChatMessageDB.chat_id == ChatMessageAttachmentDB.chat_id,
+                    ChatMessageDB.message_id == ChatMessageAttachmentDB.message_id,
+                ),
+            ).filter(ChatMessageDB.sent_at < cutoff).all()
+        deleted_attachments = []
+        for attachment_db in attachments_db:
+            deleted_attachments.append(domain(attachment_db))
+            self._db.delete(attachment_db)
         self._db.commit()
-        return deleted_count
+        return deleted_attachments

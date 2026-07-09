@@ -2,7 +2,6 @@ import base64
 from datetime import datetime, timedelta
 from enum import Enum
 
-import requests
 from langchain_core.documents import Document
 
 from di.di import DI
@@ -13,7 +12,6 @@ from features.documents.document_search import DocumentSearch
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
 from features.tools_cache.tools_cache import ToolsCache
-from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util import log
 from util.functions import digest_md5
 
@@ -126,7 +124,8 @@ class ChatAttachmentProcessor:
             image_b64s: list[str] = []
             image_mime_types: list[str] = []
             for attachment in image_attachments:
-                contents = requests.get(str(attachment.last_url), headers = DEFAULT_HEADERS).content
+                with self.__di.attachment_storage.open(attachment) as stream:
+                    contents = stream.read()
                 image_b64s.append(base64.b64encode(contents).decode("utf-8"))
                 image_mime_types.append(str(attachment.mime_type))
             configured_tool = self.__di.tool_choice_resolver.require_tool(
@@ -263,7 +262,7 @@ class ChatAttachmentProcessor:
 
     def __load_documents(self, attachment: ChatMessageAttachment) -> list[Document]:
         ext = (attachment.extension or "").lower()
-        url = str(attachment.last_url)
+        url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
         if ext == "pdf" or attachment.mime_type == "application/pdf":
             return self.__di.pdf_loader(job_id = attachment.id, document_url = url).load()
         if ext == "docx":
@@ -273,8 +272,8 @@ class ChatAttachmentProcessor:
     def fetch_text_content(self, attachment: ChatMessageAttachment) -> str | None:
         log.t(f"Resolving text content for attachment '{attachment.id}'")
 
-        # fetching binary contents will also validate the URL
-        contents = requests.get(str(attachment.last_url), headers = DEFAULT_HEADERS).content
+        with self.__di.attachment_storage.open(attachment) as stream:
+            contents = stream.read()
 
         # handle audio
         if attachment.mime_type in KNOWN_AUDIO_FORMATS.values() or attachment.extension in KNOWN_AUDIO_FORMATS.keys():
@@ -286,9 +285,10 @@ class ChatAttachmentProcessor:
                 AudioTranscriber.COPYWRITER_TOOL_TYPE,
                 default_tool_for(AudioTranscriber.COPYWRITER_TOOL_TYPE),
             )
+            public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
             return self.__di.audio_transcriber(
                 job_id = attachment.id,
-                audio_url = str(attachment.last_url),
+                audio_url = public_url,
                 transcriber_tool = transcriber_tool,
                 copywriter_tool = copywriter_tool,
                 def_extension = attachment.extension,

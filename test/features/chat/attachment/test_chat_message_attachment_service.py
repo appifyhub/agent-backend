@@ -324,3 +324,49 @@ class ChatMessageAttachmentServiceTest(unittest.TestCase):
         self.di.chat_message_attachment_repo.save.assert_not_called()
         self.assertTrue(result.url.startswith("http://api.example/attachments/public/"))
         self.assertIsNotNone(result.valid_until)
+
+    @patch("features.chat.attachment.chat_message_attachment_service.log")
+    def test_cleanup_old_attachments_deletes_rows_and_storage(self, _):
+        from datetime import datetime
+        cutoff = datetime(2026, 1, 1)
+        self.di.chat_message_attachment_repo.delete_stale.return_value = [self.attachment]
+
+        result = self.service.cleanup_old_attachments(cutoff)
+
+        self.di.chat_message_attachment_repo.delete_stale.assert_called_once_with(cutoff)
+        self.di.attachment_storage.delete.assert_called_once_with(self.attachment)
+        self.assertEqual(result, 1)
+
+    @patch("features.chat.attachment.chat_message_attachment_service.log")
+    def test_cleanup_old_attachments_tolerates_storage_failures(self, _):
+        from datetime import datetime
+        cutoff = datetime(2026, 1, 1)
+        self.di.chat_message_attachment_repo.delete_stale.return_value = [self.attachment]
+        self.di.attachment_storage.delete.side_effect = RuntimeError("S3 down")
+
+        result = self.service.cleanup_old_attachments(cutoff)
+
+        self.assertEqual(result, 1)
+
+    @patch("features.chat.attachment.chat_message_attachment_service.log")
+    def test_cleanup_orphaned_attachments_deletes_rows_and_storage(self, _):
+        from datetime import datetime
+        cutoff = datetime(2026, 1, 1)
+        self.di.chat_message_attachment_repo.delete_stale.return_value = [self.attachment]
+
+        result = self.service.cleanup_orphaned_attachments(cutoff)
+
+        self.di.chat_message_attachment_repo.delete_stale.assert_called_once_with(cutoff, only_orphans = True)
+        self.di.attachment_storage.delete.assert_called_once_with(self.attachment)
+        self.assertEqual(result, 1)
+
+    @patch("features.chat.attachment.chat_message_attachment_service.log")
+    def test_cleanup_orphaned_attachments_tolerates_storage_failures(self, _):
+        from datetime import datetime
+        cutoff = datetime(2026, 1, 1)
+        self.di.chat_message_attachment_repo.delete_stale.return_value = [self.attachment]
+        self.di.attachment_storage.delete.side_effect = RuntimeError("S3 down")
+
+        result = self.service.cleanup_orphaned_attachments(cutoff)
+
+        self.assertEqual(result, 1)

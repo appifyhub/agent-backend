@@ -2,7 +2,6 @@ from enum import Enum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Literal
-from urllib.parse import urlparse
 
 import requests
 
@@ -291,15 +290,8 @@ class PlatformBotSDK:
         except ExternalServiceError:
             raise
         except Exception as e:
-            log.w(f"Could not download outbound media '{PlatformBotSDK.__url_tail(url)}'", e)
+            log.w(f"Could not download outbound media '{url[:4]}...{url[-4:]}'", e)
             raise ExternalServiceError("Could not download outbound media", MEDIA_DOWNLOAD_FAILED) from e
-
-    @staticmethod
-    def __url_tail(url: str) -> str:
-        path = urlparse(url).path.rstrip("/")
-        if not path:
-            return "<empty-path>"
-        return path.rsplit("/", 1)[-1]
 
     @staticmethod
     def __get_photo_content_length(photo_url: str) -> int | None:

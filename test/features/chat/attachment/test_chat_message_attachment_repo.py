@@ -236,7 +236,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
     def test_delete_returns_none_when_missing(self):
         self.assertIsNone(self.repo.delete("missing"))
 
-    def test_delete_by_old_messages_uses_strict_cutoff(self):
+    def test_delete_stale_by_old_messages(self):
         chat = self._create_chat("chat1")
         cutoff = datetime(2026, 1, 2, 12, 0, 0)
         self._create_message(chat.chat_id, "old", sent_at = cutoff - timedelta(seconds = 1))
@@ -246,9 +246,31 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         self.repo.save(self._attachment(chat.chat_id, "boundary", attachment_id = "boundary", external_id = "external-boundary"))
         self.repo.save(self._attachment(chat.chat_id, "new", attachment_id = "new", external_id = "external-new"))
 
-        deleted_count = self.repo.delete_by_old_messages(cutoff)
+        deleted = self.repo.delete_stale(cutoff)
 
-        self.assertEqual(deleted_count, 1)
+        self.assertEqual([a.id for a in deleted], ["old"])
         self.assertIsNone(self.repo.get("old"))
         self.assertIsNotNone(self.repo.get("boundary"))
         self.assertIsNotNone(self.repo.get("new"))
+
+    def test_delete_stale_only_orphans(self):
+        chat = self._create_chat("chat1")
+        cutoff = datetime(2026, 1, 2, 12, 0, 0)
+        # old unlinked orphan
+        old_attachment = self._attachment(chat.chat_id, None, attachment_id = "orphan1", external_id = "ext1")
+        old_attachment = replace(old_attachment, created_at = cutoff - timedelta(days = 1))
+        self.repo.save(old_attachment)
+        # fresh unlinked (should survive)
+        new_attachment = self._attachment(chat.chat_id, None, attachment_id = "kept1", external_id = "ext2")
+        new_attachment = replace(new_attachment, created_at = cutoff + timedelta(days = 1))
+        self.repo.save(new_attachment)
+        # message-linked attachment (should survive)
+        self._create_message(chat.chat_id, "msg1", sent_at = cutoff - timedelta(days = 1))
+        self.repo.save(self._attachment(chat.chat_id, "msg1", attachment_id = "kept2", external_id = "ext3"))
+
+        deleted = self.repo.delete_stale(cutoff, only_orphans = True)
+
+        self.assertEqual([a.id for a in deleted], ["orphan1"])
+        self.assertIsNone(self.repo.get("orphan1"))
+        self.assertIsNotNone(self.repo.get("kept1"))
+        self.assertIsNotNone(self.repo.get("kept2"))

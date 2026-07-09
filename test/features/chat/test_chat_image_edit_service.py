@@ -20,6 +20,9 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
         self.mock_di.chat_message_attachment_service = MagicMock()
         self.mock_di.chat_message_attachment_service.resolve_attachments.return_value = []
+        self.mock_di.chat_message_attachment_service.create_public_url.side_effect = (
+            lambda att: MagicMock(url = att.last_url)
+        )
         mock_chat = MagicMock()
         mock_chat.external_id = "test_chat_id"
         mock_chat.chat_type = ChatConfigDB.ChatType.telegram

@@ -56,7 +56,8 @@ class AudioTranscriber:
         self.__di = di
 
     def __validate_content(self, audio_url: str, audio_content: bytes | None):
-        log.t(f"Fetching and validating audio from URL '{audio_url}'")
+        log.t(f"Fetching and validating audio from '{audio_url[:4]}...{audio_url[-4:]}'")
+
         self.__audio_content = audio_content or requests.get(audio_url, headers = DEFAULT_HEADERS).content
 
         if self.__extension not in SUPPORTED_AUDIO_FORMATS.keys():
@@ -69,7 +70,8 @@ class AudioTranscriber:
         log.t(f"  Audio content size: {len(self.__audio_content) / 1024:.2f} KB")
 
     def __resolve_extension(self, audio_url: str, def_extension: str | None):
-        log.t(f"Extracting audio extension from {audio_url}")
+        log.t(f"Extracting audio extension from '{audio_url[:4]}...{audio_url[-4:]}'")
+
         self.__extension = resolve_file_type(uri = audio_url)[1] or ""
         if self.__extension:
             log.t(f"  Extracted extension: '.{self.__extension}'")
