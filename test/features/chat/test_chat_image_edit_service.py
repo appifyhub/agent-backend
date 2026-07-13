@@ -1,5 +1,4 @@
 import unittest
-from datetime import datetime
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -40,7 +39,6 @@ class ChatImageEditServiceTest(unittest.TestCase):
             message_id = "message1",
             size = 1024,
             last_url = "http://test.com/image.png",
-            last_url_until = int(datetime.now().timestamp()) + 3600,
             extension = "png",
             mime_type = "image/png",
         )
@@ -53,7 +51,6 @@ class ChatImageEditServiceTest(unittest.TestCase):
             message_id = "message1",
             size = 2048,
             last_url = "http://test.com/image2.png",
-            last_url_until = int(datetime.now().timestamp()) + 3600,
             extension = "png",
             mime_type = "image/png",
         )
@@ -66,7 +63,6 @@ class ChatImageEditServiceTest(unittest.TestCase):
             message_id = "message1",
             size = 512,
             last_url = None,
-            last_url_until = None,
             extension = "png",
             mime_type = "image/png",
         )

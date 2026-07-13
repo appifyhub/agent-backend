@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.social_cards import card_renderer
@@ -34,7 +35,6 @@ class SocialCardOrchestrator:
 
         fetcher = self.__di.twitter_status_fetcher(tweet_id, self.__x_api_tool, self.__vision_tool)
         tweet = fetcher.as_structured()
-
         downloader = PhotoDownloader()
 
         profile_bytes: bytes | None = None
@@ -45,7 +45,7 @@ class SocialCardOrchestrator:
         media_urls = [m.url or m.preview_url for m in tweet.media if m.url or m.preview_url]
         media_bytes = downloader.download_many([u for u in media_urls if u])
 
-        # Fetch link preview assets
+        # fetch link preview assets
         has_tweet_media = bool(media_bytes)
         link_preview_data: list[dict] = []
         for lp in tweet.link_previews:
@@ -74,7 +74,7 @@ class SocialCardOrchestrator:
                 "short_url": short_link,
             })
 
-        # Fetch referenced tweet (quoted or replied-to) if present
+        # fetch referenced tweet (quoted or replied-to) if present
         quoted_tweet_data: dict | None = None
         referenced_id = tweet.quoted_tweet_id or tweet.replied_to_tweet_id
         if referenced_id:
@@ -119,5 +119,12 @@ class SocialCardOrchestrator:
             )
         except Exception as e:
             raise ExternalServiceError("Card rendering failed", IMAGE_GENERATION_FAILED) from e
+        log.t("Social card generated successfully")
 
-        return self.__di.image_uploader(binary_image = png_bytes).execute()
+        # store the generated image as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            content = png_bytes,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url

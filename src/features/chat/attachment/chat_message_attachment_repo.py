@@ -9,9 +9,6 @@ from db.model.chat_message_attachment import ChatMessageAttachmentDB
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.attachment.chat_message_attachment_mapper import apply_to_db_model, db, domain
 
-PREFIX_OUTGOING = "outgoing-"
-PREFIX_EXTERNAL = "external-"
-
 
 class ChatMessageAttachmentRepository:
 

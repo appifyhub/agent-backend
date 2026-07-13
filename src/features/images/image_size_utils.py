@@ -7,6 +7,7 @@ from typing import Any
 
 from PIL import Image
 
+from features.chat.supported_files import detect_image_format
 from util import log
 from util.error_codes import INVALID_IMAGE_SIZE
 from util.errors import ValidationError
@@ -24,11 +25,21 @@ def __write_temp_file(content: bytes, suffix: str) -> str:
         return tmp.name
 
 
-def resize_file(input_path: str, max_size_bytes: int) -> str:
+def resize_file(input_path: str, max_size_bytes: int | None) -> str:
     try:
+        if max_size_bytes is None:
+            log.i("No size limit provided, no resizing needed")
+            return input_path
+
         original_size = Path(input_path).stat().st_size
         if original_size <= max_size_bytes:
-            log.w("Image is within size limit, no resizing needed")
+            log.i("Image is within size limit, no resizing needed")
+            return input_path
+
+        with Path(input_path).open("rb") as file:
+            header = file.read(32)
+        if detect_image_format(header) is None:
+            log.i("File is not a recognized image, skipping resize")
             return input_path
 
         with Image.open(input_path) as image:

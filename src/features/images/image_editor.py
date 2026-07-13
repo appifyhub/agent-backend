@@ -8,6 +8,7 @@ from google.genai.types import GenerateContentConfig, ImageConfig
 from PIL import Image
 
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.chat.supported_files import resolve_file_type
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -141,9 +142,15 @@ class ImageEditor:
             prediction.wait()
 
         result = extract_url_from_replicate_result(prediction)
-
         log.d("Image edit successful")
-        return result
+
+        # store the edited image as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            remote_url = result,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
 
     def __edit_with_google_ai(self, temp_file_paths: list[str], input_image_sizes: list[str | None]) -> str | None:
         log.t("Editing image with Google AI")
@@ -189,10 +196,15 @@ class ImageEditor:
                 break
         if image_data is None:
             raise ExternalServiceError("No image data found in Google AI response", EXTERNAL_EMPTY_RESPONSE)
+        log.t("Image edited successfully with Google AI")
 
-        # upload the image to an external service to get a direct URL
-        uploader = self.__di.image_uploader(binary_image = image_data)
-        return uploader.execute()
+        # store the image data as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            content = image_data,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
 
     def __edit_with_x_ai(self, temp_file_paths: list[str], input_image_sizes: list[str | None]) -> str | None:
         log.t("Editing image with xAI")
@@ -227,6 +239,7 @@ class ImageEditor:
                 image_url = encoded_images[0],
                 aspect_ratio = unified_params.aspect_ratio,
                 resolution = unified_params.resolution,
+                image_format = "base64",
             )
         else:
             response = x_ai_client.image.sample(
@@ -235,6 +248,7 @@ class ImageEditor:
                 image_urls = encoded_images,
                 aspect_ratio = unified_params.aspect_ratio,
                 resolution = unified_params.resolution,
+                image_format = "base64",
             )
 
         log.d("xAI image edit response received")
@@ -242,6 +256,15 @@ class ImageEditor:
             raise ExternalServiceError("No response returned from xAI", EXTERNAL_EMPTY_RESPONSE)
         if not response.respect_moderation:
             raise ExternalServiceError("xAI image was filtered by moderation", EXTERNAL_EMPTY_RESPONSE)
-        if not response.url:
-            raise ExternalServiceError("No image URL returned from xAI", EXTERNAL_EMPTY_RESPONSE)
-        return response.url
+        image_data = response.image
+        if not image_data:
+            raise ExternalServiceError("No image data returned from xAI", EXTERNAL_EMPTY_RESPONSE)
+        log.t("Image edited successfully with xAI")
+
+        # store the edited image as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            content = image_data,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url

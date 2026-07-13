@@ -62,8 +62,6 @@ class Config(metaclass = Singleton):
     public_api_base_url: str
     main_language_name: str = "English"
     main_language_iso_code: str = "en"
-    uploadcare_public_key: str
-    uploadcare_cdn_id: str
     url_shortener_base_url: str
     version: str
     usage_maintenance_fee_credits: float
@@ -97,9 +95,7 @@ class Config(metaclass = Singleton):
     gumroad_auth_key: SecretStr
     jwt_secret_key: SecretStr
     github_issues_token: SecretStr
-    free_img_host_token: SecretStr
     token_encrypt_secret: SecretStr
-    uploadcare_private_key: SecretStr
     url_shortener_api_key: SecretStr
     s3_access_key: SecretStr
     s3_secret_key: SecretStr
@@ -116,9 +112,7 @@ class Config(metaclass = Singleton):
             self.gumroad_auth_key,
             self.jwt_secret_key,
             self.github_issues_token,
-            self.free_img_host_token,
             self.token_encrypt_secret,
-            self.uploadcare_private_key,
             self.url_shortener_api_key,
             self.platform_open_ai_key,
             self.platform_anthropic_key,
@@ -173,8 +167,6 @@ class Config(metaclass = Singleton):
         def_public_api_base_url: str = "http://localhost:80",
         def_main_language_name: str = "English",
         def_main_language_iso_code: str = "en",
-        def_uploadcare_public_key: str = "invalid",
-        def_uploadcare_cdn_id: str = "invalid",
         def_url_shortener_base_url: str = "https://urls.appifyhub.com",
         def_version: str = "dev",
         def_usage_maintenance_fee_credits: float = 0.0,
@@ -207,9 +199,7 @@ class Config(metaclass = Singleton):
         def_gumroad_auth_key: SecretStr = SecretStr("it_is_really_gumroad"),
         def_jwt_secret_key: SecretStr = SecretStr("default"),
         def_github_issues_token: SecretStr = SecretStr("invalid"),
-        def_free_img_host_token: SecretStr = SecretStr("invalid"),
         def_token_encrypt_secret: SecretStr = SecretStr("default"),
-        def_uploadcare_private_key: SecretStr = SecretStr("invalid"),
         def_url_shortener_api_key: SecretStr = SecretStr("invalid"),
         def_s3_access_key: SecretStr = SecretStr("local"),
         def_s3_secret_key: SecretStr = SecretStr("invalid"),
@@ -253,8 +243,6 @@ class Config(metaclass = Singleton):
         self.public_api_base_url = self.__env("PUBLIC_API_BASE_URL", lambda: def_public_api_base_url).rstrip("/")
         self.main_language_name = self.__env("MAIN_LANGUAGE_NAME", lambda: def_main_language_name)
         self.main_language_iso_code = self.__env("MAIN_LANGUAGE_ISO_CODE", lambda: def_main_language_iso_code)
-        self.uploadcare_public_key = self.__env("UPLOADCARE_PUBLIC_KEY", lambda: def_uploadcare_public_key)
-        self.uploadcare_cdn_id = self.__env("UPLOADCARE_CDN_ID", lambda: def_uploadcare_cdn_id)
         self.url_shortener_base_url = self.__env("URL_SHORTENER_BASE_URL", lambda: def_url_shortener_base_url)
         self.version = self.__env("VERSION", lambda: def_version)
         self.usage_maintenance_fee_credits = float(self.__env("USAGE_MAINTENANCE_FEE_CREDITS", lambda: str(def_usage_maintenance_fee_credits)))
@@ -278,9 +266,7 @@ class Config(metaclass = Singleton):
         self.gumroad_auth_key = self.__senv("GUMROAD_PING_AUTH_TOKEN", lambda: def_gumroad_auth_key)
         self.jwt_secret_key = self.__senv("JWT_SECRET_KEY", lambda: def_jwt_secret_key)
         self.github_issues_token = self.__senv("THE_AGENT_ISSUES_TOKEN", lambda: def_github_issues_token)
-        self.free_img_host_token = self.__senv("FREE_IMG_HOST_TOKEN", lambda: def_free_img_host_token)
         self.token_encrypt_secret = self.__senv("TOKEN_ENCRYPT_SECRET", lambda: def_token_encrypt_secret)
-        self.uploadcare_private_key = self.__senv("UPLOADCARE_PRIVATE_KEY", lambda: def_uploadcare_private_key)
         self.url_shortener_api_key = self.__senv("URL_SHORTENER_API_KEY", lambda: def_url_shortener_api_key)
         self.platform_open_ai_key = self.__senv("PLATFORM_OPEN_AI_KEY", lambda: def_platform_open_ai_key)
         self.platform_anthropic_key = self.__senv("PLATFORM_ANTHROPIC_KEY", lambda: def_platform_anthropic_key)

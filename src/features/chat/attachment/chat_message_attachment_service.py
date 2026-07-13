@@ -84,7 +84,13 @@ class ChatMessageAttachmentService:
     ) -> ChatMessageAttachment:
         attachment = self.get(attachment)
 
-        # first check if it's an existing attachment from our own storage
+        # first, check if this attachment is already fully stored using its external ID
+        if attachment.external_id:
+            existing = self.__di.chat_message_attachment_repo.get_by_external_id(attachment.chat_id, attachment.external_id)
+            if existing and self.is_own_storage_uri(existing.last_url):
+                return existing
+
+        # second, check if the remote URL points to one of our own attachments
         if content is None and remote_url:
             internal_attachment = self.__find_internal_attachment(remote_url)
             if internal_attachment:
@@ -111,13 +117,16 @@ class ChatMessageAttachmentService:
 
         # next, check if we need to store the media bytes in our storage
         if remote_content_bytes:
+            previous_our_uri = attachment.uri if self.is_own_storage_uri(attachment.last_url) else None
             updated_attachment = replace(
                 updated_attachment,
                 size = len(remote_content_bytes),
                 last_url = f"s3://{config.s3_bucket}/{updated_attachment.uri}",
-                last_url_until = None,
             )
             self.__di.attachment_storage.put(updated_attachment, remote_content_bytes)
+            # a changed extension changes the storage key — drop the now-orphaned old object
+            if previous_our_uri and previous_our_uri != updated_attachment.uri:
+                self.__delete_storage_objects([attachment])
 
         # finally, store the updated attachment in our database
         return self.__di.chat_message_attachment_repo.save(updated_attachment)

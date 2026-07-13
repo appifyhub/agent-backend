@@ -80,7 +80,6 @@ if TYPE_CHECKING:
     from features.external_tools.tool_choice_resolver import ToolChoiceResolver
     from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
     from features.images.image_editor import ImageEditor
-    from features.images.image_uploader import ImageUploader
     from features.images.simple_image_generator import SimpleImageGenerator
     from features.images.smart_image_generator import SmartImageGenerator
     from features.integrations.platform_bot_sdk import PlatformBotSDK
@@ -918,26 +917,6 @@ class DI:
     ) -> "SimpleImageGenerator":
         from features.images.simple_image_generator import SimpleImageGenerator
         return SimpleImageGenerator(prompt, configured_tool, self, aspect_ratio, output_size)
-
-    # noinspection PyMethodMayBeStatic
-    def image_uploader(
-        self,
-        binary_image: bytes | None = None,
-        base64_image: str | None = None,
-        expiration_s: int | None = None,
-        name: str | None = None,
-    ) -> "ImageUploader":
-        from features.images.image_uploader import ImageUploader
-        return ImageUploader(self, binary_image, base64_image, expiration_s, name)
-
-    # noinspection PyMethodMayBeStatic
-    def file_uploader(
-        self,
-        content: bytes,
-        filename: str,
-    ):
-        from features.files.file_uploader import FileUploader
-        return FileUploader(content, filename)
 
     def chat_image_edit_service(
         self,

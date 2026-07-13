@@ -34,7 +34,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             message_id = "message1",
             size = 1024,
             last_url = "https://example.com/file.jpg",
-            last_url_until = 1234567890,
             extension = "jpg",
             mime_type = "image/jpeg",
         )
@@ -47,7 +46,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             message_id = "message1",
             size = 1024,
             last_url = "https://example.com/file.jpg",
-            last_url_until = 1234567890,
             extension = "jpg",
             mime_type = "image/jpeg",
         )
@@ -75,7 +73,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, self.domain_model.message_id)
         self.assertEqual(result.size, self.domain_model.size)
         self.assertEqual(result.last_url, self.domain_model.last_url)
-        self.assertEqual(result.last_url_until, self.domain_model.last_url_until)
         self.assertEqual(result.extension, self.domain_model.extension)
         self.assertEqual(result.mime_type, self.domain_model.mime_type)
 
@@ -94,7 +91,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             message_id = "message2",
             size = None,
             last_url = None,
-            last_url_until = None,
             extension = "png",
             mime_type = "image/png",
         )
@@ -109,7 +105,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(self.db_model.message_id, domain_model.message_id)
         self.assertIsNone(self.db_model.size)
         self.assertIsNone(self.db_model.last_url)
-        self.assertIsNone(self.db_model.last_url_until)
         self.assertEqual(self.db_model.extension, domain_model.extension)
         self.assertEqual(self.db_model.mime_type, domain_model.mime_type)
 
@@ -132,7 +127,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             message_id = "message2",
             size = 2048,
             last_url = "https://example.com/file.png",
-            last_url_until = 9876543210,
             extension = "png",
             mime_type = "image/png",
         )
@@ -146,7 +140,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, remote_data.message_id)
         self.assertEqual(result.size, remote_data.size)
         self.assertEqual(result.last_url, remote_data.last_url)
-        self.assertEqual(result.last_url_until, remote_data.last_url_until)
         self.assertEqual(result.extension, remote_data.extension)
         self.assertEqual(result.mime_type, remote_data.mime_type)
 
@@ -156,7 +149,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             message_id = "message2",
             size = 2048,
             last_url = "https://example.com/file.png",
-            last_url_until = 9876543210,
             extension = "png",
             mime_type = "image/png",
         )
@@ -169,7 +161,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, remote_data.message_id)
         self.assertEqual(result.size, remote_data.size)
         self.assertEqual(result.last_url, remote_data.last_url)
-        self.assertEqual(result.last_url_until, remote_data.last_url_until)
         self.assertEqual(result.extension, remote_data.extension)
         self.assertEqual(result.mime_type, remote_data.mime_type)
 
@@ -179,7 +170,6 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             message_id = "message2",
             size = 0,
             last_url = "",
-            last_url_until = 0,
             extension = "",
             mime_type = "",
         )
@@ -192,6 +182,5 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, remote_data.message_id)
         self.assertEqual(result.size, self.domain_model.size)
         self.assertEqual(result.last_url, self.domain_model.last_url)
-        self.assertEqual(result.last_url_until, self.domain_model.last_url_until)
         self.assertEqual(result.extension, self.domain_model.extension)
         self.assertEqual(result.mime_type, self.domain_model.mime_type)

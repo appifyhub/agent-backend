@@ -3,6 +3,7 @@ from dataclasses import asdict
 from google.genai.types import GenerateContentConfig, ImageConfig
 
 from di.di import DI
+from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_provider_library import GOOGLE_AI, REPLICATE, XAI
@@ -81,8 +82,16 @@ class SimpleImageGenerator:
             input = dict_params,
         )
         prediction.wait()
+        image_url = extract_url_from_replicate_result(prediction)
+        log.t("Image generated successfully with Replicate")
 
-        return extract_url_from_replicate_result(prediction)
+        # store the generated image as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            remote_url = image_url,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
 
     def __generate_with_google_ai(self) -> str | None:
         log.t("Generating image with Google AI")
@@ -125,10 +134,15 @@ class SimpleImageGenerator:
                 break
         if image_data is None:
             raise ExternalServiceError("No image data found in Google AI response", EXTERNAL_EMPTY_RESPONSE)
+        log.t("Image generated successfully with Google AI")
 
-        # upload the image to an external service to get a direct URL
-        uploader = self.__di.image_uploader(binary_image = image_data)
-        return uploader.execute()
+        # store the image data as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            content = image_data,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
 
     def __generate_with_x_ai(self) -> str | None:
         log.t("Generating image with xAI")
@@ -158,9 +172,15 @@ class SimpleImageGenerator:
             raise ExternalServiceError("No response returned from xAI", EXTERNAL_EMPTY_RESPONSE)
         if not response.respect_moderation:
             raise ExternalServiceError("xAI image was filtered by moderation", EXTERNAL_EMPTY_RESPONSE)
-        if not response.image:
+        image_data = response.image
+        if not image_data:
             raise ExternalServiceError("No image data returned from xAI", EXTERNAL_EMPTY_RESPONSE)
+        log.t("Image generated successfully with xAI")
 
-        # upload the image to an external service to get a direct URL
-        uploader = self.__di.image_uploader(binary_image = response.image)
-        return uploader.execute()
+        # store the image data as an attachment and return a public URL
+        chat = self.__di.require_invoker_chat()
+        attachment = self.__di.chat_message_attachment_service.save(
+            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+            content = image_data,
+        )
+        return self.__di.chat_message_attachment_service.create_public_url(attachment).url

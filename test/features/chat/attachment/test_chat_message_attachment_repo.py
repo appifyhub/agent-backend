@@ -60,7 +60,6 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
             message_id = message_id,
             size = 1024,
             last_url = "https://example.com/file.jpg",
-            last_url_until = 1234567890,
             extension = "jpg",
             mime_type = "image/jpeg",
         )
@@ -75,7 +74,6 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
             message_id = "message1",
             size = 1024,
             last_url = "https://example.com/file.jpg",
-            last_url_until = 1234567890,
             extension = "jpg",
             mime_type = "image/jpeg",
         )
@@ -178,7 +176,6 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
             message_id = "message2",
             size = None,
             last_url = None,
-            last_url_until = None,
             extension = "png",
             mime_type = "image/png",
         )

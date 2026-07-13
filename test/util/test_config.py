@@ -63,8 +63,6 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.public_api_base_url, "http://localhost:80")
         self.assertEqual(config.main_language_name, "English")
         self.assertEqual(config.main_language_iso_code, "en")
-        self.assertEqual(config.uploadcare_public_key, "invalid")
-        self.assertEqual(config.uploadcare_cdn_id, "invalid")
         self.assertEqual(config.url_shortener_base_url, "https://urls.appifyhub.com")
         self.assertEqual(config.version, "dev")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.0)
@@ -85,9 +83,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.gumroad_auth_key.get_secret_value(), "it_is_really_gumroad")
         self.assertEqual(config.jwt_secret_key.get_secret_value(), "default")
         self.assertEqual(config.github_issues_token.get_secret_value(), "invalid")
-        self.assertEqual(config.free_img_host_token.get_secret_value(), "invalid")
         self.assertEqual(config.token_encrypt_secret.get_secret_value(), "default")
-        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "invalid")
         self.assertEqual(config.url_shortener_api_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_open_ai_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_anthropic_key.get_secret_value(), "invalid")
@@ -140,8 +136,6 @@ class ConfigTest(unittest.TestCase):
         os.environ["PUBLIC_API_BASE_URL"] = "https://api.example.com"
         os.environ["MAIN_LANGUAGE_NAME"] = "German"
         os.environ["MAIN_LANGUAGE_ISO_CODE"] = "de"
-        os.environ["UPLOADCARE_PUBLIC_KEY"] = "public-key-123"
-        os.environ["UPLOADCARE_CDN_ID"] = "cdn-id-123"
         os.environ["URL_SHORTENER_BASE_URL"] = "https://custom.to.appifyhub.com"
         os.environ["VERSION"] = "custom"
         os.environ["USAGE_MAINTENANCE_FEE_CREDITS"] = "0.5"
@@ -164,9 +158,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["GUMROAD_PING_AUTH_TOKEN"] = "mnop3456"
         os.environ["JWT_SECRET_KEY"] = "custom"
         os.environ["THE_AGENT_ISSUES_TOKEN"] = "sk-gi-valid"
-        os.environ["FREE_IMG_HOST_TOKEN"] = "sk-im-valid"
         os.environ["TOKEN_ENCRYPT_SECRET"] = "custom-encryption-key"
-        os.environ["UPLOADCARE_PRIVATE_KEY"] = "private-key-123"
         os.environ["URL_SHORTENER_API_KEY"] = "url-shortener-key-123"
         os.environ["PLATFORM_OPEN_AI_KEY"] = "platform-openai-key"
         os.environ["PLATFORM_ANTHROPIC_KEY"] = "platform-anthropic-key"
@@ -220,8 +212,6 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.public_api_base_url, "https://api.example.com")
         self.assertEqual(config.main_language_name, "German")
         self.assertEqual(config.main_language_iso_code, "de")
-        self.assertEqual(config.uploadcare_public_key, "public-key-123")
-        self.assertEqual(config.uploadcare_cdn_id, "cdn-id-123")
         self.assertEqual(config.url_shortener_base_url, "https://custom.to.appifyhub.com")
         self.assertEqual(config.version, "custom")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.5)
@@ -241,9 +231,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.gumroad_auth_key.get_secret_value(), "mnop3456")
         self.assertEqual(config.jwt_secret_key.get_secret_value(), "custom")
         self.assertEqual(config.github_issues_token.get_secret_value(), "sk-gi-valid")
-        self.assertEqual(config.free_img_host_token.get_secret_value(), "sk-im-valid")
         self.assertEqual(config.token_encrypt_secret.get_secret_value(), "custom-encryption-key")
-        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "private-key-123")
         self.assertEqual(config.url_shortener_api_key.get_secret_value(), "url-shortener-key-123")
         self.assertEqual(config.platform_open_ai_key.get_secret_value(), "platform-openai-key")
         self.assertEqual(config.platform_anthropic_key.get_secret_value(), "platform-anthropic-key")

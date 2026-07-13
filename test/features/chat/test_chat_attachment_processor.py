@@ -39,7 +39,6 @@ def _make_attachment(
         mime_type = mime_type,
         extension = extension,
         last_url = url,
-        last_url_until = int((datetime.now() + timedelta(days = 1)).timestamp()),
     )
 
 

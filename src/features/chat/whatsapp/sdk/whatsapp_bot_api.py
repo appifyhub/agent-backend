@@ -97,28 +97,20 @@ class WhatsAppBotAPI:
         response = self.__post_request(payload)
         return MarkAsReadResponse(**response)
 
-    def get_media_info(
-        self,
-        media_id: str,
-    ) -> MediaInfo | None:
+    def download_media(self, media_id: str) -> bytes | None:
         log.t(f"Getting media info for #{media_id}")
-        media_url = f"https://graph.facebook.com/{API_VERSION}/{media_id}"
+        info_url = f"https://graph.facebook.com/{API_VERSION}/{media_id}"
         headers = {"Authorization": f"Bearer {config.whatsapp_bot_token.get_secret_value()}"}
-        response = requests.get(media_url, headers = headers, timeout = config.web_timeout_s)
-        self.__raise_for_status(response)
-        media_data = response.json()
+        info_response = requests.get(info_url, headers = headers, timeout = config.web_timeout_s)
+        self.__raise_for_status(info_response)
+        media_data = info_response.json()
         if "url" not in media_data:
             log.e(f"No URL found in media response: {media_data}")
             return None
-        return MediaInfo.model_validate(media_data)
+        media_info = MediaInfo.model_validate(media_data)
 
-    def download_media_bytes(
-        self,
-        media_url: str,
-    ) -> bytes | None:
         log.t("Downloading media bytes from URL")
-        headers = {"Authorization": f"Bearer {config.whatsapp_bot_token.get_secret_value()}"}
-        file_response = requests.get(media_url, headers = headers, timeout = config.web_timeout_s)
+        file_response = requests.get(media_info.url, headers = headers, timeout = config.web_timeout_s)
         content_length = len(file_response.content or b"")
         if file_response.status_code != 200 or content_length == 0:
             log.w(f"Could not download WhatsApp media: status={file_response.status_code}, bytes={content_length}")

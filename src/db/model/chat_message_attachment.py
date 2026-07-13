@@ -17,7 +17,6 @@ class ChatMessageAttachmentDB(BaseModel):
     created_at = Column(DateTime, default = func.now(), nullable = False)
     size = Column(Integer, nullable = True)
     last_url = Column(String, nullable = True)
-    last_url_until = Column(Integer, nullable = True)
     extension = Column(String, nullable = True)
     mime_type = Column(String, nullable = True)
 

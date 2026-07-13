@@ -44,7 +44,6 @@ class ChatMessageAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(stored_metadata.mime_type, "image/png")
         self.assertEqual(stored_metadata.extension, "png")
         self.assertEqual(stored_metadata.last_url, expected_storage_uri)
-        self.assertIsNone(stored_metadata.last_url_until)
         self.assertEqual(stored_metadata.uploader_user_id, UUID(int = 1))
         self.assertEqual(stored_content, content)
 
@@ -54,7 +53,6 @@ class ChatMessageAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(result.mime_type, "image/png")
         self.assertEqual(result.extension, "png")
         self.assertEqual(result.last_url, expected_storage_uri)
-        self.assertIsNone(result.last_url_until)
         self.assertEqual(result.uploader_user_id, UUID(int = 1))
 
         public_url = self.service.create_public_url(result)
@@ -65,6 +63,46 @@ class ChatMessageAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(public_claims.chat_id, self.attachment.chat_id.hex)
         self.assertEqual(public_claims.issuer_user_id, self.di.invoker_id)
         self.assertLessEqual(abs(public_url.valid_until - jwt_claims["exp"]), 1)
+
+    @patch("features.chat.attachment.chat_message_attachment_service.config")
+    def test_save_deletes_old_object_when_extension_changes(self, mock_config):
+        mock_config.public_api_base_url = "http://api.example"
+        mock_config.attachment_public_token_ttl_seconds = 600
+        mock_config.s3_bucket = "the-agent"
+        old_uri = "chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id"
+        attachment = ChatMessageAttachment(
+            id = "attachment-id",
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            last_url = f"s3://the-agent/{old_uri}",
+        )
+        content = b"\x89PNG\r\n\x1a\ncontent"
+
+        result = self.service.save(attachment, content)
+
+        self.assertEqual(result.extension, "png")
+        self.di.attachment_storage.put.assert_called_once()
+        self.di.attachment_storage.delete.assert_called_once()
+        self.assertEqual(self.di.attachment_storage.delete.call_args.args[0].uri, old_uri)
+
+    @patch("features.chat.attachment.chat_message_attachment_service.config")
+    def test_save_keeps_old_object_when_extension_unchanged(self, mock_config):
+        mock_config.public_api_base_url = "http://api.example"
+        mock_config.attachment_public_token_ttl_seconds = 600
+        mock_config.s3_bucket = "the-agent"
+        attachment = ChatMessageAttachment(
+            id = "attachment-id",
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            extension = "png",
+            last_url = "s3://the-agent/chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id.png",
+        )
+        content = b"\x89PNG\r\n\x1a\ncontent"
+
+        self.service.save(attachment, content)
+
+        self.di.attachment_storage.put.assert_called_once()
+        self.di.attachment_storage.delete.assert_not_called()
 
     @patch("features.chat.attachment.chat_message_attachment_service.config")
     def test_save_with_content_preserves_explicit_file_type(self, mock_config):
@@ -213,6 +251,39 @@ class ChatMessageAttachmentServiceTest(unittest.TestCase):
 
         self.assertEqual(result, self.attachment)
         self.di.chat_message_attachment_repo.get.assert_called_once_with("attachment-id")
+        self.di.attachment_storage.put.assert_not_called()
+        self.di.chat_message_attachment_repo.save.assert_not_called()
+
+    @patch("features.chat.attachment.chat_message_attachment_service.config")
+    def test_save_with_external_id_returns_existing_stored_attachment(self, mock_config):
+        mock_config.s3_bucket = "the-agent"
+        stored_attachment = ChatMessageAttachment(
+            id = "stored-id",
+            external_id = "ext-1",
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "m1",
+            last_url = "s3://the-agent/chats/00000000-0000-0000-0000-000000000002/attachments/stored-id.jpg",
+            extension = "jpg",
+            mime_type = "image/jpeg",
+            size = 1024,
+        )
+        self.di.chat_message_attachment_repo.get_by_external_id.return_value = stored_attachment
+        new_attachment = ChatMessageAttachment(
+            external_id = "ext-1",
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "m2",
+        )
+
+        result = self.service.save(
+            new_attachment,
+            remote_url = "ext-1",
+            remote_url_fetcher = lambda _: RemoteAttachmentContent(content = b"should-not-fetch"),
+        )
+
+        self.assertEqual(result, stored_attachment)
+        self.di.chat_message_attachment_repo.get_by_external_id.assert_called_once_with(UUID(int = 2), "ext-1")
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_message_attachment_repo.save.assert_not_called()
 

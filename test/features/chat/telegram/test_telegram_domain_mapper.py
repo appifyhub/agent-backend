@@ -361,7 +361,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result[0].mime_type, message.audio.mime_type)
         self.assertIsNone(result[0].extension)
         self.assertIsNone(result[0].last_url)
-        self.assertIsNone(result[0].last_url_until)
         # document
         self.assertEqual(result[1].message_id, str(message.message_id))
         self.assertEqual(result[1].external_id, message.document.file_id)
@@ -369,7 +368,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result[1].mime_type, message.document.mime_type)
         self.assertIsNone(result[1].extension)
         self.assertIsNone(result[1].last_url)
-        self.assertIsNone(result[1].last_url_until)
         # photo
         self.assertEqual(result[2].message_id, str(message.message_id))
         self.assertEqual(result[2].external_id, message.photo[1].file_id)
@@ -377,7 +375,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result[2].mime_type)
         self.assertIsNone(result[2].extension)
         self.assertIsNone(result[2].last_url)
-        self.assertIsNone(result[2].last_url_until)
         # voice
         self.assertEqual(result[3].message_id, str(message.message_id))
         self.assertEqual(result[3].external_id, message.voice.file_id)
@@ -385,7 +382,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result[3].mime_type, message.voice.mime_type)
         self.assertIsNone(result[3].extension)
         self.assertIsNone(result[3].last_url)
-        self.assertIsNone(result[3].last_url_until)
 
     def test_map_attachments_empty(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
@@ -416,7 +412,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, message_id)
         self.assertEqual(result.size, file.file_size)
         self.assertTrue(result.last_url.endswith(file.file_path))
-        self.assertIsNone(result.last_url_until)
         self.assertIsNone(result.extension)
         self.assertEqual(result.mime_type, mime_type)
 
@@ -435,7 +430,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, message_id)
         self.assertEqual(result.size, file.file_size)
         self.assertTrue(result.last_url.endswith(file.file_path))
-        self.assertIsNone(result.last_url_until)
         self.assertIsNone(result.extension)
         self.assertIsNone(result.mime_type)
 
@@ -452,6 +446,5 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.message_id, message_id)
         self.assertEqual(result.size, file.file_size)
         self.assertIsNone(result.last_url)
-        self.assertIsNone(result.last_url_until)
         self.assertIsNone(result.extension)
         self.assertIsNone(result.mime_type)

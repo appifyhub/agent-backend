@@ -20,7 +20,6 @@ def domain(db_model: ChatMessageAttachmentDB | None) -> ChatMessageAttachment | 
         message_id = db_model.message_id,
         size = db_model.size,
         last_url = db_model.last_url,
-        last_url_until = db_model.last_url_until,
         extension = db_model.extension,
         mime_type = db_model.mime_type,
     )
@@ -39,7 +38,6 @@ def db(domain_model: ChatMessageAttachment | None) -> ChatMessageAttachmentDB | 
         message_id = domain_model.message_id,
         size = domain_model.size,
         last_url = domain_model.last_url,
-        last_url_until = domain_model.last_url_until,
         extension = domain_model.extension,
         mime_type = domain_model.mime_type,
     )
@@ -54,7 +52,6 @@ def apply_to_db_model(
     db_model.message_id = domain_model.message_id
     db_model.size = domain_model.size
     db_model.last_url = domain_model.last_url
-    db_model.last_url_until = domain_model.last_url_until
     db_model.extension = domain_model.extension
     db_model.mime_type = domain_model.mime_type
 
@@ -72,7 +69,6 @@ def from_remote_data(
         message_id = remote_data.message_id,
         size = remote_data.size,
         last_url = remote_data.last_url,
-        last_url_until = remote_data.last_url_until,
         extension = remote_data.extension,
         mime_type = remote_data.mime_type,
     )
@@ -88,7 +84,6 @@ def apply_remote_data(
         message_id = remote_data.message_id,
         size = remote_data.size or attachment.size,
         last_url = remote_data.last_url or attachment.last_url,
-        last_url_until = remote_data.last_url_until or attachment.last_url_until,
         extension = remote_data.extension or attachment.extension,
         mime_type = remote_data.mime_type or attachment.mime_type,
     )
