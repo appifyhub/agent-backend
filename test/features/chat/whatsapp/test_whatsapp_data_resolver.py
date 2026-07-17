@@ -50,6 +50,8 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xFF\xD8\xFF\xE0fake-jpeg"
         # noinspection PyPropertyAccess
         self.mock_di.attachment_storage = MagicMock()
+        self.mock_di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
+        self.mock_di.attachment_storage.owns_uri.side_effect = lambda uri: bool(uri) and uri.startswith("s3://the-agent/chats/")
         # noinspection PyPropertyAccess
         self.mock_di.chat_membership_service = MagicMock()
         self.resolver = WhatsAppDataResolver(self.mock_di)

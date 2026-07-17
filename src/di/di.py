@@ -442,12 +442,14 @@ class DI:
     @property
     def attachment_storage(self) -> "AttachmentStorage":
         if self._attachment_storage is None:
-            if config.s3_base_url:
-                from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
-                self._attachment_storage = S3AttachmentStorage()
-            else:
-                from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
-                self._attachment_storage = LocalAttachmentStorage()
+            from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
+            from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
+            from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
+            for storage_type in (S3AttachmentStorage, UploadcareAttachmentStorage, LocalAttachmentStorage):
+                # in order, we find the first storage type that can be used
+                if storage_type.can_be_used():
+                    self._attachment_storage = storage_type()
+                    break
             self._attachment_storage.ensure_ready()
         return self._attachment_storage
 

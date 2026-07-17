@@ -72,6 +72,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.s3_base_url, "")
         self.assertEqual(config.s3_region, "eu-central-1")
         self.assertEqual(config.s3_bucket, "the-agent")
+        self.assertEqual(config.uploadcare_public_key, "")
+        self.assertEqual(config.uploadcare_cdn_id, "")
         self.assertEqual(config.attachment_public_token_ttl_seconds, 600)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://root:root@localhost:5432/agent")
@@ -96,6 +98,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "invalid")
         self.assertEqual(config.s3_access_key.get_secret_value(), "local")
         self.assertEqual(config.s3_secret_key.get_secret_value(), "invalid")
+        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "invalid")
 
     def test_custom_config(self):
         os.environ["LOG_LEVEL"] = "DEBUG"
@@ -143,6 +146,8 @@ class ConfigTest(unittest.TestCase):
         os.environ["S3_BASE_URL"] = "https://s3.example.com"
         os.environ["S3_REGION"] = "eu-west-1"
         os.environ["S3_BUCKET"] = "custom-agent"
+        os.environ["UPLOADCARE_PUBLIC_KEY"] = "uploadcare-public-key"
+        os.environ["UPLOADCARE_CDN_ID"] = "uploadcare-cdn-id"
         os.environ["ATTACHMENT_PUBLIC_TOKEN_TTL_SECONDS"] = "300"
 
         os.environ["POSTGRES_USER"] = "admin"
@@ -171,6 +176,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["PLATFORM_X_AI_KEY"] = "platform-x-ai-key"
         os.environ["S3_ACCESS_KEY"] = "s3-access-key"
         os.environ["S3_SECRET_KEY"] = "s3-secret-key"
+        os.environ["UPLOADCARE_PRIVATE_KEY"] = "uploadcare-private-key"
 
         config = Config()
 
@@ -219,6 +225,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.s3_base_url, "https://s3.example.com")
         self.assertEqual(config.s3_region, "eu-west-1")
         self.assertEqual(config.s3_bucket, "custom-agent")
+        self.assertEqual(config.uploadcare_public_key, "uploadcare-public-key")
+        self.assertEqual(config.uploadcare_cdn_id, "uploadcare-cdn-id")
         self.assertEqual(config.attachment_public_token_ttl_seconds, 300)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://admin:admin123@db.example.com:5432/test_db")
@@ -244,6 +252,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "platform-x-ai-key")
         self.assertEqual(config.s3_access_key.get_secret_value(), "s3-access-key")
         self.assertEqual(config.s3_secret_key.get_secret_value(), "s3-secret-key")
+        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "uploadcare-private-key")
 
     def test_products_loaded_from_yaml(self):
         config = Config(def_products_config_path = PRODUCTS_FIXTURE_PATH)

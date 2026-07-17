@@ -8,6 +8,7 @@ import requests
 from api.auth import create_public_attachment_token, verify_public_attachment_token
 from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.storage.attachment_storage import PublicAttachment
 from features.chat.supported_files import is_supported_mime_type, resolve_file_type
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util import log
@@ -27,12 +28,6 @@ from util.errors import AuthorizationError, ExternalServiceError, NotFoundError,
 class ResolvedAttachmentStream:
     stream: BinaryIO
     media_type: str
-
-
-@dataclass(frozen = True)
-class AttachmentPublicUrl:
-    url: str
-    valid_until: int
 
 
 @dataclass(frozen = True)
@@ -118,12 +113,9 @@ class ChatMessageAttachmentService:
         # next, check if we need to store the media bytes in our storage
         if remote_content_bytes:
             previous_our_uri = attachment.uri if self.is_own_storage_uri(attachment.last_url) else None
-            updated_attachment = replace(
-                updated_attachment,
-                size = len(remote_content_bytes),
-                last_url = f"s3://{config.s3_bucket}/{updated_attachment.uri}",
-            )
-            self.__di.attachment_storage.put(updated_attachment, remote_content_bytes)
+            updated_attachment = replace(updated_attachment, size = len(remote_content_bytes))
+            stored_uri = self.__di.attachment_storage.put(updated_attachment, remote_content_bytes)
+            updated_attachment = replace(updated_attachment, last_url = stored_uri)
             # a changed extension changes the storage key — drop the now-orphaned old object
             if previous_our_uri and previous_our_uri != updated_attachment.uri:
                 self.__delete_storage_objects([attachment])
@@ -131,8 +123,11 @@ class ChatMessageAttachmentService:
         # finally, store the updated attachment in our database
         return self.__di.chat_message_attachment_repo.save(updated_attachment)
 
-    def create_public_url(self, attachment: ChatMessageAttachment | str) -> AttachmentPublicUrl:
+    def create_public_url(self, attachment: ChatMessageAttachment | str) -> PublicAttachment:
         attachment = self.get(attachment)
+        # backends that serve directly-reachable object URLs bypass token minting entirely
+        if self.__di.attachment_storage.SERVES_PUBLIC_URLS:
+            return self.__di.attachment_storage.public_attachment_for(attachment)
         valid_until = datetime.now() + timedelta(seconds = config.attachment_public_token_ttl_seconds)
         token = create_public_attachment_token(
             chat_id = attachment.chat_id.hex,
@@ -140,7 +135,8 @@ class ChatMessageAttachmentService:
             issuer_user_id = self.__di.invoker.id.hex,
             ttl_seconds = config.attachment_public_token_ttl_seconds,
         )
-        return AttachmentPublicUrl(
+        return PublicAttachment(
+            id = attachment.id,
             url = f"{config.public_api_base_url}/attachments/public/{token}",
             valid_until = int(valid_until.timestamp()),
         )
@@ -160,9 +156,7 @@ class ChatMessageAttachmentService:
         return url.startswith(private_url_prefix) and bool(attachment_id) and "/" not in attachment_id
 
     def is_own_storage_uri(self, uri: str | None) -> bool:
-        if not uri:
-            return False
-        return uri.startswith(f"s3://{config.s3_bucket}/chats/")
+        return self.__di.attachment_storage.owns_uri(uri)
 
     def resolve_attachments(self, attachment_ids: list[str] | None, urls: list[str] | None) -> list[ChatMessageAttachment]:
         if not attachment_ids and not urls:

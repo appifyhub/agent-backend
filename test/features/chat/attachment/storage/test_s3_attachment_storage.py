@@ -1,19 +1,14 @@
 import io
-import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from uuid import UUID
 
 from botocore.exceptions import ClientError
 
-from di.di import DI
 from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
 from features.chat.attachment.storage.s3_attachment_storage import S3_ADDRESSING_STYLE, S3AttachmentStorage
 from features.chat.attachment.storage.s3_client import S3Client
-from util.errors import ValidationError
 
 
 class FakeS3Client(S3Client):
@@ -61,50 +56,32 @@ class FakeSecret:
         return self.__value
 
 
-class LocalAttachmentStorageTest(unittest.TestCase):
-
-    def test_put_open_and_delete_uses_local_storage_root(self):
-        metadata = self.__metadata()
-        content = b"stored content"
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            storage = LocalAttachmentStorage(root)
-
-            storage.ensure_ready()
-            storage.put(metadata, content)
-
-            with storage.open(metadata) as stream:
-                self.assertEqual(stream.read(), content)
-
-            expected_path = root.joinpath(*metadata.uri.split("/"))
-            self.assertTrue(expected_path.exists())
-
-            storage.delete(metadata)
-            storage.delete(metadata)
-
-            self.assertFalse(expected_path.exists())
-
-    def test_rejects_path_traversal_keys(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage = LocalAttachmentStorage(Path(temp_dir))
-            metadata = self.__metadata(attachment_id = "../outside")
-
-            with self.assertRaises(ValidationError):
-                storage.put(metadata, b"content")
-
-    def __metadata(self, attachment_id: str = "attachment-id") -> ChatMessageAttachment:
-        return ChatMessageAttachment(
-            chat_id = UUID("11111111-1111-1111-1111-111111111111"),
-            uploader_user_id = UUID(int = 9),
-            message_id = "message-id",
-            id = attachment_id,
-            mime_type = "text/plain",
-            extension = "txt",
-        )
-
-
 class S3AttachmentStorageTest(unittest.TestCase):
+
+    def test_declares_public_delivery_capability(self):
+        self.assertFalse(S3AttachmentStorage.SERVES_PUBLIC_URLS)
+
+    def test_can_be_used_requires_complete_config(self):
+        with patch("features.chat.attachment.storage.s3_attachment_storage.config", self.__config()):
+            self.assertTrue(S3AttachmentStorage.can_be_used())
+
+        for missing_field in ["s3_base_url", "s3_region", "s3_bucket", "s3_access_key", "s3_secret_key"]:
+            with self.subTest(missing_field = missing_field):
+                with patch(
+                    "features.chat.attachment.storage.s3_attachment_storage.config",
+                    self.__config(missing_field = missing_field),
+                ):
+                    self.assertFalse(S3AttachmentStorage.can_be_used())
+
+    def test_owns_uri_recognizes_own_bucket_locator(self):
+        storage = self.__storage(FakeS3Client())
+        metadata = self.__metadata()
+
+        self.assertTrue(storage.owns_uri(f"s3://the-agent/{metadata.uri}"))
+        self.assertFalse(storage.owns_uri("s3://other-bucket/chats/x"))
+        self.assertFalse(storage.owns_uri("file:///tmp/chats/x"))
+        self.assertFalse(storage.owns_uri(None))
+        self.assertFalse(storage.owns_uri(""))
 
     def test_configures_boto3_client_for_path_style_endpoint(self):
         with patch("features.chat.attachment.storage.s3_attachment_storage.config", self.__config(
@@ -210,13 +187,13 @@ class S3AttachmentStorageTest(unittest.TestCase):
             with patch("features.chat.attachment.storage.s3_attachment_storage.boto3.client", return_value = client):
                 return S3AttachmentStorage()
 
-    def __config(self, s3_base_url: str = "http://s3.local"):
+    def __config(self, missing_field: str | None = None, s3_base_url: str = "http://s3.local"):
         return SimpleNamespace(
-            s3_base_url = s3_base_url,
-            s3_region = "eu-central-1",
-            s3_bucket = "the-agent",
-            s3_access_key = FakeSecret("access"),
-            s3_secret_key = FakeSecret("secret"),
+            s3_base_url = "" if missing_field == "s3_base_url" else s3_base_url,
+            s3_region = "" if missing_field == "s3_region" else "eu-central-1",
+            s3_bucket = "" if missing_field == "s3_bucket" else "the-agent",
+            s3_access_key = FakeSecret("" if missing_field == "s3_access_key" else "access"),
+            s3_secret_key = FakeSecret("" if missing_field == "s3_secret_key" else "secret"),
         )
 
     def __metadata(
@@ -231,40 +208,4 @@ class S3AttachmentStorageTest(unittest.TestCase):
             id = "attachment-id",
             mime_type = mime_type,
             extension = extension,
-        )
-
-
-class DIAttachmentStorageTest(unittest.TestCase):
-
-    def test_uses_local_storage_when_s3_base_url_is_empty(self):
-        with patch("di.di.config", self.__config(s3_base_url = "")):
-            with patch("features.chat.attachment.storage.local_attachment_storage.LocalAttachmentStorage") as storage_class:
-                storage = Mock()
-                storage_class.return_value = storage
-
-                result = DI().attachment_storage
-
-                self.assertIs(result, storage)
-                storage_class.assert_called_once_with()
-                storage.ensure_ready.assert_called_once_with()
-
-    def test_uses_s3_storage_when_s3_base_url_is_set(self):
-        with patch("di.di.config", self.__config(s3_base_url = "http://s3.local")):
-            with patch("features.chat.attachment.storage.s3_attachment_storage.S3AttachmentStorage") as storage_class:
-                storage = Mock()
-                storage_class.return_value = storage
-
-                result = DI().attachment_storage
-
-                self.assertIs(result, storage)
-                storage_class.assert_called_once_with()
-                storage.ensure_ready.assert_called_once_with()
-
-    def __config(self, s3_base_url: str):
-        return SimpleNamespace(
-            s3_base_url = s3_base_url,
-            s3_region = "eu-central-1",
-            s3_bucket = "the-agent",
-            s3_access_key = FakeSecret("access"),
-            s3_secret_key = FakeSecret("secret"),
         )
