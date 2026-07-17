@@ -15,14 +15,16 @@ import uvicorn
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import SecretStr
-from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 
+from api.attachments_controller import AttachmentsController
 from api.auth import (
     get_chat_type_from_jwt,
     get_user_id_from_jwt,
     verify_api_key,
     verify_gumroad_auth_key,
     verify_jwt_credentials,
+    verify_public_attachment_token,
     verify_telegram_auth_key,
     verify_whatsapp_signature,
     verify_whatsapp_webhook_challenge,
@@ -198,6 +200,26 @@ def cleanup(
     result_map = dataclasses.asdict(result)
     log.i("Responding to cleanup request", result_map)
     return result_map
+
+
+@app.get("/attachments/private/{attachment_id}")
+def get_private_attachment(
+    attachment_id: str,
+    db = Depends(get_session),
+    token: dict[str, Any] = Depends(verify_jwt_credentials),
+) -> StreamingResponse:
+    invoker_id_hex = get_user_id_from_jwt(token)
+    return AttachmentsController(DI(db, invoker_id_hex)).stream_private_attachment(attachment_id)
+
+
+@app.get("/attachments/public/{token}")
+def get_public_attachment(
+    token: str,
+    db = Depends(get_session),
+) -> StreamingResponse:
+    token_claims = verify_public_attachment_token(token)  # it's not header auth, so we can't use Depends here
+    invoker_id_hex = token_claims.issuer_user_id
+    return AttachmentsController(DI(db, invoker_id_hex)).stream_public_attachment(token_claims)
 
 
 @app.get("/settings/user/{user_id}")

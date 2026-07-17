@@ -40,16 +40,12 @@ class ChatMessageRepository:
         chat_id: UUID,
         skip: int = 0,
         limit: int = 100,
+        include_temporary: bool = False,
     ) -> list[ChatMessage]:
-        db_models = (
-            self._db.query(ChatMessageDB).filter(
-                ChatMessageDB.chat_id == chat_id,
-            )
-            .order_by(desc(ChatMessageDB.sent_at))
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
+        query = self._db.query(ChatMessageDB).filter(ChatMessageDB.chat_id == chat_id)
+        if not include_temporary:
+            query = query.filter(ChatMessageDB.is_temporary.is_(False))
+        db_models = query.order_by(desc(ChatMessageDB.sent_at)).offset(skip).limit(limit).all()
         return [domain(db_model) for db_model in db_models if db_model is not None]
 
     def save(self, message: ChatMessage) -> ChatMessage:

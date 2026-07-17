@@ -332,4 +332,4 @@ class SettingsController:
             **({"platform_id": external_id} if external_id else {}),
             **({"platform_handle": external_handle} if external_handle else {}),
         }
-        return auth.create_jwt_token(token_payload, config.jwt_expires_in_minutes)
+        return auth.create_jwt_token(token_payload, timedelta(minutes = config.jwt_expires_in_minutes))

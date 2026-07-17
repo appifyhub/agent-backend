@@ -16,6 +16,7 @@ def domain(db_model: ChatMessageDB | None) -> ChatMessage | None:
         author_id = db_model.author_id,
         sent_at = db_model.sent_at,
         text = db_model.text,
+        is_temporary = db_model.is_temporary,
     )
 
 
@@ -29,6 +30,7 @@ def db(domain_model: ChatMessage | None) -> ChatMessageDB | None:
         author_id = domain_model.author_id,
         sent_at = domain_model.sent_at,
         text = domain_model.text,
+        is_temporary = domain_model.is_temporary,
     )
 
 
@@ -39,6 +41,7 @@ def apply_to_db_model(
     db_model.author_id = domain_model.author_id
     db_model.sent_at = domain_model.sent_at
     db_model.text = domain_model.text
+    db_model.is_temporary = domain_model.is_temporary
 
 
 def from_remote_data(

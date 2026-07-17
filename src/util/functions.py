@@ -1,6 +1,6 @@
 import hashlib
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable
 from uuid import uuid4
 
 from pydantic import SecretStr
@@ -8,9 +8,6 @@ from pydantic import SecretStr
 from util import log
 from util.error_codes import EXTERNAL_EMPTY_RESPONSE, LLM_UNEXPECTED_RESPONSE
 from util.errors import ExternalServiceError
-
-K = TypeVar("K")
-V = TypeVar("V")
 
 
 def generate_short_uuid() -> str:
@@ -31,13 +28,6 @@ def silent(func: Callable[..., Any]) -> Callable[..., Any]:
             return None
 
     return wrapper
-
-
-def first_key_with_value(source: dict[K, V], value: V) -> K | None:
-    for k, v in source.items():
-        if v == value:
-            return k
-    return None
 
 
 def detect_image_format(content: bytes) -> str | None:

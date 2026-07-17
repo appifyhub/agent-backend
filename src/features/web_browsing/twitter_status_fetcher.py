@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from di.di import DI
 from features.accounting.usage.decorators.http_usage_tracking_decorator import HTTPUsageTrackingDecorator
-from features.chat.supported_files import KNOWN_IMAGE_FORMATS
+from features.chat.supported_files import resolve_file_type
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.tools_cache.tools_cache import ToolsCache
@@ -320,8 +320,7 @@ class TwitterStatusFetcher:
                 url = media.get("url") or None
                 media_type = media.get("type") or None
                 if url and media_type == "photo":
-                    extension = url.lower().split(".")[-1]
-                    mime_type = KNOWN_IMAGE_FORMATS.get(extension) if extension else KNOWN_IMAGE_FORMATS.get("png")
+                    mime_type = resolve_file_type(uri = url)[0] or "image/png"
                     analyzer = self.__di.computer_vision_analyzer(
                         job_id = f"tweet-{self.__tweet_id}",
                         image_mime_type = str(mime_type),
