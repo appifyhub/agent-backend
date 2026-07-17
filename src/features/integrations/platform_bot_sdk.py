@@ -7,7 +7,7 @@ import requests
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.images.image_size_utils import resize_file
@@ -109,7 +109,7 @@ class PlatformBotSDK:
         thumbnail_url: str | None = None
         if thumbnail:
             thumbnail_attachment = self.prepare_outgoing_attachment(chat_config, thumbnail)
-            thumbnail_url = self.__di.chat_message_attachment_service.create_public_url(thumbnail_attachment).url
+            thumbnail_url = self.__di.chat_attachment_service.create_public_url(thumbnail_attachment).url
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
                 return self.__di.telegram_bot_sdk.send_document(
@@ -194,7 +194,7 @@ class PlatformBotSDK:
         chat_config: ChatConfig,
         public_url: str,
         should_resize: bool = True,
-    ) -> ChatMessageAttachment:
+    ) -> ChatAttachment:
         # first, we find the max size for photos
         max_size_bytes: int | None = None
         if should_resize:
@@ -227,8 +227,8 @@ class PlatformBotSDK:
                 raise ExternalServiceError("Could not download outbound media", MEDIA_DOWNLOAD_FAILED)
 
             resized_path = resize_file(temp_path, max_size_bytes)
-            attachment = self.__di.chat_message_attachment_service.save(
-                attachment = ChatMessageAttachment(chat_id = chat_config.chat_id, uploader_user_id = self.__di.invoker.id),
+            attachment = self.__di.chat_attachment_service.save(
+                attachment = ChatAttachment(chat_id = chat_config.chat_id, uploader_user_id = self.__di.invoker.id),
                 content = Path(resized_path).read_bytes(),
             )
             log.t(f"Prepared outgoing attachment '{attachment.id}'")

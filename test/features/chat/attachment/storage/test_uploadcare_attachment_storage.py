@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import UUID
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.uploadcare_attachment_storage import (
     UPLOADCARE_PUBLIC_URL_TTL_SECONDS,
     UploadcareAttachmentStorage,
@@ -145,8 +145,8 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
         self,
         extension: str | None = None,
         last_url: str | None = None,
-    ) -> ChatMessageAttachment:
-        return ChatMessageAttachment(
+    ) -> ChatAttachment:
+        return ChatAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
             uploader_user_id = UUID(int = 9),
             id = "attachment-id",

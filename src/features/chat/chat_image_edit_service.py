@@ -1,7 +1,7 @@
 from enum import Enum
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.image_editor import ImageEditor
 from util import log
@@ -17,7 +17,7 @@ class ChatImageEditService:
         failed = "failed"
         partial = "partial"
 
-    __attachments: list[ChatMessageAttachment]
+    __attachments: list[ChatAttachment]
     __operation_guidance: str | None
     __aspect_ratio: str | None
     __output_size: str | None
@@ -33,7 +33,7 @@ class ChatImageEditService:
         di: DI,
     ):
         self.__di = di
-        self.__attachments = self.__di.chat_message_attachment_service.resolve_attachments(attachment_ids, urls)
+        self.__attachments = self.__di.chat_attachment_service.resolve_attachments(attachment_ids, urls)
         self.__operation_guidance = operation_guidance
         self.__aspect_ratio = aspect_ratio
         self.__output_size = output_size
@@ -51,7 +51,7 @@ class ChatImageEditService:
                 log.w(message)
                 skip_errors.append(message)
             else:
-                public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+                public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
                 image_urls.append(public_url)
                 mime_types.append(attachment.mime_type)
                 skip_errors.append(None)

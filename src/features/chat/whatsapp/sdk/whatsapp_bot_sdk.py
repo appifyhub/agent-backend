@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.response import MessageResponse
@@ -31,11 +31,11 @@ class WhatsAppBotSDK:
     def send_photo(
         self,
         chat_config: ChatConfig,
-        attachment: ChatMessageAttachment,
+        attachment: ChatAttachment,
         caption: str | None = None,
     ) -> ChatMessage:
         # the attachment is already archived; expose it via a public URL for delivery
-        public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
         # sending will generate a real message ID
         sent_message = self.__di.whatsapp_bot_api.send_image(
             recipient_id = chat_config.external_id,
@@ -44,17 +44,17 @@ class WhatsAppBotSDK:
         )
         message = self.__store_api_response_as_message(sent_message, text = caption or "", chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
-        self.__di.chat_message_attachment_service.save(replace(attachment, message_id = message.message_id))
+        self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 
     def send_document(
         self,
         chat_config: ChatConfig,
-        attachment: ChatMessageAttachment,
+        attachment: ChatAttachment,
         caption: str | None = None,
     ) -> ChatMessage:
         # the attachment is already archived; expose it via a public URL for delivery
-        public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
         # sending will generate a real message ID
         sent_message = self.__di.whatsapp_bot_api.send_document(
             recipient_id = chat_config.external_id,
@@ -63,7 +63,7 @@ class WhatsAppBotSDK:
         )
         message = self.__store_api_response_as_message(sent_message, text = caption or "", chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
-        self.__di.chat_message_attachment_service.save(replace(attachment, message_id = message.message_id))
+        self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 
     def set_reaction(self, chat_id: int | str, message_id: int | str, reaction: str | None):

@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 
 from di.di import DI
 from features.audio.audio_transcriber import AudioTranscriber
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.supported_files import KNOWN_AUDIO_FORMATS, KNOWN_DOCS_FORMATS, KNOWN_IMAGE_FORMATS
 from features.documents.document_search import DocumentSearch
 from features.external_tools.intelligence_presets import default_tool_for
@@ -28,7 +28,7 @@ class ChatAttachmentProcessor:
         success = "Success"
 
     # the following two lists are in sync
-    __attachments: list[ChatMessageAttachment]
+    __attachments: list[ChatAttachment]
     __contents: list[str | None]
     __errors: list[str | None]
 
@@ -51,7 +51,7 @@ class ChatAttachmentProcessor:
             f"Validating {len(attachment_ids or [])} attachment IDs "
             f"and {len(urls or [])} URLs in chat '{self.__di.invoker_chat_id}'",
         )
-        self.__attachments = self.__di.chat_message_attachment_service.resolve_attachments(attachment_ids, urls)
+        self.__attachments = self.__di.chat_attachment_service.resolve_attachments(attachment_ids, urls)
 
     @property
     def __resolution_status(self) -> Result:
@@ -106,7 +106,7 @@ class ChatAttachmentProcessor:
         log.i(f"Resolution result: {result}")
         return result
 
-    def __process_images(self, image_attachments: list[ChatMessageAttachment], indices: list[int]):
+    def __process_images(self, image_attachments: list[ChatAttachment], indices: list[int]):
         # use a group cache key based on sorted attachment IDs + context
         sorted_ids = ",".join(sorted(a.id for a in image_attachments))
         additional_content_hash = digest_md5(self.__additional_context) if self.__additional_context else "*"
@@ -154,7 +154,7 @@ class ChatAttachmentProcessor:
             for i in indices:
                 self.__errors[i] = f"Error resolving contents for image group '{sorted_ids}': {str(e)}"
 
-    def __process_single(self, attachment: ChatMessageAttachment, index: int):
+    def __process_single(self, attachment: ChatAttachment, index: int):
         is_document = (
             attachment.mime_type in KNOWN_DOCS_FORMATS.values()
             or attachment.extension in KNOWN_DOCS_FORMATS.keys()
@@ -225,7 +225,7 @@ class ChatAttachmentProcessor:
                 log.w(f"Error resolving contents for '{attachment.id}'", e)
                 self.__errors[index] = f"Error resolving contents for '{attachment.id}': {str(e)}"
 
-    def __fetch_document_content(self, attachment: ChatMessageAttachment) -> tuple[str, str | None]:
+    def __fetch_document_content(self, attachment: ChatAttachment) -> tuple[str, str | None]:
         log.t(f"Extracting document content for attachment '{attachment.id}'")
         documents = self.__load_documents(attachment)
         joined_text = "\n\n".join(doc.page_content for doc in documents)
@@ -260,16 +260,16 @@ class ChatAttachmentProcessor:
         ).execute()
         return "search", content
 
-    def __load_documents(self, attachment: ChatMessageAttachment) -> list[Document]:
+    def __load_documents(self, attachment: ChatAttachment) -> list[Document]:
         ext = (attachment.extension or "").lower()
-        url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        url = self.__di.chat_attachment_service.create_public_url(attachment).url
         if ext == "pdf" or attachment.mime_type == "application/pdf":
             return self.__di.pdf_loader(job_id = attachment.id, document_url = url).load()
         if ext == "docx":
             return self.__di.docx_loader(job_id = attachment.id, document_url = url).load()
         return self.__di.plain_text_loader(job_id = attachment.id, document_url = url).load()
 
-    def fetch_text_content(self, attachment: ChatMessageAttachment) -> str | None:
+    def fetch_text_content(self, attachment: ChatAttachment) -> str | None:
         log.t(f"Resolving text content for attachment '{attachment.id}'")
 
         with self.__di.attachment_storage.open(attachment) as stream:
@@ -285,7 +285,7 @@ class ChatAttachmentProcessor:
                 AudioTranscriber.COPYWRITER_TOOL_TYPE,
                 default_tool_for(AudioTranscriber.COPYWRITER_TOOL_TYPE),
             )
-            public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+            public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
             return self.__di.audio_transcriber(
                 job_id = attachment.id,
                 audio_url = public_url,

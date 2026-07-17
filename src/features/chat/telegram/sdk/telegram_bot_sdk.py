@@ -3,7 +3,7 @@ from dataclasses import replace
 from typing import Literal
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.model.message import Message
@@ -42,13 +42,13 @@ class TelegramBotSDK:
     def send_photo(
         self,
         chat_id: int | str,
-        attachment: ChatMessageAttachment,
+        attachment: ChatAttachment,
         caption: str | None = None,
         parse_mode: str = "markdown",
         disable_notification: bool = False,
     ) -> ChatMessage:
         # the attachment is already archived; expose it via a public URL for delivery
-        public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
         # sending will generate a real message ID
         sent_message = self.__di.telegram_bot_api.send_photo(
             chat_id = chat_id,
@@ -59,20 +59,20 @@ class TelegramBotSDK:
         )
         message = self.__store_api_response_as_message(sent_message)
         # we should now quickly update the attachment record with the new ID
-        self.__di.chat_message_attachment_service.save(replace(attachment, message_id = message.message_id))
+        self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 
     def send_document(
         self,
         chat_id: int | str,
-        attachment: ChatMessageAttachment,
+        attachment: ChatAttachment,
         parse_mode: str = "markdown",
         thumbnail: str | None = None,
         caption: str | None = None,
         disable_notification: bool = False,
     ) -> ChatMessage:
         # the attachment is already archived; expose it via a public URL for delivery
-        public_url = self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
         # sending will generate a real message ID
         sent_message = self.__di.telegram_bot_api.send_document(
             chat_id = chat_id,
@@ -84,7 +84,7 @@ class TelegramBotSDK:
         )
         message = self.__store_api_response_as_message(sent_message)
         # we should now quickly update the attachment record with the new ID
-        self.__di.chat_message_attachment_service.save(replace(attachment, message_id = message.message_id))
+        self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 
     def set_status_typing(self, chat_id: int | str):

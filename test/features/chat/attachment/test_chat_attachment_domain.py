@@ -1,13 +1,13 @@
 import unittest
 from uuid import UUID
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 
 
-class ChatMessageAttachmentDomainTest(unittest.TestCase):
+class ChatAttachmentDomainTest(unittest.TestCase):
 
     def test_uri_uses_attachment_identity(self):
-        attachment = ChatMessageAttachment(
+        attachment = ChatAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
             uploader_user_id = UUID(int = 9),
             id = "attachment-id",
@@ -19,7 +19,7 @@ class ChatMessageAttachmentDomainTest(unittest.TestCase):
         )
 
     def test_uri_includes_extension_when_available(self):
-        attachment = ChatMessageAttachment(
+        attachment = ChatAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
             uploader_user_id = UUID(int = 9),
             id = "attachment-id",
@@ -32,7 +32,7 @@ class ChatMessageAttachmentDomainTest(unittest.TestCase):
         )
 
     def test_uri_uses_generated_attachment_id(self):
-        attachment = ChatMessageAttachment(
+        attachment = ChatAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
             uploader_user_id = UUID(int = 9),
         )

@@ -7,7 +7,7 @@ import requests
 
 from api.auth import create_public_attachment_token, verify_public_attachment_token
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import PublicAttachment
 from features.chat.supported_files import is_supported_mime_type, resolve_file_type
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
@@ -39,24 +39,24 @@ class RemoteAttachmentContent:
 RemoteUrlFetcher = Callable[[str], RemoteAttachmentContent]
 
 
-class ChatMessageAttachmentService:
+class ChatAttachmentService:
 
     __di: DI
 
     def __init__(self, di: DI):
         self.__di = di
 
-    def get(self, attachment: ChatMessageAttachment | str) -> ChatMessageAttachment:
-        if isinstance(attachment, ChatMessageAttachment):
+    def get(self, attachment: ChatAttachment | str) -> ChatAttachment:
+        if isinstance(attachment, ChatAttachment):
             return attachment
         if not attachment:
             raise ValidationError("Attachment ID cannot be empty", MALFORMED_ATTACHMENT_ID)
-        stored_attachment = self.__di.chat_message_attachment_repo.get(attachment)
+        stored_attachment = self.__di.chat_attachment_repo.get(attachment)
         if stored_attachment is None:
             raise NotFoundError(f"Attachment '{attachment}' not found", ATTACHMENT_NOT_FOUND)
         return stored_attachment
 
-    def stream_attachment(self, attachment: ChatMessageAttachment | str) -> ResolvedAttachmentStream:
+    def stream_attachment(self, attachment: ChatAttachment | str) -> ResolvedAttachmentStream:
         attachment = self.get(attachment)
 
         # validate that the invoker has rights to access this attachment
@@ -72,16 +72,16 @@ class ChatMessageAttachmentService:
 
     def save(
         self,
-        attachment: ChatMessageAttachment | str,
+        attachment: ChatAttachment | str,
         content: bytes | None = None,
         remote_url: str | None = None,
         remote_url_fetcher: RemoteUrlFetcher | None = None,
-    ) -> ChatMessageAttachment:
+    ) -> ChatAttachment:
         attachment = self.get(attachment)
 
         # first, check if this attachment is already fully stored using its external ID
         if attachment.external_id:
-            existing = self.__di.chat_message_attachment_repo.get_by_external_id(attachment.chat_id, attachment.external_id)
+            existing = self.__di.chat_attachment_repo.get_by_external_id(attachment.chat_id, attachment.external_id)
             if existing and self.is_own_storage_uri(existing.last_url):
                 return existing
 
@@ -121,9 +121,9 @@ class ChatMessageAttachmentService:
                 self.__delete_storage_objects([attachment])
 
         # finally, store the updated attachment in our database
-        return self.__di.chat_message_attachment_repo.save(updated_attachment)
+        return self.__di.chat_attachment_repo.save(updated_attachment)
 
-    def create_public_url(self, attachment: ChatMessageAttachment | str) -> PublicAttachment:
+    def create_public_url(self, attachment: ChatAttachment | str) -> PublicAttachment:
         attachment = self.get(attachment)
         # backends that serve directly-reachable object URLs bypass token minting entirely
         if self.__di.attachment_storage.SERVES_PUBLIC_URLS:
@@ -158,20 +158,20 @@ class ChatMessageAttachmentService:
     def is_own_storage_uri(self, uri: str | None) -> bool:
         return self.__di.attachment_storage.owns_uri(uri)
 
-    def resolve_attachments(self, attachment_ids: list[str] | None, urls: list[str] | None) -> list[ChatMessageAttachment]:
+    def resolve_attachments(self, attachment_ids: list[str] | None, urls: list[str] | None) -> list[ChatAttachment]:
         if not attachment_ids and not urls:
             raise ValidationError("No attachment IDs or URLs provided", MISSING_ATTACHMENT_IDS)
         invoker_id = self.__di.invoker.id
         chat_id = self.__di.require_invoker_chat().chat_id
         # resolve local attachments by fetching from the DB
-        local_attachments: list[ChatMessageAttachment] = [
+        local_attachments: list[ChatAttachment] = [
             self.get(attachment_id)
             for attachment_id in (attachment_ids or [])
         ]
         # resolve the remote attachments by pulling content for each
-        remote_attachments: list[ChatMessageAttachment] = [
+        remote_attachments: list[ChatAttachment] = [
             self.save(
-                attachment = ChatMessageAttachment(chat_id = chat_id, uploader_user_id = invoker_id, last_url = url),
+                attachment = ChatAttachment(chat_id = chat_id, uploader_user_id = invoker_id, last_url = url),
                 remote_url = url,
             )
             for url in (urls or [])
@@ -227,32 +227,32 @@ class ChatMessageAttachmentService:
             raise ExternalServiceError("Attachment content could not be accessed", MEDIA_DOWNLOAD_FAILED) from e
 
     def cleanup_old_attachments(self, cutoff: datetime) -> int:
-        deleted = self.__di.chat_message_attachment_repo.delete_stale(cutoff)
+        deleted = self.__di.chat_attachment_repo.delete_stale(cutoff)
         self.__delete_storage_objects(deleted)
         return len(deleted)
 
     def cleanup_orphaned_attachments(self, cutoff: datetime) -> int:
-        deleted = self.__di.chat_message_attachment_repo.delete_stale(cutoff, only_orphans = True)
+        deleted = self.__di.chat_attachment_repo.delete_stale(cutoff, only_orphans = True)
         self.__delete_storage_objects(deleted)
         return len(deleted)
 
-    def __delete_storage_objects(self, attachments: list[ChatMessageAttachment]) -> None:
+    def __delete_storage_objects(self, attachments: list[ChatAttachment]) -> None:
         for attachment in attachments:
             try:
                 self.__di.attachment_storage.delete(attachment)
             except Exception as e:
                 log.e(f"Could not delete storage object for attachment '{attachment.id}'", e)
 
-    def __find_internal_attachment(self, url: str) -> ChatMessageAttachment | None:
+    def __find_internal_attachment(self, url: str) -> ChatAttachment | None:
         if self.is_own_storage_uri(url):
             filename = url.rsplit("/", 1)[-1]
             if not filename:
                 return None
-            return self.__di.chat_message_attachment_repo.get(filename.rsplit(".", 1)[0])
+            return self.__di.chat_attachment_repo.get(filename.rsplit(".", 1)[0])
         if self.is_own_public_url(url):
             token = url.rsplit("/", 1)[-1]
             claims = verify_public_attachment_token(token)
-            return self.__di.chat_message_attachment_repo.get(claims.attachment_id)
+            return self.__di.chat_attachment_repo.get(claims.attachment_id)
         if self.is_own_private_url(url):
-            return self.__di.chat_message_attachment_repo.get(url.rsplit("/", 1)[-1])
+            return self.__di.chat_attachment_repo.get(url.rsplit("/", 1)[-1])
         return None

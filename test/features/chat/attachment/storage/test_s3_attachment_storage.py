@@ -6,7 +6,7 @@ from uuid import UUID
 
 from botocore.exceptions import ClientError
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.s3_attachment_storage import S3_ADDRESSING_STYLE, S3AttachmentStorage
 from features.chat.attachment.storage.s3_client import S3Client
 
@@ -200,8 +200,8 @@ class S3AttachmentStorageTest(unittest.TestCase):
         self,
         mime_type: str | None = None,
         extension: str | None = None,
-    ) -> ChatMessageAttachment:
-        return ChatMessageAttachment(
+    ) -> ChatAttachment:
+        return ChatAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
             uploader_user_id = UUID(int = 9),
             message_id = "message-id",

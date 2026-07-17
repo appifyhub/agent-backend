@@ -6,21 +6,21 @@ from uuid import UUID
 from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.users.user import User
 
 
-class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
+class ChatAttachmentRepositoryTest(unittest.TestCase):
 
     sql: SQLUtil
-    repo: ChatMessageAttachmentRepository
+    repo: ChatAttachmentRepository
 
     def setUp(self):
         self.sql = SQLUtil()
-        self.repo = self.sql.chat_message_attachment_repo()
+        self.repo = self.sql.chat_attachment_repo()
         self.uploader = self.sql.user_repo().save(User(full_name = "Uploader"))
 
     def tearDown(self):
@@ -51,8 +51,8 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
         message_id: str | None,
         attachment_id: str = "attach1",
         external_id: str = "external1",
-    ) -> ChatMessageAttachment:
-        return ChatMessageAttachment(
+    ) -> ChatAttachment:
+        return ChatAttachment(
             id = attachment_id,
             external_id = external_id,
             chat_id = chat_id,
@@ -67,7 +67,7 @@ class ChatMessageAttachmentRepositoryTest(unittest.TestCase):
     def test_new_attachment_generates_id_before_save(self):
         chat = self._create_chat("chat1")
         self._create_message(chat.chat_id, "message1")
-        attachment = ChatMessageAttachment(
+        attachment = ChatAttachment(
             external_id = "external1",
             chat_id = chat.chat_id,
             uploader_user_id = self.uploader.id,

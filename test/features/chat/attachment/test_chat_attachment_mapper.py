@@ -2,30 +2,30 @@ import unittest
 from datetime import datetime
 from uuid import UUID
 
-from db.model.chat_message_attachment import ChatMessageAttachmentDB
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_mapper import (
+from db.model.chat_attachment import ChatAttachmentDB
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_mapper import (
     apply_remote_data,
     apply_to_db_model,
     db,
     domain,
     from_remote_data,
 )
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from util.functions import generate_deterministic_short_uuid
 
 
-class ChatMessageAttachmentMapperTest(unittest.TestCase):
+class ChatAttachmentMapperTest(unittest.TestCase):
 
     chat_id: UUID
-    db_model: ChatMessageAttachmentDB
-    domain_model: ChatMessageAttachment
+    db_model: ChatAttachmentDB
+    domain_model: ChatAttachment
 
     def setUp(self):
         self.chat_id = UUID("11111111-1111-1111-1111-111111111111")
         self.uploader_user_id = UUID("22222222-2222-2222-2222-222222222222")
         self.created_at = datetime(2026, 1, 2, 3, 4, 5)
-        self.db_model = ChatMessageAttachmentDB(
+        self.db_model = ChatAttachmentDB(
             id = "attach1",
             external_id = "external1",
             uploader_user_id = self.uploader_user_id,
@@ -37,7 +37,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
             extension = "jpg",
             mime_type = "image/jpeg",
         )
-        self.domain_model = ChatMessageAttachment(
+        self.domain_model = ChatAttachment(
             id = "attach1",
             external_id = "external1",
             uploader_user_id = self.uploader_user_id,
@@ -82,7 +82,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result, self.domain_model)
 
     def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity_and_creation_metadata(self):
-        domain_model = ChatMessageAttachment(
+        domain_model = ChatAttachment(
             id = "different-id",
             external_id = None,
             uploader_user_id = UUID("44444444-4444-4444-4444-444444444444"),
@@ -109,7 +109,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(self.db_model.mime_type, domain_model.mime_type)
 
     def test_new_domain_model_generates_id_before_db_mapping(self):
-        domain_model = ChatMessageAttachment(
+        domain_model = ChatAttachment(
             external_id = "external3",
             chat_id = self.chat_id,
             uploader_user_id = self.uploader_user_id,
@@ -122,7 +122,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(len(result.id), 8)
 
     def test_from_remote_data_creates_complete_domain_state(self):
-        remote_data = ChatMessageAttachmentRemoteData(
+        remote_data = ChatAttachmentRemoteData(
             external_id = "external2",
             message_id = "message2",
             size = 2048,
@@ -144,7 +144,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.mime_type, remote_data.mime_type)
 
     def test_apply_remote_data_preserves_identity_and_applies_truthy_values(self):
-        remote_data = ChatMessageAttachmentRemoteData(
+        remote_data = ChatAttachmentRemoteData(
             external_id = "external2",
             message_id = "message2",
             size = 2048,
@@ -165,7 +165,7 @@ class ChatMessageAttachmentMapperTest(unittest.TestCase):
         self.assertEqual(result.mime_type, remote_data.mime_type)
 
     def test_apply_remote_data_preserves_existing_falsey_remote_metadata(self):
-        remote_data = ChatMessageAttachmentRemoteData(
+        remote_data = ChatAttachmentRemoteData(
             external_id = "external2",
             message_id = "message2",
             size = 0,

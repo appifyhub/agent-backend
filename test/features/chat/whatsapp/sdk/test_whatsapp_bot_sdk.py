@@ -6,7 +6,7 @@ from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.response import ContactResponse, MessageResponse, SentMessageResponse
@@ -32,19 +32,19 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_domain_mapper = Mock(spec = WhatsAppDomainMapper)
         # noinspection PyPropertyAccess
-        self.mock_di.chat_message_attachment_repo = Mock()
-        self.mock_di.chat_message_attachment_repo.save.side_effect = lambda attachment: attachment
+        self.mock_di.chat_attachment_repo = Mock()
+        self.mock_di.chat_attachment_repo.save.side_effect = lambda attachment: attachment
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = Mock()
         self.mock_di.chat_message_repo.save.side_effect = lambda msg: msg
         self.mock_di.invoker = SimpleNamespace(id = UUID(int = 9))
-        self.mock_chat_message_attachment_service = Mock()
+        self.mock_chat_attachment_service = Mock()
         self.stored_media_url = "s3://the-agent/chats/chat-id/attachments/attachment-id"
         self.public_url = "https://agent.example/attachments/public/token"
-        self.mock_chat_message_attachment_service.is_own_storage_uri.return_value = False
-        self.mock_chat_message_attachment_service.save.side_effect = self.__save_attachment
-        self.mock_chat_message_attachment_service.create_public_url.return_value = SimpleNamespace(url = self.public_url)
-        self.mock_di.chat_message_attachment_service = self.mock_chat_message_attachment_service
+        self.mock_chat_attachment_service.is_own_storage_uri.return_value = False
+        self.mock_chat_attachment_service.save.side_effect = self.__save_attachment
+        self.mock_chat_attachment_service.create_public_url.return_value = SimpleNamespace(url = self.public_url)
+        self.mock_di.chat_attachment_service = self.mock_chat_attachment_service
 
         self.sdk = WhatsAppBotSDK(self.mock_di)
 
@@ -77,10 +77,10 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def __save_attachment(
         self,
-        attachment: ChatMessageAttachment,
+        attachment: ChatAttachment,
         content: bytes | None = None,
         remote_url: str | None = None,
-    ) -> ChatMessageAttachment:
+    ) -> ChatAttachment:
         if content is None and remote_url is None:
             return attachment
         return replace(attachment, last_url = self.stored_media_url)
@@ -102,7 +102,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_photo(self):
         caption = "test photo"
-        attachment = ChatMessageAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
 
         result = self.sdk.send_photo(
             chat_config = self.chat_config,
@@ -116,9 +116,9 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             image_url = self.public_url,
             caption = caption,
         )
-        self.mock_chat_message_attachment_service.create_public_url.assert_called_once_with(attachment)
-        self.mock_chat_message_attachment_service.save.assert_called_once()
-        patched_attachment = self.mock_chat_message_attachment_service.save.call_args.args[0]
+        self.mock_chat_attachment_service.create_public_url.assert_called_once_with(attachment)
+        self.mock_chat_attachment_service.save.assert_called_once()
+        patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
         self.assertEqual(patched_attachment.id, attachment.id)
         self.assertEqual(patched_attachment.message_id, self.message_id)
         self.assertIsInstance(result, ChatMessage)
@@ -127,7 +127,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_document(self):
         caption = "test document"
-        attachment = ChatMessageAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
 
         result = self.sdk.send_document(
             chat_config = self.chat_config,
@@ -141,9 +141,9 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             document_url = self.public_url,
             caption = caption,
         )
-        self.mock_chat_message_attachment_service.create_public_url.assert_called_once_with(attachment)
-        self.mock_chat_message_attachment_service.save.assert_called_once()
-        patched_attachment = self.mock_chat_message_attachment_service.save.call_args.args[0]
+        self.mock_chat_attachment_service.create_public_url.assert_called_once_with(attachment)
+        self.mock_chat_attachment_service.save.assert_called_once()
+        patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
         self.assertEqual(patched_attachment.id, attachment.id)
         self.assertEqual(patched_attachment.message_id, self.message_id)
         self.assertIsInstance(result, ChatMessage)

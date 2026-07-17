@@ -6,7 +6,7 @@ from util.functions import generate_short_uuid
 
 
 @dataclass(kw_only = True)
-class ChatMessageAttachment:
+class ChatAttachment:
 
     id: str = field(default_factory = generate_short_uuid)
     chat_id: UUID

@@ -1,7 +1,7 @@
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage, PublicAttachment
 from util.error_codes import INVALID_ATTACHMENT_OPERATION
 from util.errors import InternalError, ValidationError
@@ -28,23 +28,23 @@ class LocalAttachmentStorage(AttachmentStorage):
     def owns_uri(self, uri: str | None) -> bool:
         return bool(uri) and uri.startswith(f"file://{self.__root}/")
 
-    def put(self, metadata: ChatMessageAttachment, content: bytes) -> str:
+    def put(self, metadata: ChatAttachment, content: bytes) -> str:
         path = self.__path_for(metadata.uri)
         path.parent.mkdir(parents = True, exist_ok = True)
         path.write_bytes(content)
         return f"file://{self.__root}/{metadata.uri}"
 
-    def open(self, metadata: ChatMessageAttachment) -> BinaryIO:
+    def open(self, metadata: ChatAttachment) -> BinaryIO:
         return self.__path_for(metadata.uri).open("rb")
 
-    def delete(self, metadata: ChatMessageAttachment) -> None:
+    def delete(self, metadata: ChatAttachment) -> None:
         path = self.__path_for(metadata.uri)
         try:
             path.unlink()
         except FileNotFoundError:
             pass
 
-    def public_attachment_for(self, _: ChatMessageAttachment) -> PublicAttachment:
+    def public_attachment_for(self, _: ChatAttachment) -> PublicAttachment:
         raise InternalError("Local attachment storage does not serve public URLs", INVALID_ATTACHMENT_OPERATION)
 
     def __path_for(self, key: str) -> Path:

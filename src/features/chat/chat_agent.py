@@ -78,7 +78,7 @@ class ChatAgent:
         self.__attachment_ids = [
             attachment.id
             for attachment in chain.from_iterable(
-                di.chat_message_attachment_repo.get_all_by_message(message.chat_id, message.message_id)
+                di.chat_attachment_repo.get_all_by_message(message.chat_id, message.message_id)
                 for message in past_messages
             )
         ]

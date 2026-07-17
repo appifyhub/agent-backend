@@ -1,17 +1,17 @@
 from dataclasses import replace
 from uuid import UUID
 
-from db.model.chat_message_attachment import ChatMessageAttachmentDB
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from db.model.chat_attachment import ChatAttachmentDB
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from util.functions import generate_deterministic_short_uuid
 
 
-def domain(db_model: ChatMessageAttachmentDB | None) -> ChatMessageAttachment | None:
+def domain(db_model: ChatAttachmentDB | None) -> ChatAttachment | None:
     if db_model is None:
         return None
 
-    return ChatMessageAttachment(
+    return ChatAttachment(
         id = db_model.id,
         external_id = db_model.external_id,
         uploader_user_id = db_model.uploader_user_id,
@@ -25,11 +25,11 @@ def domain(db_model: ChatMessageAttachmentDB | None) -> ChatMessageAttachment | 
     )
 
 
-def db(domain_model: ChatMessageAttachment | None) -> ChatMessageAttachmentDB | None:
+def db(domain_model: ChatAttachment | None) -> ChatAttachmentDB | None:
     if domain_model is None:
         return None
 
-    return ChatMessageAttachmentDB(
+    return ChatAttachmentDB(
         id = domain_model.id,
         external_id = domain_model.external_id,
         uploader_user_id = domain_model.uploader_user_id,
@@ -44,8 +44,8 @@ def db(domain_model: ChatMessageAttachment | None) -> ChatMessageAttachmentDB | 
 
 
 def apply_to_db_model(
-    domain_model: ChatMessageAttachment,
-    db_model: ChatMessageAttachmentDB,
+    domain_model: ChatAttachment,
+    db_model: ChatAttachmentDB,
 ) -> None:
     db_model.external_id = domain_model.external_id
     db_model.chat_id = domain_model.chat_id
@@ -57,11 +57,11 @@ def apply_to_db_model(
 
 
 def from_remote_data(
-    remote_data: ChatMessageAttachmentRemoteData,
+    remote_data: ChatAttachmentRemoteData,
     chat_id: UUID,
     uploader_user_id: UUID,
-) -> ChatMessageAttachment:
-    return ChatMessageAttachment(
+) -> ChatAttachment:
+    return ChatAttachment(
         id = generate_deterministic_short_uuid(remote_data.external_id),
         external_id = remote_data.external_id,
         uploader_user_id = uploader_user_id,
@@ -75,9 +75,9 @@ def from_remote_data(
 
 
 def apply_remote_data(
-    attachment: ChatMessageAttachment,
-    remote_data: ChatMessageAttachmentRemoteData,
-) -> ChatMessageAttachment:
+    attachment: ChatAttachment,
+    remote_data: ChatAttachmentRemoteData,
+) -> ChatAttachment:
     return replace(
         attachment,
         external_id = remote_data.external_id,

@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from uuid import UUID
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
@@ -32,10 +32,10 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.mock_di.invoker = SimpleNamespace(id = UUID(int = 9))
         self.stored_media_url = "s3://the-agent/chats/chat-id/attachments/attachment-id"
         self.public_url = "https://agent.example/attachments/public/token"
-        self.mock_chat_message_attachment_service = Mock()
-        self.mock_chat_message_attachment_service.save.side_effect = self.__save_attachment
-        self.mock_chat_message_attachment_service.create_public_url.return_value = SimpleNamespace(url = self.public_url)
-        self.mock_di.chat_message_attachment_service = self.mock_chat_message_attachment_service
+        self.mock_chat_attachment_service = Mock()
+        self.mock_chat_attachment_service.save.side_effect = self.__save_attachment
+        self.mock_chat_attachment_service.create_public_url.return_value = SimpleNamespace(url = self.public_url)
+        self.mock_di.chat_attachment_service = self.mock_chat_attachment_service
 
         self.sdk = TelegramBotSDK(self.mock_di)
 
@@ -62,10 +62,10 @@ class TelegramBotSDKTest(unittest.TestCase):
 
     def __save_attachment(
         self,
-        attachment: ChatMessageAttachment,
+        attachment: ChatAttachment,
         content: bytes | None = None,
         remote_url: str | None = None,
-    ) -> ChatMessageAttachment:
+    ) -> ChatAttachment:
         if content is None and remote_url is None:
             return attachment
         return replace(attachment, last_url = self.stored_media_url)
@@ -78,7 +78,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.mock_di.telegram_data_resolver.resolve.return_value = Mock(
             spec = TelegramDataResolver.Result,
             message = expected_message,
-            attachments = [Mock(spec = ChatMessageAttachment)],
+            attachments = [Mock(spec = ChatAttachment)],
         )
 
         result = self.sdk.send_text_message(chat_id = self.chat_id, text = text)
@@ -96,7 +96,7 @@ class TelegramBotSDKTest(unittest.TestCase):
     @patch.object(TelegramDomainMapper, "map_update")
     def test_send_photo(self, mock_map_update):
         caption = "test photo"
-        attachment = ChatMessageAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
         expected_message = Mock(spec = ChatMessage, message_id = self.message_id)
         mock_map_update.return_value = Mock(spec = TelegramDomainMapper.Result)
         self.mock_di.telegram_data_resolver.resolve.return_value = Mock(
@@ -119,9 +119,9 @@ class TelegramBotSDKTest(unittest.TestCase):
             parse_mode = "markdown",
             disable_notification = False,
         )
-        self.mock_chat_message_attachment_service.create_public_url.assert_called_once_with(attachment)
-        self.mock_chat_message_attachment_service.save.assert_called_once()
-        patched_attachment = self.mock_chat_message_attachment_service.save.call_args.args[0]
+        self.mock_chat_attachment_service.create_public_url.assert_called_once_with(attachment)
+        self.mock_chat_attachment_service.save.assert_called_once()
+        patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
         self.assertEqual(patched_attachment.id, attachment.id)
         self.assertEqual(patched_attachment.message_id, self.message_id)
         self.assertEqual(result, expected_message)
@@ -129,7 +129,7 @@ class TelegramBotSDKTest(unittest.TestCase):
     @patch.object(TelegramDomainMapper, "map_update")
     def test_send_document(self, mock_map_update):
         caption = "test document"
-        attachment = ChatMessageAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
         expected_message = Mock(spec = ChatMessage, message_id = self.message_id)
         mock_map_update.return_value = Mock(spec = TelegramDomainMapper.Result)
         self.mock_di.telegram_data_resolver.resolve.return_value = Mock(
@@ -153,9 +153,9 @@ class TelegramBotSDKTest(unittest.TestCase):
             thumbnail = None,
             disable_notification = False,
         )
-        self.mock_chat_message_attachment_service.create_public_url.assert_called_once_with(attachment)
-        self.mock_chat_message_attachment_service.save.assert_called_once()
-        patched_attachment = self.mock_chat_message_attachment_service.save.call_args.args[0]
+        self.mock_chat_attachment_service.create_public_url.assert_called_once_with(attachment)
+        self.mock_chat_attachment_service.save.assert_called_once()
+        patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
         self.assertEqual(patched_attachment.id, attachment.id)
         self.assertEqual(patched_attachment.message_id, self.message_id)
         self.assertEqual(result, expected_message)
@@ -188,7 +188,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.mock_di.telegram_data_resolver.resolve.return_value = Mock(
             spec = TelegramDataResolver.Result,
             message = expected_message,
-            attachments = [Mock(spec = ChatMessageAttachment)],
+            attachments = [Mock(spec = ChatAttachment)],
         )
 
         # Test settings button

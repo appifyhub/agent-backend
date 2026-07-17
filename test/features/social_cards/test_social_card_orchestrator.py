@@ -35,9 +35,9 @@ def _make_mock_di() -> DI:
     di.url_shortener = MagicMock()
     di.require_invoker_chat.return_value = MagicMock(chat_id = "chat-1")
     di.invoker = MagicMock(id = "user-1")
-    di.chat_message_attachment_service = MagicMock()
-    di.chat_message_attachment_service.save.return_value = MagicMock(id = "att-1")
-    di.chat_message_attachment_service.create_public_url.return_value = MagicMock(
+    di.chat_attachment_service = MagicMock()
+    di.chat_attachment_service.save.return_value = MagicMock(id = "att-1")
+    di.chat_attachment_service.create_public_url.return_value = MagicMock(
         url = "https://cdn.example.com/card.png",
     )
     return di
@@ -87,7 +87,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
         self.assertEqual(result, "https://cdn.example.com/card.png")
         mock_renderer.render.assert_called_once()
-        self.mock_di.chat_message_attachment_service.save.assert_called_once()
+        self.mock_di.chat_attachment_service.save.assert_called_once()
 
     @patch("features.social_cards.social_card_orchestrator.resolve_tweet_id")
     def test_invalid_url_raises_validation_error(self, mock_resolve):
@@ -166,7 +166,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
         mock_renderer.render.return_value = b"png-data"
 
-        self.mock_di.chat_message_attachment_service.save.side_effect = ExternalServiceError("storage is down", 5004)
+        self.mock_di.chat_attachment_service.save.side_effect = ExternalServiceError("storage is down", 5004)
 
         with self.assertRaises(ExternalServiceError):
             self._make_orchestrator().execute("https://x.com/user/status/123456789")

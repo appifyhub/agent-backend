@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.social_cards import card_renderer
@@ -123,8 +123,8 @@ class SocialCardOrchestrator:
 
         # store the generated image as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_message_attachment_service.save(
-            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+        attachment = self.__di.chat_attachment_service.save(
+            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
             content = png_bytes,
         )
-        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        return self.__di.chat_attachment_service.create_public_url(attachment).url

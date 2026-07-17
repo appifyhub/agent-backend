@@ -4,7 +4,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage, PublicAttachment
 from features.chat.attachment.storage.s3_client import S3Client
 from features.chat.supported_files import resolve_file_type
@@ -57,7 +57,7 @@ class S3AttachmentStorage(AttachmentStorage):
     def owns_uri(self, uri: str | None) -> bool:
         return bool(uri) and uri.startswith(f"s3://{self.__bucket}/")
 
-    def put(self, metadata: ChatMessageAttachment, content: bytes) -> str:
+    def put(self, metadata: ChatAttachment, content: bytes) -> str:
         try:
             put_args: dict[str, object] = {"Bucket": self.__bucket, "Key": metadata.uri, "Body": content}
             mime_type, _ = resolve_file_type(mime_type = metadata.mime_type, extension = metadata.extension, uri = metadata.uri)
@@ -68,7 +68,7 @@ class S3AttachmentStorage(AttachmentStorage):
         except Exception as e:
             raise ExternalServiceError("Attachment storage upload failed", ATTACHMENT_STORAGE_FAILED) from e
 
-    def open(self, metadata: ChatMessageAttachment) -> BinaryIO:
+    def open(self, metadata: ChatAttachment) -> BinaryIO:
         try:
             response = self.__client.get_object(Bucket = self.__bucket, Key = metadata.uri)
             body = response.get("Body")
@@ -80,13 +80,13 @@ class S3AttachmentStorage(AttachmentStorage):
         except Exception as e:
             raise ExternalServiceError("Attachment storage read failed", ATTACHMENT_STORAGE_FAILED) from e
 
-    def delete(self, metadata: ChatMessageAttachment) -> None:
+    def delete(self, metadata: ChatAttachment) -> None:
         try:
             self.__client.delete_object(Bucket = self.__bucket, Key = metadata.uri)
         except Exception as e:
             raise ExternalServiceError("Attachment storage delete failed", ATTACHMENT_STORAGE_FAILED) from e
 
-    def public_attachment_for(self, _: ChatMessageAttachment) -> PublicAttachment:
+    def public_attachment_for(self, _: ChatAttachment) -> PublicAttachment:
         raise InternalError("S3 attachment storage does not serve public URLs", INVALID_ATTACHMENT_OPERATION)
 
     def __create_bucket(self) -> None:

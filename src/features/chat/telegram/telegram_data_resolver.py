@@ -5,9 +5,9 @@ from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_mapper import from_remote_data as from_remote_data_attachment
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_mapper import from_remote_data as from_remote_data_attachment
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_mapper import apply_remote_data as apply_remote_data_message
@@ -35,7 +35,7 @@ class TelegramDataResolver:
         chat: ChatConfig
         author: User | None
         message: ChatMessage
-        attachments: list[ChatMessageAttachment]
+        attachments: list[ChatAttachment]
 
     __di: DI
 
@@ -63,13 +63,13 @@ class TelegramDataResolver:
             chat_id = resolved_chat_config.chat_id,
             author_id = resolved_author.id if resolved_author else None,
         )
-        resolved_attachments: list[ChatMessageAttachment] = []
+        resolved_attachments: list[ChatAttachment] = []
         # skip attachment resolution for the agent's own messages — the SDK already archives outbound media
         if mapping_result.attachments and not is_author_the_agent:
             if not resolved_author or not resolved_author.id:
                 raise InternalError("Telegram attachment cannot be resolved without a message author", PLATFORM_MAPPING_FAILED)
             resolved_attachments = [
-                self.resolve_chat_message_attachment(
+                self.resolve_chat_attachment(
                     attachment,
                     resolved_chat_message.chat_id,
                     resolved_author.id,
@@ -111,12 +111,12 @@ class TelegramDataResolver:
         )
         return self.__di.chat_message_repo.save(chat_message)
 
-    def resolve_chat_message_attachment(
+    def resolve_chat_attachment(
         self,
-        mapped_data: ChatMessageAttachmentRemoteData,
+        mapped_data: ChatAttachmentRemoteData,
         chat_id: UUID,
         uploader_user_id: UUID,
-    ) -> ChatMessageAttachment:
+    ) -> ChatAttachment:
         log.t(f"  Resolving chat message attachment: {mapped_data}")
         draft_attachment = from_remote_data_attachment(mapped_data, chat_id, uploader_user_id)
         content = self.__di.telegram_bot_api.download_file(draft_attachment.external_id)
@@ -124,4 +124,4 @@ class TelegramDataResolver:
             raise ExternalServiceError(
                 f"Could not download Telegram file '{draft_attachment.external_id}'", MEDIA_DOWNLOAD_FAILED,
             )
-        return self.__di.chat_message_attachment_service.save(draft_attachment, content)
+        return self.__di.chat_attachment_service.save(draft_attachment, content)

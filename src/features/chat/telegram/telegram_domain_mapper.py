@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.file import File
@@ -21,7 +21,7 @@ class TelegramDomainMapper:
         chat: ChatConfigRemoteData
         author: UserRemoteData | None
         message: ChatMessageRemoteData
-        attachments: list[ChatMessageAttachmentRemoteData]
+        attachments: list[ChatAttachmentRemoteData]
 
     def map_update(self, update: Update) -> Result | None:
         log.t(f"Mapping Telegram update: {update}")
@@ -143,8 +143,8 @@ class TelegramDomainMapper:
         log.t(f"  Mapping attachments: {formatted_attachments}")
         return f"[ {', '.join(formatted_attachments)} ]"
 
-    def map_attachments(self, message: Message) -> list[ChatMessageAttachmentRemoteData]:
-        attachments: list[ChatMessageAttachmentRemoteData] = []
+    def map_attachments(self, message: Message) -> list[ChatAttachmentRemoteData]:
+        attachments: list[ChatAttachmentRemoteData] = []
         if message.audio:
             log.t(f"  Mapping audio: {message.audio}")
             dummy_file = File(
@@ -210,11 +210,11 @@ class TelegramDomainMapper:
         file: File,
         message_id: str,
         mime_type: str | None,
-    ) -> ChatMessageAttachmentRemoteData:
+    ) -> ChatAttachmentRemoteData:
         log.t(f"    Creating attachment from file: {file}")
         bot_token = config.telegram_bot_token.get_secret_value()
         last_url = f"{config.telegram_api_base_url}/file/bot{bot_token}/{file.file_path}"
-        return ChatMessageAttachmentRemoteData(
+        return ChatAttachmentRemoteData(
             external_id = file.file_id,
             message_id = message_id,
             size = file.file_size,

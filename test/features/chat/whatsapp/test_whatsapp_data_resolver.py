@@ -8,9 +8,9 @@ from pydantic import SecretStr
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
-from features.chat.attachment.chat_message_attachment_service import ChatMessageAttachmentService
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
+from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message import ChatMessage
@@ -42,9 +42,9 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = self.sql.chat_message_repo()
         # noinspection PyPropertyAccess
-        self.mock_di.chat_message_attachment_repo = self.sql.chat_message_attachment_repo()
+        self.mock_di.chat_attachment_repo = self.sql.chat_attachment_repo()
         # noinspection PyPropertyAccess
-        self.mock_di.chat_message_attachment_service = ChatMessageAttachmentService(self.mock_di)
+        self.mock_di.chat_attachment_service = ChatAttachmentService(self.mock_di)
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_bot_api = MagicMock()
         self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xFF\xD8\xFF\xE0fake-jpeg"
@@ -104,7 +104,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
                 text = "This is a message",
             ),
             attachments = [
-                ChatMessageAttachmentRemoteData(
+                ChatAttachmentRemoteData(
                     external_id = "e1",
                     message_id = "m1",
                     mime_type = "image/jpeg",
@@ -131,7 +131,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             sent_at = datetime.now(),
             text = "This is a message",
         )
-        attachment_data = ChatMessageAttachmentRemoteData(
+        attachment_data = ChatAttachmentRemoteData(
             external_id = "e1",
             message_id = message_data.message_id,
             last_url = "path/to/file.jpg",
@@ -176,7 +176,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             sent_at = datetime.now(),
             text = "This is a message",
         )
-        attachment_data = ChatMessageAttachmentRemoteData(
+        attachment_data = ChatAttachmentRemoteData(
             external_id = "e1",
             message_id = message_data.message_id,
             last_url = "path/to/file.jpg",
@@ -427,7 +427,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.sent_at, mapped_data.sent_at)
         self.assertEqual(result.text, mapped_data.text)
 
-    def test_resolve_chat_message_attachment_new(self):
+    def test_resolve_chat_attachment_new(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
@@ -435,7 +435,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.sql.chat_message_repo().save(
             ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"),
         )
-        mapped_data = ChatMessageAttachmentRemoteData(
+        mapped_data = ChatAttachmentRemoteData(
             external_id = "e1",
             message_id = "m1",
             last_url = "path/to/file.jpg",
@@ -443,8 +443,8 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             mime_type = "image/jpeg",
         )
 
-        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id, uploader.id)
-        saved_attachment = self.sql.chat_message_attachment_repo().get_by_external_id(chat.chat_id, mapped_data.external_id)
+        result = self.resolver.resolve_chat_attachment(mapped_data, chat.chat_id, uploader.id)
+        saved_attachment = self.sql.chat_attachment_repo().get_by_external_id(chat.chat_id, mapped_data.external_id)
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, generate_deterministic_short_uuid(mapped_data.external_id))
@@ -457,7 +457,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.extension, "jpg")
         self.assertEqual(result.mime_type, "image/jpeg")
 
-    def test_resolve_chat_message_attachment_existing(self):
+    def test_resolve_chat_attachment_existing(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
@@ -465,7 +465,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"),
         )
         uploader = self.sql.user_repo().save(User(full_name = "Uploader", whatsapp_user_id = "123"))
-        old_attachment_data = ChatMessageAttachment(
+        old_attachment_data = ChatAttachment(
             id = "i1",
             external_id = "e1",
             chat_id = chat.chat_id,
@@ -476,11 +476,11 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             extension = "jpg",
             mime_type = "image/jpeg",
         )
-        self.sql.chat_message_attachment_repo().save(old_attachment_data)
+        self.sql.chat_attachment_repo().save(old_attachment_data)
 
-        mapped_data = ChatMessageAttachmentRemoteData(external_id = "e1", message_id = "m1")
-        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id, uploader.id)
-        saved_attachment = self.sql.chat_message_attachment_repo().get("i1")
+        mapped_data = ChatAttachmentRemoteData(external_id = "e1", message_id = "m1")
+        result = self.resolver.resolve_chat_attachment(mapped_data, chat.chat_id, uploader.id)
+        saved_attachment = self.sql.chat_attachment_repo().get("i1")
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, old_attachment_data.id)

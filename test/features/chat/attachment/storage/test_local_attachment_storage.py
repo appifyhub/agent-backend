@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from uuid import UUID
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
 from util.errors import ValidationError
 
@@ -59,8 +59,8 @@ class LocalAttachmentStorageTest(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 storage.put(metadata, b"content")
 
-    def __metadata(self, attachment_id: str = "attachment-id") -> ChatMessageAttachment:
-        return ChatMessageAttachment(
+    def __metadata(self, attachment_id: str = "attachment-id") -> ChatAttachment:
+        return ChatAttachment(
             chat_id = UUID("11111111-1111-1111-1111-111111111111"),
             uploader_user_id = UUID(int = 9),
             message_id = "message-id",

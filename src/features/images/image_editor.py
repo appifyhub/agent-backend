@@ -8,7 +8,7 @@ from google.genai.types import GenerateContentConfig, ImageConfig
 from PIL import Image
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.supported_files import resolve_file_type
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -146,11 +146,11 @@ class ImageEditor:
 
         # store the edited image as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_message_attachment_service.save(
-            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+        attachment = self.__di.chat_attachment_service.save(
+            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
             remote_url = result,
         )
-        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        return self.__di.chat_attachment_service.create_public_url(attachment).url
 
     def __edit_with_google_ai(self, temp_file_paths: list[str], input_image_sizes: list[str | None]) -> str | None:
         log.t("Editing image with Google AI")
@@ -200,11 +200,11 @@ class ImageEditor:
 
         # store the image data as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_message_attachment_service.save(
-            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+        attachment = self.__di.chat_attachment_service.save(
+            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
             content = image_data,
         )
-        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        return self.__di.chat_attachment_service.create_public_url(attachment).url
 
     def __edit_with_x_ai(self, temp_file_paths: list[str], input_image_sizes: list[str | None]) -> str | None:
         log.t("Editing image with xAI")
@@ -263,8 +263,8 @@ class ImageEditor:
 
         # store the edited image as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_message_attachment_service.save(
-            attachment = ChatMessageAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
+        attachment = self.__di.chat_attachment_service.save(
+            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
             content = image_data,
         )
-        return self.__di.chat_message_attachment_service.create_public_url(attachment).url
+        return self.__di.chat_attachment_service.create_public_url(attachment).url

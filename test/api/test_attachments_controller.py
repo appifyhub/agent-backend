@@ -7,8 +7,8 @@ from starlette.responses import StreamingResponse
 
 from api.attachments_controller import AttachmentsController
 from api.auth import PublicAttachmentTokenClaims
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_service import ResolvedAttachmentStream
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_service import ResolvedAttachmentStream
 from features.chat.membership.chat_membership import ChatMembership
 from features.users.user import User
 from util.error_codes import ATTACHMENT_NOT_FOUND, NOT_CHAT_MEMBER
@@ -19,7 +19,7 @@ class AttachmentsControllerTest(unittest.TestCase):
 
     def setUp(self):
         self.user = User(id = UUID(int = 1))
-        self.attachment = ChatMessageAttachment(
+        self.attachment = ChatAttachment(
             id = "attachment-id",
             chat_id = UUID(int = 2),
             uploader_user_id = self.user.id,
@@ -32,7 +32,7 @@ class AttachmentsControllerTest(unittest.TestCase):
         self.controller = AttachmentsController(self.di)
 
     def test_stream_private_attachment_returns_streaming_response(self):
-        self.di.chat_message_attachment_service.stream_attachment.return_value = ResolvedAttachmentStream(
+        self.di.chat_attachment_service.stream_attachment.return_value = ResolvedAttachmentStream(
             stream = BytesIO(b"private-content"),
             media_type = "image/png",
         )
@@ -41,10 +41,10 @@ class AttachmentsControllerTest(unittest.TestCase):
 
         self.assertIsInstance(response, StreamingResponse)
         self.assertEqual(response.media_type, "image/png")
-        self.di.chat_message_attachment_service.stream_attachment.assert_called_once_with("attachment-id")
+        self.di.chat_attachment_service.stream_attachment.assert_called_once_with("attachment-id")
 
     def test_stream_private_attachment_propagates_not_found(self):
-        self.di.chat_message_attachment_service.stream_attachment.side_effect = NotFoundError(
+        self.di.chat_attachment_service.stream_attachment.side_effect = NotFoundError(
             "Attachment 'missing' not found", ATTACHMENT_NOT_FOUND,
         )
 
@@ -52,7 +52,7 @@ class AttachmentsControllerTest(unittest.TestCase):
             self.controller.stream_private_attachment("missing")
 
     def test_stream_private_attachment_propagates_non_member_error(self):
-        self.di.chat_message_attachment_service.stream_attachment.side_effect = AuthorizationError(
+        self.di.chat_attachment_service.stream_attachment.side_effect = AuthorizationError(
             "Not a member", NOT_CHAT_MEMBER,
         )
 
@@ -60,7 +60,7 @@ class AttachmentsControllerTest(unittest.TestCase):
             self.controller.stream_private_attachment("attachment-id")
 
     def test_stream_public_attachment_returns_streaming_response(self):
-        self.di.chat_message_attachment_service.stream_attachment.return_value = ResolvedAttachmentStream(
+        self.di.chat_attachment_service.stream_attachment.return_value = ResolvedAttachmentStream(
             stream = BytesIO(b"public-content"),
             media_type = "image/png",
         )
@@ -74,10 +74,10 @@ class AttachmentsControllerTest(unittest.TestCase):
 
         self.assertIsInstance(response, StreamingResponse)
         self.assertEqual(response.media_type, "image/png")
-        self.di.chat_message_attachment_service.stream_attachment.assert_called_once_with("attachment-id")
+        self.di.chat_attachment_service.stream_attachment.assert_called_once_with("attachment-id")
 
     def test_stream_public_attachment_propagates_not_found(self):
-        self.di.chat_message_attachment_service.stream_attachment.side_effect = NotFoundError(
+        self.di.chat_attachment_service.stream_attachment.side_effect = NotFoundError(
             "Attachment 'missing' not found", ATTACHMENT_NOT_FOUND,
         )
         claims = PublicAttachmentTokenClaims(
@@ -90,7 +90,7 @@ class AttachmentsControllerTest(unittest.TestCase):
             self.controller.stream_public_attachment(claims)
 
     def test_stream_public_attachment_propagates_non_member_error(self):
-        self.di.chat_message_attachment_service.stream_attachment.side_effect = AuthorizationError(
+        self.di.chat_attachment_service.stream_attachment.side_effect = AuthorizationError(
             "Not a member", NOT_CHAT_MEMBER,
         )
         claims = PublicAttachmentTokenClaims(

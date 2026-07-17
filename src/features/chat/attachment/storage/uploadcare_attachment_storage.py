@@ -6,7 +6,7 @@ from typing import BinaryIO
 import requests
 from pyuploadcare import Uploadcare
 
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage, PublicAttachment
 from util.config import config
 from util.error_codes import ATTACHMENT_STORAGE_FAILED
@@ -44,7 +44,7 @@ class UploadcareAttachmentStorage(AttachmentStorage):
     def owns_uri(self, uri: str | None) -> bool:
         return bool(uri) and uri.startswith(self.__cdn_base)
 
-    def put(self, metadata: ChatMessageAttachment, content: bytes) -> str:
+    def put(self, metadata: ChatAttachment, content: bytes) -> str:
         try:
             filename = metadata.uri.rsplit("/", 1)[-1]
             with NamedTemporaryFile(suffix = filename) as tmp_file:
@@ -60,7 +60,7 @@ class UploadcareAttachmentStorage(AttachmentStorage):
         except Exception as e:
             raise ExternalServiceError("Attachment storage upload failed", ATTACHMENT_STORAGE_FAILED) from e
 
-    def open(self, metadata: ChatMessageAttachment) -> BinaryIO:
+    def open(self, metadata: ChatAttachment) -> BinaryIO:
         try:
             response = requests.get(metadata.last_url, timeout = config.web_timeout_s * 4)
             if response.status_code != 200 or not response.content:
@@ -71,13 +71,13 @@ class UploadcareAttachmentStorage(AttachmentStorage):
         except Exception as e:
             raise ExternalServiceError("Attachment storage read failed", ATTACHMENT_STORAGE_FAILED) from e
 
-    def delete(self, metadata: ChatMessageAttachment) -> None:
+    def delete(self, metadata: ChatAttachment) -> None:
         try:
             self.__client.file(metadata.last_url).delete()
         except Exception as e:
             raise ExternalServiceError("Attachment storage delete failed", ATTACHMENT_STORAGE_FAILED) from e
 
-    def public_attachment_for(self, metadata: ChatMessageAttachment) -> PublicAttachment:
+    def public_attachment_for(self, metadata: ChatAttachment) -> PublicAttachment:
         valid_until = datetime.now() + timedelta(seconds = UPLOADCARE_PUBLIC_URL_TTL_SECONDS)
         return PublicAttachment(
             id = metadata.id,
