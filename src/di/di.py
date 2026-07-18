@@ -984,17 +984,15 @@ class DI:
     def audio_transcriber(
         self,
         job_id: str,
-        audio_url: str,
+        audio_content: bytes,
+        extension: str,
         transcriber_tool: ConfiguredTool,
         copywriter_tool: ConfiguredTool,
-        def_extension: str | None = None,
-        audio_content: bytes | None = None,
     ) -> "AudioTranscriber":
         from features.audio.audio_transcriber import AudioTranscriber
         return AudioTranscriber(
-            job_id, audio_url,
+            job_id, audio_content, extension,
             transcriber_tool, copywriter_tool, self,
-            def_extension, audio_content,
         )
 
     def chat_attachment_processor(

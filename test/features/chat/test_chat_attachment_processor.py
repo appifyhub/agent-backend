@@ -222,16 +222,18 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
             )
         self.assertIn("not found", str(context.exception))
 
-    # ── Audio path (unchanged behavior) ──────────────────────────────────
+    # ── Audio path ────────────────────────────────────────────
 
-    @requests_mock.Mocker()
-    def test_fetch_text_content_with_audio(self, m: requests_mock.Mocker):
+    def test_fetch_text_content_with_audio(self):
         audio_attachment = _make_attachment(id = "2", mime_type = "audio/mpeg", extension = "mp3", url = "http://test.com/audio.mp3")
-        m.get(str(audio_attachment.last_url), content = b"audio data", status_code = 200)
+        self.mock_di.attachment_storage.open.side_effect = lambda attachment: BytesIO(b"audio data")
 
         mock_audio_instance = MagicMock()
         mock_audio_instance.execute.return_value = "Audio transcription"
         self.mock_di.audio_transcriber.return_value = mock_audio_instance
+        transcriber_tool = MagicMock()
+        copywriter_tool = MagicMock()
+        self.mock_di.tool_choice_resolver.require_tool.side_effect = [transcriber_tool, copywriter_tool]
 
         resolver = ChatAttachmentProcessor(
             additional_context = "context",
@@ -242,6 +244,14 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
         content = resolver.fetch_text_content(audio_attachment)
 
         self.assertEqual(content, "Audio transcription")
+        self.mock_di.audio_transcriber.assert_called_once_with(
+            job_id = "2",
+            audio_content = b"audio data",
+            extension = "mp3",
+            transcriber_tool = transcriber_tool,
+            copywriter_tool = copywriter_tool,
+        )
+        self.mock_di.chat_attachment_service.create_public_url.assert_not_called()
         mock_audio_instance.execute.assert_called_once()
 
     @requests_mock.Mocker()

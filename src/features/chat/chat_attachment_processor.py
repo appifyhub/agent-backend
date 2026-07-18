@@ -285,14 +285,12 @@ class ChatAttachmentProcessor:
                 AudioTranscriber.COPYWRITER_TOOL_TYPE,
                 default_tool_for(AudioTranscriber.COPYWRITER_TOOL_TYPE),
             )
-            public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
             return self.__di.audio_transcriber(
                 job_id = attachment.id,
-                audio_url = public_url,
+                audio_content = contents,
+                extension = attachment.extension,
                 transcriber_tool = transcriber_tool,
                 copywriter_tool = copywriter_tool,
-                def_extension = attachment.extension,
-                audio_content = contents,
             ).execute()
 
         log.w(f"Unsupported attachment '{attachment.id}': {attachment.mime_type}; '.{attachment.extension}'")
