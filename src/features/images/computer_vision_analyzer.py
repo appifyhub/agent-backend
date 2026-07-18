@@ -1,5 +1,5 @@
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from di.di import DI
 from features.chat.supported_files import KNOWN_IMAGE_FORMATS
@@ -7,8 +7,8 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from util import log
-from util.error_codes import AMBIGUOUS_IMAGE_INPUTS, INVALID_IMAGE_FORMAT, LLM_UNEXPECTED_RESPONSE, MISSING_IMAGE_INPUTS
-from util.errors import ExternalServiceError, ValidationError
+from util.error_codes import AMBIGUOUS_IMAGE_INPUTS, INVALID_IMAGE_FORMAT, MISSING_IMAGE_INPUTS
+from util.errors import ValidationError
 from util.functions import parse_ai_message_content
 
 
@@ -71,9 +71,7 @@ class ComputerVisionAnalyzer:
         self.error = None
         try:
             answer = self.__vision_model.invoke(self.__messages)
-            if not isinstance(answer, AIMessage):
-                raise ExternalServiceError(f"Received a non-AI message from the model: {answer}", LLM_UNEXPECTED_RESPONSE)
-            return parse_ai_message_content(answer.content)
+            return parse_ai_message_content(answer)
         except Exception as e:
             self.error = f"Computer vision analysis failed: {str(e)}"
             log.e("Computer vision analysis failed", e)

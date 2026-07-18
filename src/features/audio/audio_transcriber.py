@@ -1,7 +1,7 @@
 import io
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from openai import OpenAI
 from pydub import AudioSegment
 
@@ -15,8 +15,9 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from util import log
-from util.error_codes import AUDIO_TRANSCRIPTION_FAILED, LLM_UNEXPECTED_RESPONSE
+from util.error_codes import AUDIO_TRANSCRIPTION_FAILED
 from util.errors import ExternalServiceError
+from util.functions import parse_ai_message_content
 
 
 # Not tested as it's just a proxy
@@ -98,12 +99,7 @@ class AudioTranscriber:
             system_prompt = prompt_resolvers.copywriting_computer_hearing(self.__di.invoker_chat)
             copywriter_messages = [SystemMessage(system_prompt), HumanMessage(raw_transcription)]
             answer = self.__copywriter.invoke(copywriter_messages)
-            if not isinstance(answer, AIMessage):
-                raise ExternalServiceError(f"Received a non-AI message from the model: {answer}", LLM_UNEXPECTED_RESPONSE)
-            if not answer.content or not isinstance(answer.content, str):
-                raise ExternalServiceError(f"Received an unexpected content from the model: {answer}", LLM_UNEXPECTED_RESPONSE)
-
-            transcription = str(answer.content)
+            transcription = parse_ai_message_content(answer)
             log.t(f"Raw transcription: `{transcription}`")
             return transcription
         except Exception as e:

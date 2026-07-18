@@ -1,5 +1,5 @@
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
@@ -10,8 +10,9 @@ from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from features.integrations.integrations import lookup_user_by_handle, resolve_agent_user, resolve_external_id
 from util import log
-from util.error_codes import LLM_UNEXPECTED_RESPONSE, NO_PRIVATE_CHAT, NOT_DEVELOPER, TARGET_CHAT_NOT_FOUND, TARGET_USER_NOT_FOUND
-from util.errors import AuthorizationError, ExternalServiceError, NotFoundError
+from util.error_codes import NO_PRIVATE_CHAT, NOT_DEVELOPER, TARGET_CHAT_NOT_FOUND, TARGET_USER_NOT_FOUND
+from util.errors import AuthorizationError, NotFoundError
+from util.functions import parse_ai_message_content
 
 
 class DevAnnouncementsService:
@@ -90,9 +91,8 @@ class DevAnnouncementsService:
                     system_prompt = prompt_resolvers.copywriting_system_announcement(chat.chat_type, chat)
                     messages = [SystemMessage(system_prompt), HumanMessage(self.__raw_message)]
                     answer = self.__copywriter.invoke(messages)
-                    if not isinstance(answer, AIMessage):
-                        raise ExternalServiceError(f"Received a non-AI message from LLM: {answer}", LLM_UNEXPECTED_RESPONSE)
-                    summary = translations.save(str(answer.content), chat.language_name, chat.language_iso_code)
+                    content = parse_ai_message_content(answer)
+                    summary = translations.save(content, chat.language_name, chat.language_iso_code)
                     summaries_created += 1
                 scoped_di.platform_bot_sdk().send_text_message(int(chat.external_id or "-1"), summary)
                 chats_notified += 1

@@ -107,7 +107,10 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.mock_sleep.assert_called_once_with(0.1)
 
     def test_reaction_response(self):
-        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
+        self.di.chat_agent.return_value.execute.return_value = AIMessage(content = [
+            {"type": "thinking", "thinking": "A reaction is appropriate"},
+            {"type": "text", "text": "👍"},
+        ])
         self.di.whatsapp_domain_mapper.map_update.return_value = [
             Mock(
                 spec = WhatsAppDomainMapper.Result,

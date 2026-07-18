@@ -3,7 +3,7 @@ from enum import Enum
 
 import requests
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
@@ -12,8 +12,7 @@ from features.integrations import prompt_resolvers
 from features.integrations.integrations import resolve_external_handle, resolve_user_link
 from util import log
 from util.config import config
-from util.error_codes import LLM_UNEXPECTED_RESPONSE
-from util.errors import ExternalServiceError
+from util.functions import parse_ai_message_content
 
 GITHUB_BASE_URL = "https://api.github.com"
 
@@ -98,18 +97,14 @@ class UserSupportService:
 
         # generate the issue description
         response = self.__copywriter.invoke([SystemMessage(system_prompt), HumanMessage(message)])
-        if not isinstance(response, AIMessage):
-            raise ExternalServiceError(f"Received a non-AI message from LLM: {response}", LLM_UNEXPECTED_RESPONSE)
-        return str(response.content)
+        return parse_ai_message_content(response)
 
     def __generate_issue_title(self, description: str) -> str:
         log.t("Generating issue title")
         system_prompt = prompt_resolvers.copywriting_support_request_title(self.__di.require_invoker_chat_type())
         message = f"Issue description:\n```\n{description}\n```\n\nIssue type: '{self.__request_type.name}'"
         response = self.__copywriter.invoke([SystemMessage(system_prompt), HumanMessage(message)])
-        if not isinstance(response, AIMessage):
-            raise ExternalServiceError(f"Received a non-AI message from LLM: {response}", LLM_UNEXPECTED_RESPONSE)
-        return str(response.content)
+        return parse_ai_message_content(response)
 
     def execute(self) -> str:
         log.t("Creating user support request / issue")

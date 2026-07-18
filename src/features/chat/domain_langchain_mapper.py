@@ -12,6 +12,7 @@ from features.integrations.integrations import is_the_agent, resolve_agent_user,
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 from features.users.user import User
 from util import log
+from util.functions import parse_ai_message_content_blocks
 
 _CODE_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 _UNORDERED_LIST_RE = re.compile(r"^\s*[-*+]\s")
@@ -96,7 +97,7 @@ class DomainLangchainMapper:
     def map_bot_message_to_storage(self, chat: ChatConfig, message: AIMessage) -> list[ChatMessage]:
         log.t(f"Mapping AI message '{message}' to storage message")
         result: list[ChatMessage] = []
-        content = self.__map_bot_message_text(message)
+        content = CHAT_MESSAGE_DELIMITER.join(parse_ai_message_content_blocks(message, include_thinking = True))
         parts = _split_preserving_blocks(content, CHAT_MESSAGE_DELIMITER)
         for part in parts:
             if not part:
@@ -132,53 +133,6 @@ class DomainLangchainMapper:
         parts.append(message.text)
         log.t(f"  Mapped message parts: {parts}, joining...")
         return "\n".join(parts)
-
-    # noinspection PyMethodMayBeStatic
-    def __map_bot_message_text(self, message: AIMessage) -> str:
-        log.t(f"  Mapping AI message {message}")
-
-        def pretty_print(raw_dict):
-            return "\n".join(f"{key}: {value}" for key, value in raw_dict.items())
-
-        def extract_text_from_dict(item: dict) -> str:
-            # Handle LangChain content block format: {'type': 'text', 'text': '...', ...}
-            if item.get("type") == "thinking":
-                thinking = item.get("thinking", "")
-                return DomainLangchainMapper._format_thinking(thinking) if thinking else ""
-            if item.get("type") == "redacted_thinking":
-                return ""
-            if "text" in item:
-                return item["text"]
-            # Fallback to pretty print for other dict formats
-            return pretty_print(item)
-
-        # edge: no content
-        if not message.content:
-            return ""
-        # main: plain string
-        if isinstance(message.content, str):
-            return message.content
-        # edge: it's a dict
-        if isinstance(message.content, dict):
-            return extract_text_from_dict(message.content)
-        # edge: it's a list
-        if isinstance(message.content, list):
-            messages: list[str] = []
-            for item in message.content:
-                if isinstance(item, str):
-                    messages.append(item)
-                elif isinstance(item, dict):
-                    messages.append(extract_text_from_dict(item))
-                else:
-                    messages.append(str(item))
-            return CHAT_MESSAGE_DELIMITER.join(m for m in messages if m)
-        # noinspection PyUnreachableCode
-        return str(message.content)
-
-    @staticmethod
-    def _format_thinking(thinking: str) -> str:
-        lines = "\n".join(f"> {line}" for line in thinking.splitlines())
-        return f"💭\n{lines}"
 
     @staticmethod
     def __construct_bot_message_id(chat_id: UUID, sent_at: datetime) -> str:

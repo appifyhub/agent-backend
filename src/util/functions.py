@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import SecretStr
 
 from util import log
@@ -120,21 +121,41 @@ def delete_file_safe(path: str | None) -> None:
         log.w(f"Failed to delete temp file {path}", e)
 
 
-def parse_ai_message_content(content: str | list[str | dict]) -> str:
+def parse_ai_message_content_blocks(
+    message: BaseMessage,
+    include_thinking: bool = False,
+) -> list[str]:
+    if not isinstance(message, AIMessage):
+        raise ExternalServiceError(f"Received a non-AI message from LLM: {message}", LLM_UNEXPECTED_RESPONSE)
+
+    content = message.content
     if isinstance(content, str):
-        return content
-    elif isinstance(content, list):
-        full_text = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                full_text.append(block.get("text", ""))
-            elif isinstance(block, str):
-                full_text.append(block)
-        if not full_text:
-            raise ExternalServiceError(f"Received an unexpected content list from the model: {content}", LLM_UNEXPECTED_RESPONSE)
-        return "\n".join(full_text)
-    else:
-        raise ExternalServiceError(f"Received an unexpected content from the model: {content}", LLM_UNEXPECTED_RESPONSE)
+        return [content] if content else []
+    if not isinstance(content, list):
+        raise ExternalServiceError(f"Received unexpected content from LLM: {message}", LLM_UNEXPECTED_RESPONSE)
+
+    parsed_blocks: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parsed_blocks.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parsed_blocks.append(block.get("text", ""))
+        elif include_thinking and isinstance(block, dict) and block.get("type") == "thinking":
+            thinking = block.get("thinking", "")
+            if thinking:
+                lines = "\n".join(f"> {line}" for line in thinking.splitlines())
+                parsed_blocks.append(f"💭\n{lines}")
+        elif include_thinking and isinstance(block, dict) and block.get("type") != "redacted_thinking":
+            parsed_blocks.append("\n".join(f"{key}: {value}" for key, value in block.items()))
+
+    return [block for block in parsed_blocks if block]
+
+
+def parse_ai_message_content(message: BaseMessage) -> str:
+    full_text = "\n".join(parse_ai_message_content_blocks(message)).strip()
+    if not full_text:
+        raise ExternalServiceError(f"Received empty content from LLM: {message}", LLM_UNEXPECTED_RESPONSE)
+    return full_text
 
 
 def parse_gumroad_form(form_dict: dict[str, str]) -> dict[str, Any]:

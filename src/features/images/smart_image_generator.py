@@ -1,15 +1,13 @@
 from enum import Enum
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from util import log
-from util.error_codes import EXTERNAL_EMPTY_RESPONSE, LLM_UNEXPECTED_RESPONSE
-from util.errors import ExternalServiceError
 from util.functions import parse_ai_message_content
 
 
@@ -56,11 +54,7 @@ class SmartImageGenerator:
         try:
             log.t("Starting prompt upscaling")
             response = self.__copywriter.invoke(self.__llm_input)
-            if not isinstance(response, AIMessage):
-                raise ExternalServiceError(f"Received a complex message from LLM: {response}", LLM_UNEXPECTED_RESPONSE)
-            if not response.content:
-                raise ExternalServiceError("Copywriter returned empty content", EXTERNAL_EMPTY_RESPONSE)
-            prompt = parse_ai_message_content(response.content)
+            prompt = parse_ai_message_content(response)
             log.t(f"Finished prompt correction, new size is {len(prompt)} characters")
         except Exception as e:
             self.error = f"Error correcting raw prompt: {str(e)}"

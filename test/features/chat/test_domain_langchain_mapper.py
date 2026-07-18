@@ -235,23 +235,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         self.assertEqual(result[0].text, "~~~\nsome code\n~~~")
 
 
-class FormatThinkingTest(unittest.TestCase):
-
-    def test_single_line(self):
-        self.assertEqual(DomainLangchainMapper._format_thinking("I think therefore I am"), "💭\n> I think therefore I am")
-
-    def test_multiple_lines(self):
-        result = DomainLangchainMapper._format_thinking("line one\nline two\nline three")
-        self.assertEqual(result, "💭\n> line one\n> line two\n> line three")
-
-    def test_single_line_with_special_chars(self):
-        self.assertEqual(DomainLangchainMapper._format_thinking("hello *world* `code`"), "💭\n> hello *world* `code`")
-
-    def test_preserves_empty_lines_in_middle(self):
-        result = DomainLangchainMapper._format_thinking("first\n\nthird")
-        self.assertEqual(result, "💭\n> first\n> \n> third")
-
-
 class SplitPreservingBlocksTest(unittest.TestCase):
 
     D = CHAT_MESSAGE_DELIMITER

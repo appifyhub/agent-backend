@@ -236,8 +236,13 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
 
     def test_targeted_announcement_success(self):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
+        mock_llm.invoke.return_value = AIMessage(content = [
+            {"type": "thinking", "thinking": "Hidden reasoning"},
+            {"type": "text", "text": "Refined announcement"},
+        ])
         self.mock_di.chat_langchain_model.return_value = mock_llm
+        self.mock_di.translations_cache.get.return_value = None
+        self.mock_di.translations_cache.save.return_value = "Refined announcement"
 
         target_user = User(
             id = UUID("223e4567-e89b-12d3-a456-426614174000"),
@@ -272,7 +277,12 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
             self.assertIsInstance(result, dict)
             self.assertEqual(result["chats_selected"], 1)
             self.assertEqual(result["chats_notified"], 1)
-            self.assertEqual(result["summaries_created"], 0)  # No new summaries because translations are cached
+            self.assertEqual(result["summaries_created"], 1)
+            self.mock_di.translations_cache.save.assert_called_once_with(
+                "Refined announcement",
+                "English",
+                "en",
+            )
 
     def test_targeted_announcement_invalid_username(self):
         # Mock the platform-agnostic lookup to return None
