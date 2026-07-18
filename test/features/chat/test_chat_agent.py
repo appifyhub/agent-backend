@@ -105,7 +105,7 @@ class ChatAgentTest(unittest.TestCase):
             chat_id = self.chat_config.chat_id,
         )
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [mock_latest_message]
-        self.mock_di.chat_message_attachment_repo.get_all_by_message.return_value = []
+        self.mock_di.chat_attachment_repo.get_all_by_message.return_value = []
         self.mock_di.user_repo.get.return_value = None
         self.mock_di.domain_langchain_mapper.map_to_langchain.return_value = HumanMessage("Test message")
 
@@ -127,8 +127,8 @@ class ChatAgentTest(unittest.TestCase):
             self.chat_config.chat_id,
         )
 
-    def test_init_fetches_message_attachments_from_repository(self):
-        self.mock_di.chat_message_attachment_repo.get_all_by_message.assert_called_once_with(
+    def test_init_fetches_chat_attachments_from_repository(self):
+        self.mock_di.chat_attachment_repo.get_all_by_message.assert_called_once_with(
             self.chat_config.chat_id,
             "msg_123",
         )

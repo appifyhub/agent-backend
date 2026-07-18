@@ -1,6 +1,7 @@
-from sqlalchemy import Column, DateTime, ForeignKeyConstraint, PrimaryKeyConstraint, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKeyConstraint, PrimaryKeyConstraint, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.sql import text as sqlalchemy_text
 
 from db.model.base import BaseModel
 from db.model.encrypted_string import EncryptedString
@@ -14,6 +15,7 @@ class ChatMessageDB(BaseModel):
     message_id = Column(String, nullable = False)
     sent_at = Column(DateTime, default = func.now(), nullable = False)
     text = Column(EncryptedString, nullable = False)
+    is_temporary = Column(Boolean, nullable = False, default = False, server_default = sqlalchemy_text("false"))
 
     __table_args__ = (
         PrimaryKeyConstraint(chat_id, message_id, name = "pk_chat_message"),

@@ -1,15 +1,16 @@
 import unittest
 from io import BytesIO
 
+from langchain_core.messages import AIMessage, HumanMessage
 from PIL import Image
 
 from util.errors import ExternalServiceError
 from util.functions import (
     detect_image_format,
     extract_url_from_replicate_result,
-    first_key_with_value,
     generate_short_uuid,
     mask_secret,
+    parse_ai_message_content,
     parse_gumroad_form,
     silent,
 )
@@ -55,26 +56,6 @@ class FunctionsTest(unittest.TestCase):
     def test_silent_lambda_with_exception(self):
         result = silent(lambda: 10 / 0)()
         self.assertIsNone(result)
-
-    def test_first_key_with_value_returns_correct_key(self):
-        source = {1: "a", 2: "b", 3: "c"}
-        value = "b"
-        self.assertEqual(first_key_with_value(source, value), 2)
-
-    def test_first_key_with_value_returns_none_for_nonexistent_value(self):
-        source = {1: "a", 2: "b", 3: "c"}
-        value = "d"
-        self.assertIsNone(first_key_with_value(source, value))
-
-    def test_first_key_with_value_returns_none_for_empty_dict(self):
-        source = {}
-        value = "a"
-        self.assertIsNone(first_key_with_value(source, value))
-
-    def test_first_key_with_value_returns_first_key_for_duplicate_values(self):
-        source = {1: "a", 2: "b", 3: "b"}
-        value = "b"
-        self.assertEqual(first_key_with_value(source, value), 2)
 
     def test_detect_image_format(self):
         pattern = [
@@ -332,46 +313,44 @@ class FunctionsTest(unittest.TestCase):
         self.assertEqual(normalize_username("@ +user name+"), "username")
 
     def test_parse_ai_message_content_string(self):
-        from util.functions import parse_ai_message_content
-        result = parse_ai_message_content("Hello world")
+        result = parse_ai_message_content(AIMessage("Hello world"))
+        self.assertEqual(result, "Hello world")
+
+    def test_parse_ai_message_content_strips_outer_whitespace(self):
+        result = parse_ai_message_content(AIMessage("  Hello world \n"))
         self.assertEqual(result, "Hello world")
 
     def test_parse_ai_message_content_list_with_text_blocks(self):
-        from util.functions import parse_ai_message_content
         content = [
             {"type": "text", "text": "Part 1."},
             {"type": "text", "text": "Part 2."},
             {"type": "image_url", "image_url": "http://example.com"},
         ]
-        result = parse_ai_message_content(content)
+        result = parse_ai_message_content(AIMessage(content = content))
         self.assertEqual(result, "Part 1.\nPart 2.")
 
     def test_parse_ai_message_content_list_with_strings(self):
-        from util.functions import parse_ai_message_content
         content = ["Part 1.", "Part 2."]
-        result = parse_ai_message_content(content)
+        result = parse_ai_message_content(AIMessage(content = content))
         self.assertEqual(result, "Part 1.\nPart 2.")
 
     def test_parse_ai_message_content_list_mixed(self):
-        from util.functions import parse_ai_message_content
         content = [
             "Part 1.",
             {"type": "text", "text": "Part 2."},
         ]
-        result = parse_ai_message_content(content)
+        result = parse_ai_message_content(AIMessage(content = content))
         self.assertEqual(result, "Part 1.\nPart 2.")
 
     def test_parse_ai_message_content_empty_result(self):
-        from util.functions import parse_ai_message_content
         with self.assertRaises(ExternalServiceError) as context:
-            parse_ai_message_content([])
-        self.assertIn("Received an unexpected content list", str(context.exception))
+            parse_ai_message_content(AIMessage(content = []))
+        self.assertIn("Received empty content", str(context.exception))
 
-    def test_parse_ai_message_content_unexpected_type(self):
-        from util.functions import parse_ai_message_content
+    def test_parse_ai_message_content_non_ai_message(self):
         with self.assertRaises(ExternalServiceError) as context:
-            parse_ai_message_content(12345)
-        self.assertIn("Received an unexpected content", str(context.exception))
+            parse_ai_message_content(HumanMessage("Hello world"))
+        self.assertIn("Received a non-AI message", str(context.exception))
 
     def test_parse_gumroad_form_no_params(self):
         form_dict = {

@@ -60,6 +60,19 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
             release_output_b64 = base64.b64encode(json.dumps(release_output_json).encode()).decode(),
         )
 
+    def test_release_summary_service_normalizes_structured_content(self):
+        copywriter = Mock()
+        copywriter.invoke.return_value = AIMessage(content = [
+            {"type": "thinking", "thinking": "Hidden reasoning"},
+            {"type": "text", "text": "Release summary"},
+        ])
+        di = Mock(spec = DI)
+        di.chat_langchain_model.return_value = copywriter
+
+        response = ReleaseSummaryService("Release notes", None, Mock(), di).execute()
+
+        self.assertEqual(response.content, "Release summary")
+
     def test_version_change_type_major(self):
         self.assertEqual(get_version_change_type("1.0.0", "2.0.0"), VersionChangeType.major)
         self.assertEqual(get_version_change_type("1", "2.0.0"), VersionChangeType.major)

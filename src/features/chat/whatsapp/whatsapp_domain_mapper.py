@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.whatsapp.model.message import Message
@@ -20,7 +20,7 @@ class WhatsAppDomainMapper:
         chat: ChatConfigRemoteData
         author: UserRemoteData | None
         message: ChatMessageRemoteData
-        attachments: list[ChatMessageAttachmentRemoteData]
+        attachments: list[ChatAttachmentRemoteData]
         replied_to_message_id: str | None = None
 
     def map_update(self, update: Update) -> list[Result]:
@@ -144,8 +144,8 @@ class WhatsAppDomainMapper:
         log.t(f"  Mapping attachments: {formatted_attachments}")
         return f"[ {', '.join(formatted_attachments)} ]"
 
-    def map_attachments(self, message: Message) -> list[ChatMessageAttachmentRemoteData]:
-        attachments: list[ChatMessageAttachmentRemoteData] = []
+    def map_attachments(self, message: Message) -> list[ChatAttachmentRemoteData]:
+        attachments: list[ChatAttachmentRemoteData] = []
         for media_type, media in [
             ("audio", message.audio),
             ("document", message.document),
@@ -169,9 +169,9 @@ class WhatsAppDomainMapper:
         media_id: str,
         message_id: str,
         mime_type: str | None,
-    ) -> ChatMessageAttachmentRemoteData:
+    ) -> ChatAttachmentRemoteData:
         log.t(f"    Creating attachment from media_id: {media_id}")
-        return ChatMessageAttachmentRemoteData(
+        return ChatAttachmentRemoteData(
             external_id = media_id,
             message_id = message_id,
             size = None,  # filled after refresh

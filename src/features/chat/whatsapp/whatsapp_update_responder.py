@@ -15,7 +15,7 @@ from features.integrations.integrations import format_reaction_response, is_reac
 from util import log
 from util.config import config
 from util.errors import ServiceError
-from util.functions import silent
+from util.functions import parse_ai_message_content, silent
 
 
 def respond_to_update(update: Update) -> bool:
@@ -61,7 +61,7 @@ def respond_to_update(update: Update) -> bool:
             # send and store the response[s]
             sent_messages: int = 0
             agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
-            as_reaction = str(answer.content).strip()
+            as_reaction = parse_ai_message_content(answer)
             if is_reaction_response(as_reaction, resolved_domain_data.chat.chat_type):
                 di.chat_message_repo.save(
                     ChatMessage(
@@ -81,7 +81,7 @@ def respond_to_update(update: Update) -> bool:
             else:
                 domain_messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
                 for message in domain_messages:
-                    di.whatsapp_bot_sdk.send_text_message(str(resolved_domain_data.chat.external_id), message.text)
+                    di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
                     sleep(0.1)
                     sent_messages += 1
 
@@ -108,6 +108,6 @@ def __notify_of_errors(
         answer = AIMessage(prompt_resolvers.simple_chat_error(str(error), emoji = emoji))
         messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
         for message in messages:
-            di.whatsapp_bot_sdk.send_text_message(str(resolved_domain_data.chat.external_id), message.text)
+            di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
             sleep(0.1)
         log.t("Replied with the error")

@@ -45,7 +45,9 @@ if TYPE_CHECKING:
     from features.announcements.release_summary_service import ReleaseSummaryService
     from features.announcements.sys_announcements_service import SysAnnouncementsService
     from features.audio.audio_transcriber import AudioTranscriber
-    from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
+    from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
+    from features.chat.attachment.chat_attachment_service import ChatAttachmentService
+    from features.chat.attachment.storage.attachment_storage import AttachmentStorage
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
     from features.chat.chat_image_edit_service import ChatImageEditService
@@ -62,7 +64,6 @@ if TYPE_CHECKING:
     from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
     from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
     from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
-    from features.chat.url_attachment_resolver import UrlAttachmentResolver
     from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
     from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
     from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
@@ -79,7 +80,6 @@ if TYPE_CHECKING:
     from features.external_tools.tool_choice_resolver import ToolChoiceResolver
     from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
     from features.images.image_editor import ImageEditor
-    from features.images.image_uploader import ImageUploader
     from features.images.simple_image_generator import SimpleImageGenerator
     from features.images.smart_image_generator import SmartImageGenerator
     from features.integrations.platform_bot_sdk import PlatformBotSDK
@@ -117,7 +117,7 @@ class DI:
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_repo: "ChatMessageRepository | None"
-    _chat_message_attachment_repo: "ChatMessageAttachmentRepository | None"
+    _chat_attachment_repo: "ChatAttachmentRepository | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
     _price_alert_repo: "PriceAlertRepository | None"
@@ -125,6 +125,8 @@ class DI:
     _purchase_record_repo: "PurchaseRecordRepository | None"
     # Services
     _cleanup_service: "CleanupService | None"
+    _chat_attachment_service: "ChatAttachmentService | None"
+    _attachment_storage: "AttachmentStorage | None"
     _sponsorship_service: "SponsorshipService | None"
     _credit_transfer_service: "CreditTransferService | None"
     _profile_connect_service: "ProfileConnectService | None"
@@ -176,7 +178,7 @@ class DI:
         self._chat_membership_repo = None
         self._chat_membership_service = None
         self._chat_message_repo = None
-        self._chat_message_attachment_repo = None
+        self._chat_attachment_repo = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
         self._price_alert_repo = None
@@ -184,6 +186,8 @@ class DI:
         self._purchase_record_repo = None
         # Services
         self._cleanup_service = None
+        self._chat_attachment_service = None
+        self._attachment_storage = None
         self._sponsorship_service = None
         self._credit_transfer_service = None
         self._profile_connect_service = None
@@ -378,11 +382,11 @@ class DI:
         return self._chat_message_repo
 
     @property
-    def chat_message_attachment_repo(self) -> "ChatMessageAttachmentRepository":
-        if self._chat_message_attachment_repo is None:
-            from features.chat.attachment.chat_message_attachment_repo import ChatMessageAttachmentRepository
-            self._chat_message_attachment_repo = ChatMessageAttachmentRepository(self.db)
-        return self._chat_message_attachment_repo
+    def chat_attachment_repo(self) -> "ChatAttachmentRepository":
+        if self._chat_attachment_repo is None:
+            from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
+            self._chat_attachment_repo = ChatAttachmentRepository(self.db)
+        return self._chat_attachment_repo
 
     @property
     def sponsorship_repo(self) -> "SponsorshipRepository":
@@ -427,6 +431,27 @@ class DI:
             from features.cleanup.cleanup_service import CleanupService
             self._cleanup_service = CleanupService(self)
         return self._cleanup_service
+
+    @property
+    def chat_attachment_service(self) -> "ChatAttachmentService":
+        if self._chat_attachment_service is None:
+            from features.chat.attachment.chat_attachment_service import ChatAttachmentService
+            self._chat_attachment_service = ChatAttachmentService(self)
+        return self._chat_attachment_service
+
+    @property
+    def attachment_storage(self) -> "AttachmentStorage":
+        if self._attachment_storage is None:
+            from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
+            from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
+            from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
+            for storage_type in (S3AttachmentStorage, UploadcareAttachmentStorage, LocalAttachmentStorage):
+                # in order, we find the first storage type that can be used
+                if storage_type.can_be_used():
+                    self._attachment_storage = storage_type()
+                    break
+            self._attachment_storage.ensure_ready()
+        return self._attachment_storage
 
     @property
     def sponsorship_service(self) -> "SponsorshipService":
@@ -895,26 +920,6 @@ class DI:
         from features.images.simple_image_generator import SimpleImageGenerator
         return SimpleImageGenerator(prompt, configured_tool, self, aspect_ratio, output_size)
 
-    # noinspection PyMethodMayBeStatic
-    def image_uploader(
-        self,
-        binary_image: bytes | None = None,
-        base64_image: str | None = None,
-        expiration_s: int | None = None,
-        name: str | None = None,
-    ) -> "ImageUploader":
-        from features.images.image_uploader import ImageUploader
-        return ImageUploader(binary_image, base64_image, expiration_s, name)
-
-    # noinspection PyMethodMayBeStatic
-    def file_uploader(
-        self,
-        content: bytes,
-        filename: str,
-    ):
-        from features.files.file_uploader import FileUploader
-        return FileUploader(content, filename)
-
     def chat_image_edit_service(
         self,
         attachment_ids: list[str] | None,
@@ -979,22 +984,16 @@ class DI:
     def audio_transcriber(
         self,
         job_id: str,
-        audio_url: str,
+        audio_content: bytes,
+        extension: str,
         transcriber_tool: ConfiguredTool,
         copywriter_tool: ConfiguredTool,
-        def_extension: str | None = None,
-        audio_content: bytes | None = None,
     ) -> "AudioTranscriber":
         from features.audio.audio_transcriber import AudioTranscriber
         return AudioTranscriber(
-            job_id, audio_url,
+            job_id, audio_content, extension,
             transcriber_tool, copywriter_tool, self,
-            def_extension, audio_content,
         )
-
-    def url_attachment_resolver(self, url: str) -> "UrlAttachmentResolver":
-        from features.chat.url_attachment_resolver import UrlAttachmentResolver
-        return UrlAttachmentResolver(url, self)
 
     def chat_attachment_processor(
         self,

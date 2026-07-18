@@ -88,7 +88,10 @@ class UserSupportServiceTest(unittest.TestCase):
         mock_prompt_generator.return_value = "test prompt"
 
         with patch.object(self.service, "_UserSupportService__copywriter") as mock_llm:
-            mock_llm.invoke.return_value = AIMessage("Generated description")
+            mock_llm.invoke.return_value = AIMessage(content = [
+                {"type": "thinking", "thinking": "Hidden reasoning"},
+                {"type": "text", "text": "Generated description"},
+            ])
             # noinspection PyUnresolvedReferences
             description = self.service._UserSupportService__generate_issue_description()
 
@@ -102,7 +105,10 @@ class UserSupportServiceTest(unittest.TestCase):
         mock_prompt_resolvers.copywriting_support_request_title.return_value = "test prompt"
 
         with patch.object(self.service, "_UserSupportService__copywriter") as mock_llm:
-            mock_llm.invoke.return_value = AIMessage("Generated title")
+            mock_llm.invoke.return_value = AIMessage(content = [
+                {"type": "thinking", "thinking": "Hidden reasoning"},
+                {"type": "text", "text": "Generated title"},
+            ])
             # noinspection PyUnresolvedReferences
             title = self.service._UserSupportService__generate_issue_title("Test description")
 

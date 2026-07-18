@@ -1,8 +1,7 @@
 from enum import Enum
 
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.chat_attachment_utils import resolve_all_attachments
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.image_editor import ImageEditor
 from util import log
@@ -18,7 +17,7 @@ class ChatImageEditService:
         failed = "failed"
         partial = "partial"
 
-    __attachments: list[ChatMessageAttachment]
+    __attachments: list[ChatAttachment]
     __operation_guidance: str | None
     __aspect_ratio: str | None
     __output_size: str | None
@@ -34,7 +33,7 @@ class ChatImageEditService:
         di: DI,
     ):
         self.__di = di
-        self.__attachments = resolve_all_attachments(attachment_ids, urls, self.__di)
+        self.__attachments = self.__di.chat_attachment_service.resolve_attachments(attachment_ids, urls)
         self.__operation_guidance = operation_guidance
         self.__aspect_ratio = aspect_ratio
         self.__output_size = output_size
@@ -42,17 +41,18 @@ class ChatImageEditService:
     def __edit_image(self) -> tuple[Result, URLList, ErrorList]:
         log.t(f"Editing {len(self.__attachments)} images in aspect ratio {self.__aspect_ratio}")
 
-        # Collect valid attachments; track missing URLs as partial failures
+        # collect valid attachments; track missing storage as partial failures
         image_urls: list[str] = []
         mime_types: list[str | None] = []
         skip_errors: list[str | None] = []
         for attachment in self.__attachments:
             if not attachment.last_url:
-                message = f"Attachment '{attachment.id}' has no URL, skipping"
+                message = f"Attachment '{attachment.id}' has no stored content, skipping"
                 log.w(message)
                 skip_errors.append(message)
             else:
-                image_urls.append(attachment.last_url)
+                public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
+                image_urls.append(public_url)
                 mime_types.append(attachment.mime_type)
                 skip_errors.append(None)
 

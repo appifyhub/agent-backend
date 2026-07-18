@@ -17,13 +17,6 @@ class TelegramBotAPI:
         bot_token = config.telegram_bot_token.get_secret_value()
         self.__bot_api_url = f"{config.telegram_api_base_url}/bot{bot_token}"
 
-    def get_file_info(self, file_id: str) -> File:
-        log.t(f"Getting file info for file_id: {file_id}")
-        url = f"{self.__bot_api_url}/getFile"
-        response = requests.get(url, params = {"file_id": file_id})
-        self.__raise_for_status(response)
-        return File(**response.json()["result"])
-
     def send_text_message(
         self,
         chat_id: int | str,
@@ -98,6 +91,30 @@ class TelegramBotAPI:
         response = requests.post(url, json = payload, timeout = config.web_timeout_s)
         self.__raise_for_status(response)
         return response.json()
+
+    def download_file(self, file_id: str) -> bytes | None:
+        log.t(f"Getting file info for file_id: {file_id}")
+        info_url = f"{self.__bot_api_url}/getFile"
+        info_response = requests.get(info_url, params = {"file_id": file_id})
+        self.__raise_for_status(info_response)
+        file_info = File(**info_response.json()["result"])
+        if not file_info.file_path:
+            return None
+
+        log.t("Downloading Telegram file bytes")
+        bot_token = config.telegram_bot_token.get_secret_value()
+        file_url = f"{config.telegram_api_base_url}/file/bot{bot_token}/{file_info.file_path}"
+        file_response = requests.get(file_url, timeout = config.web_timeout_s)
+        content_length = len(file_response.content or b"")
+        file_name = file_info.file_path.rsplit("/", 1)[-1]
+        if file_response.status_code != 200 or content_length == 0:
+            log.w(f"Could not download Telegram file '{file_name}': status={file_response.status_code}, bytes={content_length}")
+        self.__raise_for_status(file_response)
+        if content_length == 0:
+            log.w(f"Telegram file contents are empty, for file '{file_name}'")
+            return None
+        log.t(f"Telegram file downloaded successfully ({content_length} bytes)")
+        return file_response.content
 
     def set_status_typing(self, chat_id: int | str) -> dict:
         url = f"{self.__bot_api_url}/sendChatAction"
