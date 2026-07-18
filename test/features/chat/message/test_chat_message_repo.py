@@ -98,6 +98,90 @@ class ChatMessageRepositoryTest(unittest.TestCase):
 
         self.assertEqual([message.message_id for message in result], ["message2", "message1"])
 
+    def test_get_latest_by_chat_excludes_temporary_messages_by_default(self):
+        chat = self._create_chat("chat1")
+        base_time = datetime(2026, 1, 2, 12, 0, 0)
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "message1",
+            sent_at = base_time,
+            text = "Visible",
+        ))
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "outgoing-abc123",
+            sent_at = base_time + timedelta(minutes = 1),
+            text = "Temporary",
+            is_temporary = True,
+        ))
+
+        result = self.repo.get_latest_by_chat(chat.chat_id)
+
+        self.assertEqual([message.message_id for message in result], ["message1"])
+
+    def test_get_latest_by_chat_can_include_temporary_messages(self):
+        chat = self._create_chat("chat1")
+        base_time = datetime(2026, 1, 2, 12, 0, 0)
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "message1",
+            sent_at = base_time,
+            text = "Visible",
+        ))
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "outgoing-abc123",
+            sent_at = base_time + timedelta(minutes = 1),
+            text = "Temporary",
+            is_temporary = True,
+        ))
+
+        result = self.repo.get_latest_by_chat(chat.chat_id, include_temporary = True)
+
+        self.assertEqual(
+            [message.message_id for message in result],
+            ["outgoing-abc123", "message1"],
+        )
+
+    def test_get_latest_by_chat_keeps_prefixed_non_temporary_messages(self):
+        chat = self._create_chat("chat1")
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "outgoing-abc123",
+            text = "Permanent",
+        ))
+
+        result = self.repo.get_latest_by_chat(chat.chat_id)
+
+        self.assertEqual([message.message_id for message in result], ["outgoing-abc123"])
+
+    def test_get_latest_by_chat_filters_temporary_messages_before_pagination(self):
+        chat = self._create_chat("chat1")
+        base_time = datetime(2026, 1, 2, 12, 0, 0)
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "message1",
+            sent_at = base_time,
+            text = "Visible 1",
+        ))
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "message2",
+            sent_at = base_time + timedelta(minutes = 1),
+            text = "Visible 2",
+        ))
+        self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "outgoing-abc123",
+            sent_at = base_time + timedelta(minutes = 2),
+            text = "Temporary",
+            is_temporary = True,
+        ))
+
+        result = self.repo.get_latest_by_chat(chat.chat_id, limit = 2)
+
+        self.assertEqual([message.message_id for message in result], ["message2", "message1"])
+
     def test_save_exactly_replaces_non_identity_fields_from_independent_snapshot(self):
         chat = self._create_chat("chat1")
         first_author = self._create_user(1)
@@ -115,6 +199,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
             author_id = second_author.id,
             sent_at = datetime(2026, 1, 2, 13, 0, 0),
             text = "Replacement",
+            is_temporary = True,
         )
 
         result = self.repo.save(replacement)
@@ -124,6 +209,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertNotEqual(result.author_id, original_snapshot.author_id)
         self.assertNotEqual(result.sent_at, original_snapshot.sent_at)
         self.assertNotEqual(result.text, original_snapshot.text)
+        self.assertNotEqual(result.is_temporary, original_snapshot.is_temporary)
 
     def test_save_can_clear_optional_author(self):
         chat = self._create_chat("chat1")

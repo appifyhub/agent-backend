@@ -8,19 +8,20 @@ from pydantic import SecretStr
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
-from features.chat.attachment.chat_message_attachment import ChatMessageAttachment
-from features.chat.attachment.chat_message_attachment_remote_data import ChatMessageAttachmentRemoteData
+from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
+from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
-from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import resolve_agent_user
 from features.users.user import User
 from features.users.user_remote_data import UserRemoteData
 from util.config import config
+from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
 
 
@@ -41,13 +42,16 @@ class TelegramDataResolverTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = self.sql.chat_message_repo()
         # noinspection PyPropertyAccess
-        self.mock_di.chat_message_attachment_repo = self.sql.chat_message_attachment_repo()
+        self.mock_di.chat_attachment_repo = self.sql.chat_attachment_repo()
+        # noinspection PyPropertyAccess
+        self.mock_di.chat_attachment_service = ChatAttachmentService(self.mock_di)
         # noinspection PyPropertyAccess
         self.mock_di.telegram_bot_api = MagicMock()
-        # Ensure resolver uses a real SDK instance rather than an auto-created Mock
-        # so that attachment refresh returns real models instead of Mock objects
+        self.mock_di.telegram_bot_api.download_file.return_value = b"\xFF\xD8\xFF\xE0fake-jpeg"
         # noinspection PyPropertyAccess
-        self.mock_di.telegram_bot_sdk = TelegramBotSDK(self.mock_di)
+        self.mock_di.attachment_storage = MagicMock()
+        self.mock_di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
+        self.mock_di.attachment_storage.owns_uri.side_effect = lambda uri: bool(uri) and uri.startswith("s3://the-agent/")
         # noinspection PyPropertyAccess
         self.mock_di.chat_membership_service = MagicMock()
         self.resolver = TelegramDataResolver(self.mock_di)
@@ -67,19 +71,11 @@ class TelegramDataResolverTest(unittest.TestCase):
             sent_at = datetime.now(),
             text = "This is a message",
         )
-        attachment_data = ChatMessageAttachmentRemoteData(
-            external_id = "e1",
-            message_id = message_data.message_id,
-            last_url = "path/to/file.jpg",
-            last_url_until = self.valid_url_timestamp(),
-            extension = "jpg",
-            mime_type = "image/jpeg",
-        )
         mapping_result = TelegramDomainMapper.Result(
             chat = chat_config_data,
             author = None,
             message = message_data,
-            attachments = [attachment_data],
+            attachments = [],
         )
 
         result = self.resolver.resolve(mapping_result)
@@ -91,9 +87,33 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message.chat_id, result.chat.chat_id)
         self.assertEqual(result.message.message_id, message_data.message_id)
         self.assertIsNone(result.message.author_id)
-        self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
-        self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
-        self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
+        self.assertEqual(result.attachments, [])
+
+    def test_resolve_no_author_with_attachment_raises(self):
+        mapping_result = TelegramDomainMapper.Result(
+            chat = ChatConfigRemoteData(
+                external_id = "c1",
+                title = "Chat Title",
+                is_private = True,
+                chat_type = ChatConfigDB.ChatType.telegram,
+            ),
+            author = None,
+            message = ChatMessageRemoteData(
+                message_id = "m1",
+                sent_at = datetime.now(),
+                text = "This is a message",
+            ),
+            attachments = [
+                ChatAttachmentRemoteData(
+                    external_id = "e1",
+                    message_id = "m1",
+                    mime_type = "image/jpeg",
+                ),
+            ],
+        )
+
+        with self.assertRaises(InternalError):
+            self.resolver.resolve(mapping_result)
 
     def test_resolve_with_author_bot(self):
         chat_config_data = ChatConfigRemoteData(
@@ -113,11 +133,10 @@ class TelegramDataResolverTest(unittest.TestCase):
             sent_at = datetime.now(),
             text = "This is a message",
         )
-        attachment_data = ChatMessageAttachmentRemoteData(
+        attachment_data = ChatAttachmentRemoteData(
             external_id = "e1",
             message_id = message_data.message_id,
             last_url = "path/to/file.jpg",
-            last_url_until = self.valid_url_timestamp(),
             extension = "jpg",
             mime_type = "image/jpeg",
         )
@@ -139,9 +158,9 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message.chat_id, result.chat.chat_id)
         self.assertEqual(result.message.message_id, message_data.message_id)
         self.assertIsNotNone(result.message.author_id)
-        self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
-        self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
-        self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
+        # attachment resolution is skipped for the agent's own messages — the SDK archives outbound media itself
+        self.assertEqual(result.attachments, [])
+        self.mock_di.telegram_bot_api.download_file.assert_not_called()
         self.mock_di.chat_membership_service.sync.assert_not_called()
 
     def test_resolve_with_author_normal(self):
@@ -162,11 +181,10 @@ class TelegramDataResolverTest(unittest.TestCase):
             sent_at = datetime.now(),
             text = "This is a message",
         )
-        attachment_data = ChatMessageAttachmentRemoteData(
+        attachment_data = ChatAttachmentRemoteData(
             external_id = "e1",
             message_id = message_data.message_id,
             last_url = "path/to/file.jpg",
-            last_url_until = self.valid_url_timestamp(),
             extension = "jpg",
             mime_type = "image/jpeg",
         )
@@ -189,8 +207,10 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message.message_id, message_data.message_id)
         self.assertIsNotNone(result.message.author_id)
         self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
+        self.assertEqual(result.attachments[0].external_id, attachment_data.external_id)
         self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
+        self.assertEqual(result.attachments[0].uploader_user_id, result.author.id)
         self.mock_di.chat_membership_service.sync.assert_called_once()
 
     def test_resolve_author_none(self):
@@ -453,69 +473,63 @@ class TelegramDataResolverTest(unittest.TestCase):
         self.assertEqual(result.sent_at, mapped_data.sent_at)
         self.assertEqual(result.text, mapped_data.text)
 
-    def test_resolve_chat_message_attachment_new(self):
+    def test_resolve_chat_attachment_new(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
+        uploader = self.sql.user_repo().save(User(full_name = "Uploader", telegram_user_id = 123))
         self.sql.chat_message_repo().save(ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"))
-        mapped_data = ChatMessageAttachmentRemoteData(
+        mapped_data = ChatAttachmentRemoteData(
             external_id = "e1",
             message_id = "m1",
             last_url = "path/to/file.jpg",
-            last_url_until = self.valid_url_timestamp(),
             extension = "jpg",
             mime_type = "image/jpeg",
         )
 
-        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id)
-        saved_attachment = self.sql.chat_message_attachment_repo().get_by_external_id(mapped_data.external_id)
+        result = self.resolver.resolve_chat_attachment(mapped_data, chat.chat_id, uploader.id)
+        saved_attachment = self.sql.chat_attachment_repo().get_by_external_id(chat.chat_id, mapped_data.external_id)
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, generate_deterministic_short_uuid(mapped_data.external_id))
+        self.assertEqual(result.external_id, mapped_data.external_id)
+        self.assertEqual(result.uploader_user_id, uploader.id)
         self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
-        self.assertEqual(result.size, mapped_data.size)
-        self.assertEqual(result.last_url, mapped_data.last_url)
-        self.assertEqual(result.last_url_until, mapped_data.last_url_until)
-        self.assertEqual(result.extension, mapped_data.extension)
-        self.assertEqual(result.mime_type, mapped_data.mime_type)
+        self.assertEqual(result.size, len(self.mock_di.telegram_bot_api.download_file.return_value))
+        self.assertTrue(result.last_url.startswith(f"s3://{config.s3_bucket}/chats/"))
+        self.assertEqual(result.extension, "jpg")
+        self.assertEqual(result.mime_type, "image/jpeg")
 
-    def test_resolve_chat_message_attachment_existing(self):
+    def test_resolve_chat_attachment_existing(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
         )
         self.sql.chat_message_repo().save(ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"))
-        old_attachment_data = ChatMessageAttachment(
+        uploader = self.sql.user_repo().save(User(full_name = "Uploader", telegram_user_id = 123))
+        old_attachment_data = ChatAttachment(
             id = "i1",
             external_id = "e1",
             chat_id = chat.chat_id,
+            uploader_user_id = uploader.id,
             message_id = "m1",
             size = 1,
-            last_url = "path/to/file.jpg",
-            last_url_until = self.valid_url_timestamp(),
+            last_url = f"s3://{config.s3_bucket}/chats/{chat.chat_id}/attachments/i1.jpg",
             extension = "jpg",
             mime_type = "image/jpeg",
         )
-        self.sql.chat_message_attachment_repo().save(old_attachment_data)
+        self.sql.chat_attachment_repo().save(old_attachment_data)
 
-        mapped_data = ChatMessageAttachmentRemoteData(external_id = "e1", message_id = "m1")
-        result = self.resolver.resolve_chat_message_attachment(mapped_data, chat.chat_id)
-        saved_attachment = self.sql.chat_message_attachment_repo().get("i1")
+        mapped_data = ChatAttachmentRemoteData(external_id = "e1", message_id = "m1")
+        result = self.resolver.resolve_chat_attachment(mapped_data, chat.chat_id, uploader.id)
+        saved_attachment = self.sql.chat_attachment_repo().get("i1")
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, old_attachment_data.id)
+        self.assertEqual(result.uploader_user_id, old_attachment_data.uploader_user_id)
         self.assertEqual(result.chat_id, old_attachment_data.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
         self.assertEqual(result.size, old_attachment_data.size)
         self.assertEqual(result.last_url, old_attachment_data.last_url)
-        self.assertEqual(result.last_url_until, old_attachment_data.last_url_until)
         self.assertEqual(result.extension, old_attachment_data.extension)
         self.assertEqual(result.mime_type, old_attachment_data.mime_type)
-
-    @staticmethod
-    def valid_url_timestamp():
-        return int(datetime.now().timestamp()) + 10
-
-    @staticmethod
-    def expired_url_timestamp():
-        return int(datetime.now().timestamp()) - 10

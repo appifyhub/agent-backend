@@ -81,7 +81,7 @@ def respond_to_update(update: Update) -> bool:
             else:
                 domain_messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
                 for message in domain_messages:
-                    di.whatsapp_bot_sdk.send_text_message(str(resolved_domain_data.chat.external_id), message.text)
+                    di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
                     sleep(0.1)
                     sent_messages += 1
 
@@ -108,6 +108,6 @@ def __notify_of_errors(
         answer = AIMessage(prompt_resolvers.simple_chat_error(str(error), emoji = emoji))
         messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
         for message in messages:
-            di.whatsapp_bot_sdk.send_text_message(str(resolved_domain_data.chat.external_id), message.text)
+            di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
             sleep(0.1)
         log.t("Replied with the error")

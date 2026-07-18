@@ -1,8 +1,5 @@
 import io
-import os
-from urllib.parse import urlparse
 
-import requests
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from openai import OpenAI
@@ -17,9 +14,8 @@ from features.chat.supported_files import (
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
-from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util import log
-from util.error_codes import LLM_UNEXPECTED_RESPONSE
+from util.error_codes import AUDIO_TRANSCRIPTION_FAILED, LLM_UNEXPECTED_RESPONSE
 from util.errors import ExternalServiceError
 
 
@@ -41,44 +37,37 @@ class AudioTranscriber:
     def __init__(
         self,
         job_id: str,
-        audio_url: str,
+        audio_content: bytes,
+        extension: str,
         transcriber_tool: ConfiguredTool,
         copywriter_tool: ConfiguredTool,
         di: DI,
-        def_extension: str | None = None,
-        audio_content: bytes | None = None,
     ):
         self.__job_id = job_id
-        self.__resolve_extension(audio_url, def_extension)
-        self.__validate_content(audio_url, audio_content)
+        self.__validate_content(audio_content, extension)
         self.__transcriber_tool = transcriber_tool
         self.__transcriber = di.open_ai_client(transcriber_tool)
         self.__copywriter = di.chat_langchain_model(copywriter_tool)
         self.__di = di
 
-    def __validate_content(self, audio_url: str, audio_content: bytes | None):
-        log.t(f"Fetching and validating audio from URL '{audio_url}'")
-        self.__audio_content = audio_content or requests.get(audio_url, headers = DEFAULT_HEADERS).content
+    def __validate_content(self, audio_content: bytes, extension: str):
+        if not audio_content:
+            raise ExternalServiceError("Audio content is empty", AUDIO_TRANSCRIPTION_FAILED)
+        if not extension:
+            raise ExternalServiceError("Audio extension is missing", AUDIO_TRANSCRIPTION_FAILED)
 
+        self.__audio_content = audio_content
+        self.__extension = extension.lower()
         if self.__extension not in SUPPORTED_AUDIO_FORMATS.keys():
             log.t(f"  Unsupported audio format: '.{self.__extension}'")
             convertible_format = EXTENSION_FORMAT_MAP.get(self.__extension)
             if convertible_format:
                 self.__audio_content = self.__convert_to_wav(convertible_format)
                 self.__extension = TARGET_AUDIO_FORMAT
-        log.t(f"  Audio contents fetched. Extension: '.{self.__extension}'")
+            else:
+                raise ExternalServiceError(f"Unsupported audio format: '.{self.__extension}'", AUDIO_TRANSCRIPTION_FAILED)
+        log.t(f"  Audio contents loaded. Extension: '.{self.__extension}'")
         log.t(f"  Audio content size: {len(self.__audio_content) / 1024:.2f} KB")
-
-    def __resolve_extension(self, audio_url: str, def_extension: str | None):
-        log.t(f"Extracting audio extension from {audio_url}")
-        path = urlparse(audio_url).path
-        self.__extension = os.path.splitext(path)[1][1:].lower()
-        if self.__extension:
-            log.t(f"  Extracted extension: '.{self.__extension}'")
-            return
-        assumed_extension = def_extension or TARGET_AUDIO_FORMAT
-        log.t(f"  No extension found, assuming '.{assumed_extension}'...")
-        self.__extension = assumed_extension
 
     def __convert_to_wav(self, source_format: str) -> bytes:
         log.t(f"Converting {source_format} to wav")

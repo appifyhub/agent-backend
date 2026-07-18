@@ -60,16 +60,21 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.issue_templates_abs_path, ".github/ISSUE_TEMPLATE")
         self.assertEqual(config.jwt_expires_in_minutes, 30)
         self.assertEqual(config.backoffice_url_base, "http://localhost:5173")
+        self.assertEqual(config.public_api_base_url, "http://localhost:80")
         self.assertEqual(config.main_language_name, "English")
         self.assertEqual(config.main_language_iso_code, "en")
-        self.assertEqual(config.uploadcare_public_key, "invalid")
-        self.assertEqual(config.uploadcare_cdn_id, "invalid")
         self.assertEqual(config.url_shortener_base_url, "https://urls.appifyhub.com")
         self.assertEqual(config.version, "dev")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.0)
         self.assertEqual(config.products_config_path, "config/products.yaml")
         self.assertEqual(config.logos_config_path, "config/logos.yaml")
         self.assertEqual(config.fonts_dir, "src/assets/fonts")
+        self.assertEqual(config.s3_base_url, "")
+        self.assertEqual(config.s3_region, "eu-central-1")
+        self.assertEqual(config.s3_bucket, "the-agent")
+        self.assertEqual(config.uploadcare_public_key, "")
+        self.assertEqual(config.uploadcare_cdn_id, "")
+        self.assertEqual(config.attachment_public_token_ttl_seconds, 600)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://root:root@localhost:5432/agent")
         self.assertTrue(config.api_key.get_secret_value())  # Check if API key is generated
@@ -80,9 +85,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.gumroad_auth_key.get_secret_value(), "it_is_really_gumroad")
         self.assertEqual(config.jwt_secret_key.get_secret_value(), "default")
         self.assertEqual(config.github_issues_token.get_secret_value(), "invalid")
-        self.assertEqual(config.free_img_host_token.get_secret_value(), "invalid")
         self.assertEqual(config.token_encrypt_secret.get_secret_value(), "default")
-        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "invalid")
         self.assertEqual(config.url_shortener_api_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_open_ai_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_anthropic_key.get_secret_value(), "invalid")
@@ -93,6 +96,9 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_coinmarketcap_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_x_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "invalid")
+        self.assertEqual(config.s3_access_key.get_secret_value(), "local")
+        self.assertEqual(config.s3_secret_key.get_secret_value(), "invalid")
+        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "invalid")
 
     def test_custom_config(self):
         os.environ["LOG_LEVEL"] = "DEBUG"
@@ -130,14 +136,19 @@ class ConfigTest(unittest.TestCase):
         os.environ["THE_AGENT_ISSUE_TEMPLATES_PATH"] = "issue_templates"
         os.environ["JWT_EXPIRES_IN_MINUTES"] = "10"
         os.environ["BACKOFFICE_URL_BASE"] = "https://example.com"
+        os.environ["PUBLIC_API_BASE_URL"] = "https://api.example.com"
         os.environ["MAIN_LANGUAGE_NAME"] = "German"
         os.environ["MAIN_LANGUAGE_ISO_CODE"] = "de"
-        os.environ["UPLOADCARE_PUBLIC_KEY"] = "public-key-123"
-        os.environ["UPLOADCARE_CDN_ID"] = "cdn-id-123"
         os.environ["URL_SHORTENER_BASE_URL"] = "https://custom.to.appifyhub.com"
         os.environ["VERSION"] = "custom"
         os.environ["USAGE_MAINTENANCE_FEE_CREDITS"] = "0.5"
         os.environ["FONTS_DIR"] = "/custom/path/fonts"
+        os.environ["S3_BASE_URL"] = "https://s3.example.com"
+        os.environ["S3_REGION"] = "eu-west-1"
+        os.environ["S3_BUCKET"] = "custom-agent"
+        os.environ["UPLOADCARE_PUBLIC_KEY"] = "uploadcare-public-key"
+        os.environ["UPLOADCARE_CDN_ID"] = "uploadcare-cdn-id"
+        os.environ["ATTACHMENT_PUBLIC_TOKEN_TTL_SECONDS"] = "300"
 
         os.environ["POSTGRES_USER"] = "admin"
         os.environ["POSTGRES_PASS"] = "admin123"
@@ -152,9 +163,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["GUMROAD_PING_AUTH_TOKEN"] = "mnop3456"
         os.environ["JWT_SECRET_KEY"] = "custom"
         os.environ["THE_AGENT_ISSUES_TOKEN"] = "sk-gi-valid"
-        os.environ["FREE_IMG_HOST_TOKEN"] = "sk-im-valid"
         os.environ["TOKEN_ENCRYPT_SECRET"] = "custom-encryption-key"
-        os.environ["UPLOADCARE_PRIVATE_KEY"] = "private-key-123"
         os.environ["URL_SHORTENER_API_KEY"] = "url-shortener-key-123"
         os.environ["PLATFORM_OPEN_AI_KEY"] = "platform-openai-key"
         os.environ["PLATFORM_ANTHROPIC_KEY"] = "platform-anthropic-key"
@@ -165,6 +174,9 @@ class ConfigTest(unittest.TestCase):
         os.environ["PLATFORM_COINMARKETCAP_KEY"] = "platform-coinmarketcap-key"
         os.environ["PLATFORM_X_KEY"] = "platform-x-key"
         os.environ["PLATFORM_X_AI_KEY"] = "platform-x-ai-key"
+        os.environ["S3_ACCESS_KEY"] = "s3-access-key"
+        os.environ["S3_SECRET_KEY"] = "s3-secret-key"
+        os.environ["UPLOADCARE_PRIVATE_KEY"] = "uploadcare-private-key"
 
         config = Config()
 
@@ -203,14 +215,19 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.issue_templates_abs_path, "issue_templates")
         self.assertEqual(config.jwt_expires_in_minutes, 10)
         self.assertEqual(config.backoffice_url_base, "https://example.com")
+        self.assertEqual(config.public_api_base_url, "https://api.example.com")
         self.assertEqual(config.main_language_name, "German")
         self.assertEqual(config.main_language_iso_code, "de")
-        self.assertEqual(config.uploadcare_public_key, "public-key-123")
-        self.assertEqual(config.uploadcare_cdn_id, "cdn-id-123")
         self.assertEqual(config.url_shortener_base_url, "https://custom.to.appifyhub.com")
         self.assertEqual(config.version, "custom")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.5)
         self.assertEqual(config.fonts_dir, "/custom/path/fonts")
+        self.assertEqual(config.s3_base_url, "https://s3.example.com")
+        self.assertEqual(config.s3_region, "eu-west-1")
+        self.assertEqual(config.s3_bucket, "custom-agent")
+        self.assertEqual(config.uploadcare_public_key, "uploadcare-public-key")
+        self.assertEqual(config.uploadcare_cdn_id, "uploadcare-cdn-id")
+        self.assertEqual(config.attachment_public_token_ttl_seconds, 300)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://admin:admin123@db.example.com:5432/test_db")
         self.assertEqual(config.api_key.get_secret_value(), "1111-2222-3333-4444")
@@ -222,9 +239,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.gumroad_auth_key.get_secret_value(), "mnop3456")
         self.assertEqual(config.jwt_secret_key.get_secret_value(), "custom")
         self.assertEqual(config.github_issues_token.get_secret_value(), "sk-gi-valid")
-        self.assertEqual(config.free_img_host_token.get_secret_value(), "sk-im-valid")
         self.assertEqual(config.token_encrypt_secret.get_secret_value(), "custom-encryption-key")
-        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "private-key-123")
         self.assertEqual(config.url_shortener_api_key.get_secret_value(), "url-shortener-key-123")
         self.assertEqual(config.platform_open_ai_key.get_secret_value(), "platform-openai-key")
         self.assertEqual(config.platform_anthropic_key.get_secret_value(), "platform-anthropic-key")
@@ -235,6 +250,9 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_coinmarketcap_key.get_secret_value(), "platform-coinmarketcap-key")
         self.assertEqual(config.platform_x_key.get_secret_value(), "platform-x-key")
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "platform-x-ai-key")
+        self.assertEqual(config.s3_access_key.get_secret_value(), "s3-access-key")
+        self.assertEqual(config.s3_secret_key.get_secret_value(), "s3-secret-key")
+        self.assertEqual(config.uploadcare_private_key.get_secret_value(), "uploadcare-private-key")
 
     def test_products_loaded_from_yaml(self):
         config = Config(def_products_config_path = PRODUCTS_FIXTURE_PATH)

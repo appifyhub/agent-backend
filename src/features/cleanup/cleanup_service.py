@@ -8,6 +8,7 @@ from util.config import config
 @dataclass
 class CleanupResult:
     attachments_deleted: int = field(default = 0)
+    orphaned_attachments_deleted: int = field(default = 0)
     messages_deleted: int = field(default = 0)
     cache_entries_cleared: int = field(default = 0)
     usage_records_deleted: int = field(default = 0)
@@ -26,10 +27,12 @@ class CleanupService:
 
         message_cutoff = datetime.now() - timedelta(days = config.cleanup_message_retention_days)
         try:
-            result.attachments_deleted = self.__di.chat_message_attachment_repo.delete_by_old_messages(message_cutoff)
+            result.attachments_deleted = self.__di.chat_attachment_service.cleanup_old_attachments(message_cutoff)
             log.i(f"  Cleanup phase 1A: deleted {result.attachments_deleted} attachments")
             result.messages_deleted = self.__di.chat_message_repo.delete_older_than(message_cutoff)
             log.i(f"  Cleanup phase 1B: deleted {result.messages_deleted} messages")
+            result.orphaned_attachments_deleted = self.__di.chat_attachment_service.cleanup_orphaned_attachments(message_cutoff)  # noqa: E501
+            log.i(f"  Cleanup phase 1C: deleted {result.orphaned_attachments_deleted} orphaned attachments")
         except Exception as e:
             log.e(f"  Cleanup phase 1 (messages / attachments) failed: {e}")
 

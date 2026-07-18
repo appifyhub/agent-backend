@@ -73,21 +73,22 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
             created_at = date.today(),
         )
 
+        chat_config = ChatConfig(
+            chat_id = UUID(int = 123),
+            external_id = "123",
+            language_name = "English",
+            language_iso_code = "en",
+            title = "Test Chat",
+            is_private = False,
+            reply_chance_percent = 100,
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+            media_mode = ChatConfigDB.MediaMode.photo,
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
         self.di.whatsapp_data_resolver.resolve_all.return_value = [
             Mock(
                 spec = WhatsAppDataResolver.Result,
-                chat = ChatConfig(
-                    chat_id = UUID(int = 123),
-                    external_id = "123",
-                    language_name = "English",
-                    language_iso_code = "en",
-                    title = "Test Chat",
-                    is_private = False,
-                    reply_chance_percent = 100,
-                    release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                    media_mode = ChatConfigDB.MediaMode.photo,
-                    chat_type = ChatConfigDB.ChatType.whatsapp,
-                ),
+                chat = chat_config,
                 author = author,
                 message = Mock(sent_at = datetime.now()),
             ),
@@ -102,7 +103,7 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
 
         self.assertTrue(result)
         self.di.chat_agent.return_value.execute.assert_called_once()
-        self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with("123", "Test response")
+        self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(chat_config, "Test response")
         self.mock_sleep.assert_called_once_with(0.1)
 
     def test_reaction_response(self):
@@ -266,6 +267,6 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
                 result = respond_to_update(self.update)
 
             self.assertFalse(result)
-            self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with("123", "Error response")
+            self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(resolved_domain_data_mock.chat, "Error response")
             self.mock_sleep.assert_called_once_with(0.1)
             self.di.chat_message_repo.save.assert_not_called()
