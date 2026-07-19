@@ -59,6 +59,7 @@ class CurrencyAlertService:
         if self.__di.invoker.id == agent_user.id:
             raise AuthorizationError("Bot cannot set price alerts", BOT_CANNOT_SET_ALERTS)
 
+        self.__di.authorization_service.validate_chat_admin(self.__di.invoker, self.__target_chat_config)
         current_rate: float = self.__di.exchange_rate_fetcher.execute(base_currency, desired_currency)["rate"]
         price_alert = self.__di.price_alert_repo.save(
             PriceAlert(
@@ -86,6 +87,7 @@ class CurrencyAlertService:
         if not self.__target_chat_config:
             raise AuthorizationError("Target chat is not set", NO_PRIVATE_CHAT)
 
+        self.__di.authorization_service.validate_chat_admin(self.__di.invoker, self.__target_chat_config)
         deleted_alert = self.__di.price_alert_repo.delete(
             self.__target_chat_config.chat_id, base_currency, desired_currency,
         )
