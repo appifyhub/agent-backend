@@ -28,6 +28,11 @@ class SupportedFilesTest(unittest.TestCase):
 
         self.assertEqual(result, ("image/jpeg", "jpg"))
 
+    def test_resolve_file_type_normalizes_mime_type_parameters(self):
+        result = resolve_file_type(mime_type = "audio/ogg; codecs=opus")
+
+        self.assertEqual(result, ("audio/ogg", "oga"))
+
     def test_resolve_file_type_keeps_unknown_extension(self):
         result = resolve_file_type(extension = "unknown")
 
@@ -88,6 +93,7 @@ class SupportedFilesTest(unittest.TestCase):
 
     def test_is_supported_mime_type(self):
         self.assertTrue(is_supported_mime_type("image/png"))
+        self.assertTrue(is_supported_mime_type("audio/ogg; codecs=opus"))
         self.assertFalse(is_supported_mime_type("application/x-custom"))
         self.assertFalse(is_supported_mime_type(None))
 
