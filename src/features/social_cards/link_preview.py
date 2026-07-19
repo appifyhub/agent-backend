@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from PIL import Image
 
+from features.images.image_color_utils import relative_luminance
 from features.social_cards.card_layout import PHOTO_CORNER_RADIUS, PHOTO_GAP
 from features.social_cards.card_utils import (
     FONT_NAME,
@@ -143,9 +144,7 @@ def _dominant_color(data: bytes) -> tuple[int, int, int]:
 
 
 def _contrast_text_color(rgb: tuple[int, int, int]) -> str:
-    r, g, b = rgb
-    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return "#000000" if luminance > 0.5 else "#ffffff"
+    return "#000000" if relative_luminance(rgb) > 0.5 else "#ffffff"
 
 
 def _contrast_overlay_color(rgb: tuple[int, int, int]) -> str:
