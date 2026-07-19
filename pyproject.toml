@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "the-agent"
-version = "5.21.2"
+version = "5.21.3"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
