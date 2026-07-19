@@ -85,19 +85,46 @@ class PlatformBotSDKTest(unittest.TestCase):
 
     def test_send_photo_resizes_and_uploads(self):
         di = _make_di()
+        prepared_path = _make_temp_file(b"prepared")
         resized_path = _make_temp_file(b"resized")
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_get.return_value = _mock_response(body = b"x" * (6 * 1024 * 1024))
+            mock_prepare.return_value = prepared_path
             mock_resize.return_value = resized_path
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+        mock_prepare.assert_called_once()
         mock_resize.assert_called_once()
+        self.assertEqual(mock_resize.call_args.args[0], prepared_path)
         self.assertEqual(mock_resize.call_args.args[1], TELEGRAM_MAX_PHOTO_SIZE_BYTES)
         stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
         self.assertEqual(stored_bytes, b"resized")
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
             di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            di.chat_attachment_service.save.return_value,
+            None,
+        )
+        self.assertEqual(result, "sent")
+
+    def test_whatsapp_send_photo_prepares_before_resize(self):
+        di = _make_di()
+        di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
+        prepared_path = _make_temp_file(b"prepared")
+        sdk = PlatformBotSDK(di = di)
+        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
+                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
+            mock_get.return_value = _mock_response(body = b"source")
+            mock_prepare.return_value = prepared_path
+            mock_resize.return_value = prepared_path
+            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+
+        mock_prepare.assert_called_once()
+        self.assertEqual(mock_resize.call_args.args[0], prepared_path)
+        di.whatsapp_bot_sdk.send_photo.assert_called_once_with(
+            di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
             None,
         )
@@ -149,11 +176,13 @@ class PlatformBotSDKTest(unittest.TestCase):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_get.return_value = _mock_response(body = b"document")
             mock_resize.side_effect = lambda path, max_size_bytes: path
             result = sdk.send_document(chat_id = 1, document_url = "http://example.com/doc.pdf")
         self.assertIsNone(mock_resize.call_args.args[1])
+        mock_prepare.assert_not_called()
         stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
         self.assertEqual(stored_bytes, b"document")
         di.telegram_bot_sdk.send_document.assert_called_once_with(
@@ -168,6 +197,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_get.return_value = _mock_response(body = b"document")
             mock_resize.side_effect = lambda path, max_size_bytes: path
@@ -178,6 +208,7 @@ class PlatformBotSDKTest(unittest.TestCase):
                 thumbnail = "http://example.com/thumb.png",
             )
         self.assertEqual(mock_resize.call_count, 2)
+        mock_prepare.assert_not_called()
         di.chat_attachment_service.create_public_url.assert_called_once()
         di.telegram_bot_sdk.send_document.assert_called_once_with(
             chat_id = di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
@@ -191,6 +222,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_get.return_value = _mock_response(body = b"document")
             mock_resize.side_effect = lambda path, max_size_bytes: path
@@ -201,14 +233,17 @@ class PlatformBotSDKTest(unittest.TestCase):
             )
         di.telegram_bot_sdk.send_photo.assert_not_called()
         di.telegram_bot_sdk.send_document.assert_called_once()
+        mock_prepare.assert_not_called()
         self.assertEqual(result, "document-sent")
 
     def test_smart_send_photo_all_mode_sends_photo_and_document(self):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
+                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
             mock_get.return_value = _mock_response(body = b"data")
+            mock_prepare.side_effect = lambda path: path
             mock_resize.side_effect = lambda path, max_size_bytes: path
             result = sdk.smart_send_photo(
                 media_mode = ChatConfigDB.MediaMode.all,
@@ -228,6 +263,7 @@ class PlatformBotSDKTest(unittest.TestCase):
             thumbnail = _public_attachment_url("stored-attachment"),
             caption = "caption",
         )
+        mock_prepare.assert_called_once()
         self.assertEqual(result, "document-sent")
 
     def test_smart_send_photo_photo_mode_falls_back_to_document(self):
