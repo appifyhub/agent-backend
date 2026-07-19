@@ -129,6 +129,19 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(result.extension, "jpg")
 
     @patch("features.chat.attachment.chat_attachment_service.config")
+    def test_save_with_content_normalizes_parameterized_mime_type(self, mock_config):
+        mock_config.s3_bucket = "the-agent"
+        attachment = replace(self.attachment, mime_type = "audio/ogg; codecs=opus")
+
+        result = self.service.save(attachment, b"audio data")
+
+        self.assertEqual(result.mime_type, "audio/ogg")
+        self.assertEqual(result.extension, "oga")
+        stored_metadata = self.di.attachment_storage.put.call_args.args[0]
+        self.assertEqual(stored_metadata.mime_type, "audio/ogg")
+        self.assertEqual(stored_metadata.extension, "oga")
+
+    @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_content_uses_last_url_for_file_type_fallback(self, mock_config):
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600

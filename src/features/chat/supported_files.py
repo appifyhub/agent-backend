@@ -98,6 +98,8 @@ def resolve_file_type(
         tuple[str | None, str | None]: (mime_type, extension)
     """
 
+    mime_type = __mime_type_without_parameters(mime_type)
+
     # 1. try to resolve extension first
     resolved_extension: str | None = extension
     if not resolved_extension and mime_type:
@@ -139,6 +141,7 @@ def detect_image_format(content: bytes) -> str | None:
 
 
 def is_supported_mime_type(mime_type: str | None) -> bool:
+    mime_type = __mime_type_without_parameters(mime_type)
     return bool(mime_type and mime_type in KNOWN_FILE_FORMATS.values())
 
 
@@ -154,6 +157,12 @@ def __extension_from_uri(uri: str | None) -> str | None:
     if not suffix:
         return None
     return suffix.removeprefix(".").lower()
+
+
+def __mime_type_without_parameters(mime_type: str | None) -> str | None:
+    if not mime_type:
+        return None
+    return mime_type.split(";", 1)[0].strip().lower()
 
 
 def __extension_for_mime_type(mime_type: str | None) -> str | None:
