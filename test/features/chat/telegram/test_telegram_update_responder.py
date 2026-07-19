@@ -102,7 +102,10 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.mock_sleep.assert_called_once_with(0.1)
 
     def test_reaction_response(self):
-        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
+        self.di.chat_agent.return_value.execute.return_value = AIMessage(content = [
+            {"type": "thinking", "thinking": "A reaction is appropriate"},
+            {"type": "text", "text": "👍"},
+        ])
         self.di.telegram_domain_mapper.map_update.return_value = Mock(
             spec = TelegramDomainMapper.Result,
             message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),

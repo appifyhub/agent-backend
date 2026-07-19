@@ -395,6 +395,7 @@ $RECYCLE.BIN/
 # Custom
 
 .vscode/
+.local/s3/
 scratchpad.py
 GOAL.md
 goal.md

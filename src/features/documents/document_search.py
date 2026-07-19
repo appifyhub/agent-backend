@@ -1,7 +1,7 @@
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.vectorstores import InMemoryVectorStore
 
 from di.di import DI
@@ -9,8 +9,9 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from util import log
-from util.error_codes import DOCUMENT_SEARCH_FAILED, LLM_UNEXPECTED_RESPONSE
+from util.error_codes import DOCUMENT_SEARCH_FAILED
 from util.errors import ExternalServiceError
+from util.functions import parse_ai_message_content
 
 DEFAULT_QUESTION = "What is this document about?"
 SEARCH_RESULT_PAGES = 3
@@ -70,11 +71,8 @@ class DocumentSearch:
             system_prompt = prompt_resolvers.document_search_and_response(self.__additional_context, self.__di.invoker_chat)
             copywriter_messages = [SystemMessage(system_prompt), HumanMessage(search_results)]
             answer = self.__copywriter.invoke(copywriter_messages)
-            if not isinstance(answer, AIMessage):
-                raise ExternalServiceError(f"Received a non-AI message from the model: {answer}", LLM_UNEXPECTED_RESPONSE)
-            if not answer.content or not isinstance(answer.content, str):
-                raise ExternalServiceError(f"Received an unexpected content from the model: {answer}", LLM_UNEXPECTED_RESPONSE)
-            return f"Document Search Results:\n\n```\n{str(answer.content)}\n```"
+            content = parse_ai_message_content(answer)
+            return f"Document Search Results:\n\n```\n{content}\n```"
         except ExternalServiceError:
             raise
         except Exception as e:

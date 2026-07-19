@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
@@ -10,14 +11,24 @@ from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from util import log
 from util.config import config
-from util.error_codes import EMPTY_TOKEN, NO_USER_ID_IN_TOKEN
+from util.error_codes import EMPTY_TOKEN, INVALID_RESOURCE_TOKEN, NO_USER_ID_IN_TOKEN
 from util.errors import AuthenticationError
 
+__CLAIM_CHAT_ID = "chat_id"
+__CLAIM_ATTACHMENT_ID = "attachment_id"
+__CLAIM_ISSUER_USER_ID = "issuer_user_id"
 __JWT_ALGORITHM = "HS256"
 
 api_key_header = APIKeyHeader(name = "X-API-Key", auto_error = True)
 telegram_auth_key_header = APIKeyHeader(name = "X-Telegram-Bot-Api-Secret-Token", auto_error = False)
 jwt_header = HTTPBearer(bearerFormat = "JWT", auto_error = True)
+
+
+@dataclass(frozen = True)
+class PublicAttachmentTokenClaims:
+    chat_id: str
+    attachment_id: str
+    issuer_user_id: str
 
 
 def verify_api_key(api_key: str = Security(api_key_header)) -> str:
@@ -118,9 +129,8 @@ def get_chat_type_from_jwt(token_claims: Dict[str, Any] | None) -> str | None:
     return token_claims.get("platform")
 
 
-def create_jwt_token(payload: Dict[str, Any], expires_in_minutes: int) -> str:
+def create_jwt_token(payload: Dict[str, Any], expires_in: timedelta) -> str:
     now = datetime.now(timezone.utc)
-    expires_in = timedelta(minutes = expires_in_minutes)
     to_encode = payload.copy()
     to_encode.update(
         {
@@ -131,3 +141,39 @@ def create_jwt_token(payload: Dict[str, Any], expires_in_minutes: int) -> str:
     )
     encoded_jwt = jwt.encode(to_encode, config.jwt_secret_key.get_secret_value(), algorithm = __JWT_ALGORITHM)
     return encoded_jwt
+
+
+def create_public_attachment_token(chat_id: str, attachment_id: str, issuer_user_id: str, ttl_seconds: int) -> str:
+    return create_jwt_token(
+        {
+            __CLAIM_CHAT_ID: chat_id,
+            __CLAIM_ATTACHMENT_ID: attachment_id,
+            __CLAIM_ISSUER_USER_ID: issuer_user_id,
+        },
+        timedelta(seconds = ttl_seconds),
+    )
+
+
+def verify_public_attachment_token(token: str) -> PublicAttachmentTokenClaims:
+    try:
+        claims = verify_jwt_token(token)
+    except ExpiredSignatureError as e:
+        raise AuthenticationError("Public attachment token expired", INVALID_RESOURCE_TOKEN) from e
+    except Exception as e:
+        raise AuthenticationError("Invalid public attachment token", INVALID_RESOURCE_TOKEN) from e
+
+    chat_id = claims.get(__CLAIM_CHAT_ID)
+    if not chat_id:
+        raise AuthenticationError("Public attachment token is missing chat ID", INVALID_RESOURCE_TOKEN)
+    attachment_id = claims.get(__CLAIM_ATTACHMENT_ID)
+    if not attachment_id:
+        raise AuthenticationError("Public attachment token is missing attachment ID", INVALID_RESOURCE_TOKEN)
+    issuer_user_id = claims.get(__CLAIM_ISSUER_USER_ID)
+    if not issuer_user_id:
+        raise AuthenticationError("Public attachment token is missing issuer user ID", INVALID_RESOURCE_TOKEN)
+
+    return PublicAttachmentTokenClaims(
+        chat_id = str(chat_id),
+        attachment_id = str(attachment_id),
+        issuer_user_id = str(issuer_user_id),
+    )

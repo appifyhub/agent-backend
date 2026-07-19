@@ -3,6 +3,8 @@ from datetime import datetime
 from unittest.mock import Mock
 from uuid import UUID
 
+from langchain_core.messages import AIMessage
+
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
@@ -59,6 +61,22 @@ class CurrencyAlertResponderTest(unittest.TestCase):
 
         # Configure clone to return the same scoped_di
         self.mock_di.clone.return_value = self.mock_scoped_di
+
+    def test_sys_announcements_service_normalizes_structured_content(self):
+        chat = self.__make_chat_config(UUID(int = 1))
+        copywriter = Mock()
+        copywriter.invoke.return_value = AIMessage(content = [
+            {"type": "thinking", "thinking": "Hidden reasoning"},
+            {"type": "text", "text": "System announcement"},
+        ])
+        di = Mock(spec = DI)
+        di.authorization_service.validate_chat.return_value = chat
+        di.chat_langchain_model.return_value = copywriter
+
+        resolved_chat, response = SysAnnouncementsService("Raw information", chat, Mock(), di).execute()
+
+        self.assertEqual(resolved_chat, chat)
+        self.assertEqual(response.content, "System announcement")
 
     @staticmethod
     def __make_chat_config(chat_id: UUID) -> ChatConfig:

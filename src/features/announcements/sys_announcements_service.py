@@ -8,8 +8,9 @@ from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from features.integrations.integrations import resolve_best_notification_chat
 from util import log
-from util.error_codes import CHAT_CONFIG_NOT_FOUND, LLM_UNEXPECTED_RESPONSE
-from util.errors import ExternalServiceError, NotFoundError
+from util.error_codes import CHAT_CONFIG_NOT_FOUND
+from util.errors import NotFoundError
+from util.functions import parse_ai_message_content
 
 
 # Not tested as it's just a proxy
@@ -44,10 +45,9 @@ class SysAnnouncementsService:
         log.t(f"Starting information announcer for {str(self.__llm_input[-1].content).replace('\n', ' \\n ')}")
         try:
             response = self.__copywriter.invoke(self.__llm_input)
-            if not isinstance(response, AIMessage):
-                raise ExternalServiceError(f"Received a non-AI message from LLM: {response}", LLM_UNEXPECTED_RESPONSE)
-            log.d(f"Finished announcement creation, summary size is {len(response.content)} characters")
-            return self.__resolved_chat, response
+            content = parse_ai_message_content(response)
+            log.d(f"Finished announcement creation, summary size is {len(content)} characters")
+            return self.__resolved_chat, response.model_copy(update = {"content": content})
         except Exception as e:
             log.e("Information announcement failed", e)
             raise e

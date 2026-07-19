@@ -109,6 +109,14 @@ class ImageSizeUtilsTest(unittest.TestCase):
         except ValidationError as e:
             self.assertEqual(e.error_code, INVALID_IMAGE_SIZE)
 
+    def test_non_image_over_limit_returns_original_path(self):
+        with tempfile.NamedTemporaryFile(suffix = ".txt", delete = False) as f:
+            path = f.name
+            f.write(b"this is plain text, not an image at all" * 10)
+        self._temp_files.append(path)
+        result = resize_file(path, 10)
+        self.assertEqual(result, path)
+
     # normalize_image_size_category
 
     def test_normalize_strips_spaces_and_lowercases(self):
