@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from PIL import Image
 
+from features.images.image_color_utils import relative_luminance
 from features.social_cards.card_layout import (
     AVATAR_GAP,
     AVATAR_SIZE,
@@ -74,7 +75,7 @@ def _logo_svg_b64(key: str) -> str:
 def _agent_logo_key(theme: ThemeColors) -> str:
     hex_color = theme.gradient_start.lstrip("#")
     r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    luminance = relative_luminance((r, g, b))
     if luminance < 0.3:
         return "agent_logo_light"
     if luminance > 0.7:

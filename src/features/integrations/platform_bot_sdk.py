@@ -10,6 +10,7 @@ from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
+from features.images.image_bitmap_utils import add_outgoing_png_background
 from features.images.image_size_utils import resize_file
 from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYTES, WHATSAPP_MAX_PHOTO_SIZE_BYTES
 from features.integrations.integrations import is_own_chat
@@ -62,10 +63,10 @@ class PlatformBotSDK:
 
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
-                attachment = self.prepare_outgoing_attachment(chat_config, photo_url)
+                attachment = self.prepare_outgoing_attachment(chat_config, photo_url, should_add_png_background = True)
                 return self.__di.telegram_bot_sdk.send_photo(chat_config.external_id, attachment, caption)
             case ChatConfigDB.ChatType.whatsapp:
-                attachment = self.prepare_outgoing_attachment(chat_config, photo_url)
+                attachment = self.prepare_outgoing_attachment(chat_config, photo_url, should_add_png_background = True)
                 return self.__di.whatsapp_bot_sdk.send_photo(chat_config, attachment, caption)
             case _:
                 raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
@@ -194,6 +195,7 @@ class PlatformBotSDK:
         chat_config: ChatConfig,
         public_url: str,
         should_resize: bool = True,
+        should_add_png_background: bool = False,
     ) -> ChatAttachment:
         # first, we find the max size for photos
         max_size_bytes: int | None = None
@@ -209,6 +211,7 @@ class PlatformBotSDK:
 
         # next, we download the file to a temp location for resizing
         temp_path: str | None = None
+        prepared_path: str | None = None
         resized_path: str | None = None
         try:
             with NamedTemporaryFile(delete = False) as tmp:
@@ -226,7 +229,8 @@ class PlatformBotSDK:
                 log.w(f"Downloaded outbound media is empty '{public_url[:4]}...{public_url[-4:]}'")
                 raise ExternalServiceError("Could not download outbound media", MEDIA_DOWNLOAD_FAILED)
 
-            resized_path = resize_file(temp_path, max_size_bytes)
+            prepared_path = add_outgoing_png_background(temp_path) if should_add_png_background else temp_path
+            resized_path = resize_file(prepared_path, max_size_bytes)
             attachment = self.__di.chat_attachment_service.save(
                 attachment = ChatAttachment(chat_id = chat_config.chat_id, uploader_user_id = self.__di.invoker.id),
                 content = Path(resized_path).read_bytes(),
@@ -235,4 +239,5 @@ class PlatformBotSDK:
             return attachment
         finally:
             delete_file_safe(temp_path)
+            delete_file_safe(prepared_path)
             delete_file_safe(resized_path)

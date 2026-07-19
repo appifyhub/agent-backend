@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from PIL import Image
 
+from features.images.image_color_utils import relative_luminance
 from features.social_cards.brand import BRAND_GRADIENT_END, BRAND_GRADIENT_START
 from util import log
 
@@ -118,9 +119,7 @@ def _derive_gradient_end(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
 
 
 def _contrast_text(rgb: tuple[int, int, int]) -> str:
-    r, g, b = rgb
-    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return "#000000" if luminance > 0.5 else "#ffffff"
+    return "#000000" if relative_luminance(rgb) > 0.5 else "#ffffff"
 
 
 def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:

@@ -3,6 +3,7 @@ import re
 
 from PIL import Image
 
+from features.images.image_color_utils import relative_luminance
 from features.social_cards.card_utils import (
     FONT_NAME,
     b64_image,
@@ -74,8 +75,7 @@ def render_embedded_post(
     # Background rect
     hex_bg = theme.gradient_start.lstrip("#")
     bg_r, bg_g, bg_b = int(hex_bg[0:2], 16), int(hex_bg[2:4], 16), int(hex_bg[4:6], 16)
-    luminance = (0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b) / 255
-    overlay_fill = "#ffffff" if luminance < 0.5 else "#000000"
+    overlay_fill = "#ffffff" if relative_luminance((bg_r, bg_g, bg_b)) < 0.5 else "#000000"
 
     rect_path = rounded_rect_path(x, y, width, total_h, R, R, R, R)
     content.append(f'<path d="{rect_path}" fill="{overlay_fill}" fill-opacity="{EMBED_OVERLAY_OPACITY}"/>')
