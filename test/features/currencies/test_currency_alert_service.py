@@ -3,19 +3,26 @@ from datetime import datetime
 from unittest.mock import MagicMock
 from uuid import UUID
 
+from db.sql_util import SQLUtil
 from pydantic import SecretStr
 
+from api.authorization_service import AuthorizationService
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
+from features.chat.membership.chat_membership import ChatMembership
+from features.chat.membership.chat_membership_service import ChatMembershipService
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.currencies.currency_alert_service import DATETIME_PRINT_FORMAT, CurrencyAlertService
 from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
 from features.currencies.price_alert import PriceAlert
 from features.currencies.price_alert_repo import PriceAlertRepository
+from features.integrations.platform_bot_sdk import ChatAccess
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
+from util.error_codes import NOT_CHAT_ADMIN
+from util.errors import AuthorizationError
 
 
 class CurrencyAlertServiceTest(unittest.TestCase):
@@ -58,6 +65,56 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         )
         self.mock_di.authorization_service.validate_chat.return_value = self.chat_config
 
+    def _role_checked_service(
+        self,
+        access: ChatAccess,
+        is_private: bool = False,
+        existing_is_admin: bool | None = None,
+    ) -> tuple[CurrencyAlertService, DI, SQLUtil, User, ChatConfig]:
+        sql = SQLUtil()
+        self.addCleanup(sql.end_session)
+        user = sql.user_repo().save(
+            User(
+                full_name = "Role User",
+                telegram_username = "role_user",
+                telegram_chat_id = "private_chat",
+                telegram_user_id = 123,
+                open_ai_key = SecretStr("test_api_key"),
+                group = UserDB.Group.standard,
+                created_at = datetime.now().date(),
+            ),
+        )
+        chat = sql.chat_config_repo().save(
+            ChatConfig(
+                external_id = "private_chat" if is_private else "group_chat",
+                title = "Role Chat",
+                is_private = is_private,
+                chat_type = ChatConfigDB.ChatType.telegram,
+            ),
+        )
+        if existing_is_admin is not None:
+            sql.chat_membership_repo().save(
+                ChatMembership(
+                    user_id = user.id,
+                    chat_id = chat.chat_id,
+                    is_admin = existing_is_admin,
+                ),
+            )
+
+        di = MagicMock(spec = DI)
+        di.user_repo = sql.user_repo()
+        di.chat_config_repo = sql.chat_config_repo()
+        di.chat_membership_repo = sql.chat_membership_repo()
+        di.price_alert_repo = sql.price_alert_repo()
+        di.exchange_rate_fetcher = MagicMock(spec = ExchangeRateFetcher)
+        di.invoker = user
+        platform_sdk = MagicMock()
+        platform_sdk.resolve_chat_access.return_value = access
+        di.platform_bot_sdk.return_value = platform_sdk
+        di.chat_membership_service = ChatMembershipService(di)
+        di.authorization_service = AuthorizationService(di)
+        return CurrencyAlertService(chat.chat_id.hex, di), di, sql, user, chat
+
     def test_create_alert(self):
         service = CurrencyAlertService(self.chat_id, self.mock_di)
         self.mock_price_alert_repo.save.return_value = PriceAlert(
@@ -83,6 +140,54 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         self.assertEqual(saved.desired_currency, "USD")
         self.assertEqual(saved.threshold_percent, 5)
         self.assertEqual(saved.last_price, 1.5)
+
+    def test_admin_can_create_alert(self):
+        service, di, sql, user, chat = self._role_checked_service(ChatAccess.admin)
+        di.exchange_rate_fetcher.execute.return_value = {"rate": 1.5}
+
+        alert = service.create_alert("BTC", "USD", 5)
+
+        stored = sql.price_alert_repo().get(chat.chat_id, "BTC", "USD")
+        self.assertIsNotNone(stored)
+        self.assertEqual(alert.owner_id, user.id)
+        self.assertEqual(stored.owner_id, user.id)
+        self.assertEqual(stored.threshold_percent, 5)
+        self.assertEqual(stored.last_price, 1.5)
+
+    def test_admin_can_reconfigure_alert(self):
+        service, di, sql, user, chat = self._role_checked_service(ChatAccess.admin)
+        sql.price_alert_repo().save(
+            PriceAlert(
+                chat_id = chat.chat_id,
+                owner_id = user.id,
+                base_currency = "BTC",
+                desired_currency = "USD",
+                threshold_percent = 5,
+                last_price = 1.5,
+                last_price_time = datetime(2023, 1, 1, 12, 0, 0),
+            ),
+        )
+        di.exchange_rate_fetcher.execute.return_value = {"rate": 2.5}
+
+        alert = service.create_alert("BTC", "USD", 8)
+
+        stored = sql.price_alert_repo().get(chat.chat_id, "BTC", "USD")
+        self.assertIsNotNone(stored)
+        self.assertEqual(alert.threshold_percent, 8)
+        self.assertEqual(stored.owner_id, user.id)
+        self.assertEqual(stored.threshold_percent, 8)
+        self.assertEqual(stored.last_price, 2.5)
+
+    def test_private_chat_owner_can_create_alert(self):
+        service, di, sql, user, chat = self._role_checked_service(ChatAccess.owner, is_private = True)
+        di.exchange_rate_fetcher.execute.return_value = {"rate": 1.5}
+
+        service.create_alert("BTC", "USD", 5)
+
+        stored = sql.price_alert_repo().get(chat.chat_id, "BTC", "USD")
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.owner_id, user.id)
+        self.assertEqual(stored.threshold_percent, 5)
 
     def test_get_all_alerts(self):
         service = CurrencyAlertService(self.chat_id, self.mock_di)
@@ -140,6 +245,119 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         self.assertEqual(deleted_alert.desired_currency, "USD")
         self.mock_price_alert_repo.delete.assert_called_once_with(UUID(hex = self.chat_id), "BTC", "USD")
 
+    def test_admin_can_delete_alert(self):
+        service, _, sql, user, chat = self._role_checked_service(ChatAccess.admin)
+        sql.price_alert_repo().save(
+            PriceAlert(
+                chat_id = chat.chat_id,
+                owner_id = user.id,
+                base_currency = "BTC",
+                desired_currency = "USD",
+                threshold_percent = 5,
+                last_price = 1.5,
+            ),
+        )
+
+        deleted_alert = service.delete_alert("BTC", "USD")
+
+        self.assertIsNotNone(deleted_alert)
+        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, "BTC", "USD"))
+
+    def test_member_cannot_create_alert(self):
+        service, di, sql, _, chat = self._role_checked_service(ChatAccess.member)
+
+        with self.assertRaises(AuthorizationError) as context:
+            service.create_alert("BTC", "USD", 5)
+
+        self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
+        di.exchange_rate_fetcher.execute.assert_not_called()
+        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, "BTC", "USD"))
+
+    def test_member_cannot_reconfigure_alert(self):
+        service, di, sql, user, chat = self._role_checked_service(ChatAccess.member)
+        original_time = datetime(2023, 1, 1, 12, 0, 0)
+        sql.price_alert_repo().save(
+            PriceAlert(
+                chat_id = chat.chat_id,
+                owner_id = user.id,
+                base_currency = "BTC",
+                desired_currency = "USD",
+                threshold_percent = 5,
+                last_price = 1.5,
+                last_price_time = original_time,
+            ),
+        )
+
+        with self.assertRaises(AuthorizationError) as context:
+            service.create_alert("BTC", "USD", 8)
+
+        self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
+        di.exchange_rate_fetcher.execute.assert_not_called()
+        stored = sql.price_alert_repo().get(chat.chat_id, "BTC", "USD")
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.threshold_percent, 5)
+        self.assertEqual(stored.last_price, 1.5)
+        self.assertEqual(stored.last_price_time, original_time)
+
+    def test_member_cannot_delete_alert(self):
+        service, _, sql, user, chat = self._role_checked_service(ChatAccess.member)
+        sql.price_alert_repo().save(
+            PriceAlert(
+                chat_id = chat.chat_id,
+                owner_id = user.id,
+                base_currency = "BTC",
+                desired_currency = "USD",
+                threshold_percent = 5,
+                last_price = 1.5,
+            ),
+        )
+
+        with self.assertRaises(AuthorizationError) as context:
+            service.delete_alert("BTC", "USD")
+
+        self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
+        self.assertIsNotNone(sql.price_alert_repo().get(chat.chat_id, "BTC", "USD"))
+
+    def test_lost_admin_role_cannot_create_alert(self):
+        service, di, sql, user, chat = self._role_checked_service(ChatAccess.member, existing_is_admin = True)
+
+        with self.assertRaises(AuthorizationError) as context:
+            service.create_alert("BTC", "USD", 5)
+
+        self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
+        di.exchange_rate_fetcher.execute.assert_not_called()
+        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, "BTC", "USD"))
+        membership = sql.chat_membership_repo().get(user.id, chat.chat_id)
+        self.assertIsNotNone(membership)
+        self.assertFalse(membership.is_admin)
+
+    def test_non_participant_cannot_create_alert(self):
+        service, di, sql, _, chat = self._role_checked_service(None)
+
+        with self.assertRaises(AuthorizationError):
+            service.create_alert("BTC", "USD", 5)
+
+        di.exchange_rate_fetcher.execute.assert_not_called()
+        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, "BTC", "USD"))
+
+    def test_listing_does_not_require_admin_role(self):
+        service, _, sql, user, chat = self._role_checked_service(ChatAccess.member)
+        sql.price_alert_repo().save(
+            PriceAlert(
+                chat_id = chat.chat_id,
+                owner_id = user.id,
+                base_currency = "BTC",
+                desired_currency = "USD",
+                threshold_percent = 5,
+                last_price = 1.5,
+            ),
+        )
+
+        alerts = service.get_active_alerts()
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].base_currency, "BTC")
+
     def test_triggered_alert_refreshes_only_price_state(self):
         service = CurrencyAlertService(self.chat_id, self.mock_di)
         last_price_time = datetime(2023, 1, 1, 12, 0, 0)
@@ -172,6 +390,7 @@ class CurrencyAlertServiceTest(unittest.TestCase):
         self.assertEqual(refreshed.threshold_percent, existing.threshold_percent)
         self.assertEqual(refreshed.last_price, 1100)
         self.assertGreater(refreshed.last_price_time, existing.last_price_time)
+        self.mock_di.authorization_service.validate_chat_admin.assert_not_called()
 
     def test_triggered_alert_with_zero_last_price(self):
         service = CurrencyAlertService(self.chat_id, self.mock_di)
