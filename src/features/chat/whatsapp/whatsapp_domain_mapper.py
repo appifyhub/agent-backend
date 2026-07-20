@@ -1,26 +1,31 @@
+from dataclasses import dataclass
 from datetime import datetime
 
-from pydantic import BaseModel, SecretStr
+from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
-from features.chat.whatsapp.model.message import Message
+from features.chat.message.formatted_chat_message import FormattedAttachmentPart, FormattedChatMessage, FormattedTextPart
+from features.chat.whatsapp.model.message import Message as WhatsAppMessage
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.model.value import Value
 from features.users.user_remote_data import UserRemoteData
 from util import log
-from util.functions import generate_deterministic_short_uuid, normalize_phone_number
+from util.functions import normalize_phone_number
 
 
 class WhatsAppDomainMapper:
 
-    class Result(BaseModel):
+    @dataclass(kw_only = True)
+    class Result:
+
         chat: ChatConfigRemoteData
         author: UserRemoteData | None
         message: ChatMessageRemoteData
         attachments: list[ChatAttachmentRemoteData]
+        formatted_message: FormattedChatMessage | None = None
         replied_to_message_id: str | None = None
 
     def map_update(self, update: Update) -> list[Result]:
@@ -45,14 +50,16 @@ class WhatsAppDomainMapper:
                 for message in value.messages:
                     result_chat = self.map_chat(message, value)
                     result_author = self.map_author(message, value)
-                    result_message = self.map_message(message)
                     result_attachments = self.map_attachments(message)
+                    result_formatted_message = self.map_content(message, result_attachments)
+                    result_message = self.map_message(message, result_formatted_message)
                     replied_to_message_id = message.context.id if message.context else None
                     results.append(
                         WhatsAppDomainMapper.Result(
                             chat = result_chat,
                             author = result_author,
                             message = result_message,
+                            formatted_message = result_formatted_message,
                             attachments = result_attachments,
                             replied_to_message_id = replied_to_message_id,
                         ),
@@ -61,16 +68,21 @@ class WhatsAppDomainMapper:
             log.w(f"  No messages found in update: {update}")
         return results
 
-    def map_message(self, message: Message) -> ChatMessageRemoteData:
+    def map_message(
+        self,
+        message: WhatsAppMessage,
+        formatted_message: FormattedChatMessage | None = None,
+    ) -> ChatMessageRemoteData:
         log.t(f"  Mapping message: {message}")
+        formatted_message = formatted_message or self.map_content(message)
         return ChatMessageRemoteData(
             message_id = message.id,
             sent_at = datetime.fromtimestamp(int(message.timestamp)),
-            text = self.map_text(message),
+            text = formatted_message.to_text(),
         )
 
     # noinspection PyMethodMayBeStatic
-    def map_author(self, message: Message, value: Value) -> UserRemoteData | None:
+    def map_author(self, message: WhatsAppMessage, value: Value) -> UserRemoteData | None:
         full_name: str | None = None
         wa_id: str
         if value.contacts:
@@ -89,10 +101,14 @@ class WhatsAppDomainMapper:
             whatsapp_phone_number = phone_number,
         )
 
-    def map_text(self, message: Message) -> str:
+    def map_content(
+        self,
+        message: WhatsAppMessage,
+        attachments: list[ChatAttachmentRemoteData] | None = None,
+    ) -> FormattedChatMessage:
         parts = []
         if message.text and message.text.body:
-            parts.append(message.text.body)
+            parts.append(FormattedTextPart(text = message.text.body))
         for media in [
             message.image,
             message.video,
@@ -100,14 +116,14 @@ class WhatsAppDomainMapper:
             message.document,
         ]:
             if media and media.caption:
-                parts.append(media.caption)
-        attachments_as_text = self.map_attachments_as_text(message)
-        if attachments_as_text:
-            parts.append(f"📎 {attachments_as_text}")
+                parts.append(FormattedTextPart(text = media.caption))
+        attachments = attachments if attachments is not None else self.map_attachments(message)
+        if attachments:
+            parts.append(FormattedAttachmentPart.from_remote_data(attachments))
         log.t(f"  Mapping message text: {parts}")
-        return "\n\n".join(parts)
+        return FormattedChatMessage(parts = parts)
 
-    def map_chat(self, message: Message, value: Value) -> ChatConfigRemoteData:
+    def map_chat(self, message: WhatsAppMessage, value: Value) -> ChatConfigRemoteData:
         log.t(f"  Mapping chat for message: {message}")
         external_id = message.from_
         contacts = value.contacts or []
@@ -131,20 +147,7 @@ class WhatsAppDomainMapper:
             return contact_name
         return f"#{chat_id}"
 
-    def map_attachments_as_text(self, message: Message) -> str | None:
-        attachments = self.map_attachments(message)
-        if not attachments:
-            return None
-        formatted_attachments = [
-            f"{generate_deterministic_short_uuid(attachment.external_id)} ({attachment.mime_type})"
-            if attachment.mime_type
-            else generate_deterministic_short_uuid(attachment.external_id)
-            for attachment in attachments
-        ]
-        log.t(f"  Mapping attachments: {formatted_attachments}")
-        return f"[ {', '.join(formatted_attachments)} ]"
-
-    def map_attachments(self, message: Message) -> list[ChatAttachmentRemoteData]:
+    def map_attachments(self, message: WhatsAppMessage) -> list[ChatAttachmentRemoteData]:
         attachments: list[ChatAttachmentRemoteData] = []
         for media_type, media in [
             ("audio", message.audio),

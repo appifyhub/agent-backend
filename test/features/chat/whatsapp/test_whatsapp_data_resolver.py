@@ -205,7 +205,56 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
         self.assertEqual(result.attachments[0].uploader_user_id, result.author.id)
+        self.assertIn(f"📎 [ {generate_deterministic_short_uuid(attachment_data.external_id)} (image/jpeg) ]", result.message.text)
         self.mock_di.chat_membership_service.sync.assert_called_once()
+
+    def test_resolve_with_reply_uses_local_attachment_id(self):
+        chat = self.sql.chat_config_repo().save(
+            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
+        )
+        uploader = self.sql.user_repo().save(User(full_name = "Agent", whatsapp_user_id = "123"))
+        self.sql.chat_message_repo().save(
+            ChatMessage(
+                chat_id = chat.chat_id,
+                message_id = "old-message",
+                text = "Original caption\n\n📎 [ remote123 ]",
+            ),
+        )
+        self.sql.chat_attachment_repo().save(
+            ChatAttachment(
+                id = "local123",
+                chat_id = chat.chat_id,
+                uploader_user_id = uploader.id,
+                message_id = "old-message",
+                mime_type = "image/png",
+            ),
+        )
+        mapping_result = WhatsAppDomainMapper.Result(
+            chat = ChatConfigRemoteData(
+                external_id = "c1",
+                title = "Chat Title",
+                is_private = True,
+                chat_type = ChatConfigDB.ChatType.whatsapp,
+            ),
+            author = UserRemoteData(
+                whatsapp_user_id = "1",
+                full_name = "New User",
+            ),
+            message = ChatMessageRemoteData(
+                message_id = "new-message",
+                sent_at = datetime.now(),
+                text = "Please use this",
+            ),
+            attachments = [],
+            replied_to_message_id = "old-message",
+        )
+
+        result = self.resolver.resolve(mapping_result)
+
+        self.assertIn(">>>> Original caption", result.message.text)
+        self.assertIn(">>>> 📎 [ local123 (image/png) ]", result.message.text)
+        self.assertIn("Please use this", result.message.text)
+        self.assertNotIn("remote123", result.message.text)
 
     def test_resolve_author_none(self):
         result = self.resolver.resolve_author(None)

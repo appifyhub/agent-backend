@@ -1,7 +1,5 @@
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from uuid import UUID
-
-from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
@@ -13,6 +11,7 @@ from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_mapper import apply_remote_data as apply_remote_data_message
 from features.chat.message.chat_message_mapper import from_remote_data as from_remote_data_message
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
+from features.chat.message.formatted_chat_message import FormattedChatMessage
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import is_the_agent
 from features.users.user import User
@@ -31,7 +30,8 @@ class TelegramDataResolver:
     If needed, this resolver will fetch more data from the API or the database.
     """
 
-    class Result(BaseModel):
+    @dataclass(kw_only = True)
+    class Result:
         chat: ChatConfig
         author: User | None
         message: ChatMessage
@@ -57,25 +57,44 @@ class TelegramDataResolver:
         # ensure a membership row exists for real users (skip the agent itself)
         if resolved_author and not is_author_the_agent:
             self.__di.chat_membership_service.sync(resolved_author, resolved_chat_config)
-        # we need to set the resolved chat's UUID to the message
-        resolved_chat_message = self.resolve_chat_message(
-            mapped_data = mapping_result.message,
-            chat_id = resolved_chat_config.chat_id,
-            author_id = resolved_author.id if resolved_author else None,
-        )
+        should_resolve_attachments = bool(mapping_result.attachments and not is_author_the_agent)
+        if should_resolve_attachments:
+            initial_message = self.__resolve_message_content(
+                mapping_result = mapping_result,
+                chat_id = resolved_chat_config.chat_id,
+                attachments = [],
+                should_replace_attachments = True,
+            )
+            self.resolve_chat_message(
+                mapped_data = initial_message,
+                chat_id = resolved_chat_config.chat_id,
+                author_id = resolved_author.id if resolved_author else None,
+            )
         resolved_attachments: list[ChatAttachment] = []
         # skip attachment resolution for the agent's own messages — the SDK already archives outbound media
-        if mapping_result.attachments and not is_author_the_agent:
+        if should_resolve_attachments:
             if not resolved_author or not resolved_author.id:
                 raise InternalError("Telegram attachment cannot be resolved without a message author", PLATFORM_MAPPING_FAILED)
             resolved_attachments = [
                 self.resolve_chat_attachment(
                     attachment,
-                    resolved_chat_message.chat_id,
+                    resolved_chat_config.chat_id,
                     resolved_author.id,
                 )
                 for attachment in mapping_result.attachments
             ]
+        remote_message = self.__resolve_message_content(
+            mapping_result = mapping_result,
+            chat_id = resolved_chat_config.chat_id,
+            attachments = resolved_attachments,
+            should_replace_attachments = should_resolve_attachments,
+        )
+        # we need to set the resolved chat's UUID to the message
+        resolved_chat_message = self.resolve_chat_message(
+            mapped_data = remote_message,
+            chat_id = resolved_chat_config.chat_id,
+            author_id = resolved_author.id if resolved_author else None,
+        )
         return TelegramDataResolver.Result(
             chat = resolved_chat_config,
             author = resolved_author,
@@ -125,3 +144,31 @@ class TelegramDataResolver:
                 f"Could not download Telegram file '{draft_attachment.external_id}'", MEDIA_DOWNLOAD_FAILED,
             )
         return self.__di.chat_attachment_service.save(draft_attachment, content)
+
+    def __resolve_message_content(
+        self,
+        mapping_result: TelegramDomainMapper.Result,
+        chat_id: UUID,
+        attachments: list[ChatAttachment],
+        should_replace_attachments: bool,
+    ) -> ChatMessageRemoteData:
+        formatted_message = mapping_result.formatted_message or FormattedChatMessage.from_text(mapping_result.message.text)
+        if should_replace_attachments:
+            formatted_message = formatted_message.with_attachments(attachments)
+        if mapping_result.replied_to_message_id:
+            replied_message = self.__di.chat_message_repo.get(chat_id, mapping_result.replied_to_message_id)
+            if replied_message:
+                replied_attachments = self.__di.chat_attachment_repo.get_all_by_message(
+                    replied_message.chat_id,
+                    replied_message.message_id,
+                )
+                formatted_message = formatted_message.prepend_quote(
+                    FormattedChatMessage.from_text(replied_message.text, replied_attachments),
+                )
+            else:
+                log.w(f"  Replied-to message '{mapping_result.replied_to_message_id}' not found in DB")
+        return ChatMessageRemoteData(
+            message_id = mapping_result.message.message_id,
+            sent_at = mapping_result.message.sent_at,
+            text = formatted_message.to_text(),
+        )

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
+from features.chat.message.formatted_chat_message import FormattedQuotePart
 from features.chat.telegram.model.attachment.audio import Audio
 from features.chat.telegram.model.attachment.document import Document
 from features.chat.telegram.model.attachment.file import File
@@ -78,6 +79,29 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_map_update_with_reply(self):
+        update = Update(
+            update_id = 1,
+            message = Message(
+                chat = Chat(id = 10, type = "private"),
+                message_id = 100,
+                date = int(datetime.now().timestamp()),
+                text = "This is a test message",
+                reply_to_message = Message(
+                    chat = Chat(id = 10, type = "private"),
+                    message_id = 99,
+                    date = int(datetime.now().timestamp()),
+                    text = "This is a reply message",
+                ),
+            ),
+        )
+
+        result = self.mapper.map_update(update)
+
+        assert result is not None
+        self.assertEqual(result.replied_to_message_id, "99")
+        self.assertEqual(result.message.text, "This is a test message")
+
     def test_map_message_filled(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
@@ -151,42 +175,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    def test_map_text_as_reply_filled(self):
-        # 'from' is a reserved keyword in Python, so we use a workaround to access it
-        # noinspection PyArgumentList
-        message = Message(
-            chat = Chat(id = 10, type = "private"),
-            message_id = 100,
-            date = int(datetime.now().timestamp()),
-            text = "This is a test message",
-            caption = "This is a caption",
-            audio = Audio(file_id = "a1", file_unique_id = "a", mime_type = "audio/mpeg"),
-        )
-
-        result = self.mapper.map_text_as_reply(message)
-
-        # Verify format with dynamic short ID
-        lines = result.split("\n\n")
-        self.assertEqual(lines[0], ">>>> This is a caption")
-        self.assertEqual(lines[1], ">>>> This is a test message")
-        # Check attachment line format: ">>>> 📎 [ shortid (audio/mpeg) ]"
-        attachment_pattern = r">>>> 📎 \[ [a-f0-9]{8} \(audio/mpeg\) \]"
-        self.assertTrue(re.match(attachment_pattern, lines[2]), f"Attachment line '{lines[2]}' doesn't match expected format")
-
-    def test_map_text_as_reply_empty(self):
-        # 'from' is a reserved keyword in Python, so we use a workaround to access it
-        # noinspection PyArgumentList
-        message = Message(
-            chat = Chat(id = 10, type = "private"),
-            message_id = 100,
-            date = int(datetime.now().timestamp()),
-        )
-
-        result = self.mapper.map_text_as_reply(message)
-
-        self.assertEqual(result, "")
-
-    def test_map_text_filled(self):
+    def test_map_content_filled(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
         message = Message(
@@ -205,19 +194,20 @@ class TelegramDomainMapperTest(unittest.TestCase):
             voice = Voice(file_id = "v4", file_unique_id = "v", file_size = 4, mime_type = "audio/ogg"),
         )
 
-        result = self.mapper.map_text(message)
+        content = self.mapper.map_content(message)
+        result = content.to_text()
 
         # Verify format with dynamic short ID
+        self.assertIsInstance(content.parts[0], FormattedQuotePart)
         lines = result.split("\n\n")
-        self.assertEqual(lines[0], ">>>> This is a reply message")
-        self.assertEqual(lines[1], ">> This is a quote")
-        self.assertEqual(lines[2], "This is a caption")
-        self.assertEqual(lines[3], "This is a test message")
+        self.assertEqual(lines[0], ">> This is a quote")
+        self.assertEqual(lines[1], "This is a caption")
+        self.assertEqual(lines[2], "This is a test message")
         # Check attachment line format: "📎 [ shortid (audio/ogg) ]"
         attachment_pattern = r"📎 \[ [a-f0-9]{8} \(audio/ogg\) \]"
-        self.assertTrue(re.match(attachment_pattern, lines[4]), f"Attachment line '{lines[4]}' doesn't match expected format")
+        self.assertTrue(re.match(attachment_pattern, lines[3]), f"Attachment line '{lines[3]}' doesn't match expected format")
 
-    def test_map_text_empty(self):
+    def test_map_content_empty(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
         message = Message(
@@ -226,7 +216,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
             date = int(datetime.now().timestamp()),
         )
 
-        result = self.mapper.map_text(message)
+        result = self.mapper.map_content(message).to_text()
 
         self.assertEqual(result, "")
 
@@ -304,36 +294,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         )
 
         self.assertEqual(result, "#10")
-
-    def test_map_attachments_as_text_filled(self):
-        # 'from' is a reserved keyword in Python, so we use a workaround to access it
-        # noinspection PyArgumentList
-        message = Message(
-            chat = Chat(id = 10, type = "private"),
-            message_id = 100,
-            audio = Audio(file_id = "a1", file_unique_id = "a", file_size = 1, mime_type = "audio/mpeg"),
-            document = Document(file_id = "d2", file_unique_id = "d", file_size = 2),
-            date = int(datetime.now().timestamp()),
-        )
-
-        result = self.mapper.map_attachments_as_text(message)
-
-        # Verify format: [ shortid (mime), shortid ]
-        expected_pattern = r"\[ [a-f0-9]{8} \(audio/mpeg\), [a-f0-9]{8} \]"
-        self.assertTrue(re.match(expected_pattern, result), f"Result '{result}' doesn't match expected format")
-
-    def test_map_attachments_as_text_empty(self):
-        # 'from' is a reserved keyword in Python, so we use a workaround to access it
-        # noinspection PyArgumentList
-        message = Message(
-            chat = Chat(id = 10, type = "private"),
-            message_id = 100,
-            date = int(datetime.now().timestamp()),
-        )
-
-        result = self.mapper.map_attachments_as_text(message)
-
-        self.assertIsNone(result)
 
     def test_map_attachments_filled(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
