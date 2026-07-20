@@ -6,6 +6,7 @@ from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
+from features.chat.message.formatted_chat_message import FormattedAttachmentPart, FormattedChatMessage, FormattedTextPart
 from features.chat.whatsapp.model.response import MessageResponse
 from features.integrations.integration_config import THE_AGENT
 from util import log
@@ -42,7 +43,8 @@ class WhatsAppBotSDK:
             image_url = public_url,
             caption = caption,
         )
-        message = self.__store_api_response_as_message(sent_message, text = caption or "", chat_id = chat_config.chat_id)
+        content = self.__media_message_content(attachment, caption)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -61,7 +63,8 @@ class WhatsAppBotSDK:
             document_url = public_url,
             caption = caption,
         )
-        message = self.__store_api_response_as_message(sent_message, text = caption or "", chat_id = chat_config.chat_id)
+        content = self.__media_message_content(attachment, caption)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -102,3 +105,15 @@ class WhatsAppBotSDK:
             text = text,
         )
         return self.__di.chat_message_repo.save(message)
+
+    # noinspection PyMethodMayBeStatic
+    def __media_message_content(
+        self,
+        attachment: ChatAttachment,
+        caption: str | None,
+    ) -> FormattedChatMessage:
+        parts = []
+        if caption:
+            parts.append(FormattedTextPart(text = caption))
+        parts.append(FormattedAttachmentPart.from_attachments([attachment]))
+        return FormattedChatMessage(parts = parts)

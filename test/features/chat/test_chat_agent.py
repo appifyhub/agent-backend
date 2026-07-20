@@ -127,11 +127,8 @@ class ChatAgentTest(unittest.TestCase):
             self.chat_config.chat_id,
         )
 
-    def test_init_fetches_chat_attachments_from_repository(self):
-        self.mock_di.chat_attachment_repo.get_all_by_message.assert_called_once_with(
-            self.chat_config.chat_id,
-            "msg_123",
-        )
+    def test_init_does_not_fetch_chat_attachments_from_repository(self):
+        self.mock_di.chat_attachment_repo.get_all_by_message.assert_not_called()
 
     def test_process_commands_no_api_key(self):
         # Create bot without configured_tool
@@ -311,6 +308,65 @@ class ChatAgentTest(unittest.TestCase):
 
         result = self.agent.execute()
         self.assertEqual(result.content, "LLM response")
+
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_execute_removes_attachment_placeholder_from_llm_response(self, mock_should_reply, mock_process_commands):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(
+            is_handled = False,
+            reply = None,
+        )
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("Here you go\n\n📎 [ a1 (image/png) ]\n\nDone")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+
+        result = self.agent.execute()
+
+        self.assertEqual(result.content, "Here you go\n\nDone")
+
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_execute_removes_attachment_placeholder_only_llm_response(self, mock_should_reply, mock_process_commands):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(
+            is_handled = False,
+            reply = None,
+        )
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("📎 [ a1 (image/png) ]")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+
+        result = self.agent.execute()
+
+        self.assertEqual(result.content, "")
+
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_execute_removes_attachment_placeholder_from_llm_content_blocks(
+        self,
+        mock_should_reply,
+        mock_process_commands,
+    ):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(
+            is_handled = False,
+            reply = None,
+        )
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage(content = [
+            {"type": "text", "text": "Here\n📎 [ a1 (image/png) ]"},
+            "📎 [ a2 ]",
+            {"type": "thinking", "thinking": "internal"},
+        ])
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+
+        result = self.agent.execute()
+
+        self.assertEqual(result.content, [
+            {"type": "text", "text": "Here"},
+            {"type": "thinking", "thinking": "internal"},
+        ])
 
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")

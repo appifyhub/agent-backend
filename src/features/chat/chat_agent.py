@@ -1,8 +1,6 @@
 import random
-import re
 import time
 from dataclasses import dataclass
-from itertools import chain
 from typing import Any, TypeVar
 
 from langchain_core.language_models import LanguageModelInput
@@ -13,11 +11,11 @@ from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.command_processor import is_known_command
 from features.chat.message.chat_message import ChatMessage
+from features.chat.message.formatted_chat_message import ATTACHMENT_PLACEHOLDER_REGEX
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
-from features.prompting import prompt_library
 from util import log
 from util.config import config
 from util.error_codes import (
@@ -44,7 +42,6 @@ class ChatAgent:
     __messages: list[BaseMessage]
     __raw_last_message: str  # excludes the resolver formatting
     __last_message_id: str
-    __attachment_ids: list[str]
     __configured_tool: ConfiguredTool | None
     __max_iterations: int
     __di: DI
@@ -75,13 +72,6 @@ class ChatAgent:
             limit = invoker_membership.max_chat_history_depth,
         )
         langchain_messages = [self.__map_to_langchain(di, message, chat_type) for message in past_messages][::-1]
-        self.__attachment_ids = [
-            attachment.id
-            for attachment in chain.from_iterable(
-                di.chat_attachment_repo.get_all_by_message(message.chat_id, message.message_id)
-                for message in past_messages
-            )
-        ]
         system_prompt = prompt_resolvers.chat(
             invoker = di.invoker,
             target_chat = target_chat,
@@ -186,23 +176,7 @@ class ChatAgent:
                     log.d(f"Iteration #{iteration} has no tool calls.")
                     if not isinstance(answer, AIMessage):
                         raise ExternalServiceError(f"Received a non-AI message from LLM: {answer}", LLM_UNEXPECTED_RESPONSE)
-                    system_correction_added = False
-                    for attachment_id in self.__attachment_ids:
-                        clean_attachment_id = re.sub(r"[ _-]", "", attachment_id)
-                        truncated_attachment_id = attachment_id[-10:]
-                        if (
-                            attachment_id in str(answer.content)
-                            or clean_attachment_id in str(answer.content)
-                            or truncated_attachment_id in str(answer.content)
-                        ):
-                            log.w("Found approximate attachment ID in the answer, adding system correction")
-                            system_correction = AIMessage(prompt_library.metas.attachment_id_correction.content)
-                            self.__add_message(system_correction)
-                            system_correction_added = True
-                            break
-                    if system_correction_added:
-                        iteration += 1
-                        continue
+                    self.__remove_attachment_placeholder_content(answer)
                     log.i(f"Finishing chat response with {len(answer.content)} characters")
                     return answer
 
@@ -256,6 +230,44 @@ class ChatAgent:
             return ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         message = prompt_resolvers.simple_chat_error("Confused with processing command.")
         return ChatAgent.CommandHandlingResult(is_handled = True, reply = AIMessage(message))
+
+    @classmethod
+    def __remove_attachment_placeholder_content(cls, message: AIMessage) -> None:
+        content = message.content
+        if isinstance(content, str):
+            message.content = cls.__remove_attachment_placeholder_lines(content)
+            return
+        if isinstance(content, list):
+            cleaned_content = []
+            for block in content:
+                if isinstance(block, str):
+                    cleaned_block = cls.__remove_attachment_placeholder_lines(block)
+                    if cleaned_block:
+                        cleaned_content.append(cleaned_block)
+                elif isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
+                    cleaned_block = {
+                        **block,
+                        "text": cls.__remove_attachment_placeholder_lines(block["text"]),
+                    }
+                    if cleaned_block["text"]:
+                        cleaned_content.append(cleaned_block)
+                else:
+                    cleaned_content.append(block)
+            message.content = cleaned_content
+
+    @staticmethod
+    def __remove_attachment_placeholder_lines(text: str) -> str:
+        paragraphs = []
+        for paragraph in text.split("\n\n"):
+            lines = [
+                line
+                for line in paragraph.split("\n")
+                if not ATTACHMENT_PLACEHOLDER_REGEX.search(line)
+            ]
+            cleaned_paragraph = "\n".join(lines).strip()
+            if cleaned_paragraph:
+                paragraphs.append(cleaned_paragraph)
+        return "\n\n".join(paragraphs)
 
     def __is_dispatchable(self) -> bool:
         has_content = bool(self.__raw_last_message.strip())

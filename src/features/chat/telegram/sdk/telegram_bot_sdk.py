@@ -5,6 +5,7 @@ from typing import Literal
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.message.chat_message import ChatMessage
+from features.chat.message.formatted_chat_message import FormattedChatMessage
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.update import Update
@@ -57,7 +58,7 @@ class TelegramBotSDK:
             parse_mode = parse_mode,
             disable_notification = disable_notification,
         )
-        message = self.__store_api_response_as_message(sent_message)
+        message = self.__store_api_response_as_message(sent_message, local_attachments = [attachment])
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -82,7 +83,7 @@ class TelegramBotSDK:
             thumbnail = thumbnail,
             disable_notification = disable_notification,
         )
-        message = self.__store_api_response_as_message(sent_message)
+        message = self.__store_api_response_as_message(sent_message, local_attachments = [attachment])
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -122,13 +123,25 @@ class TelegramBotSDK:
 
     # === Data utilities ===
 
-    def __store_api_response_as_message(self, raw_api_response: dict) -> ChatMessage:
+    def __store_api_response_as_message(
+        self,
+        raw_api_response: dict,
+        local_attachments: list[ChatAttachment] | None = None,
+    ) -> ChatMessage:
         log.t("Storing API message data...")
         message = Message(**raw_api_response["result"])
         update = Update(update_id = time.time_ns(), message = message)
         mapping_result = self.__di.telegram_domain_mapper.map_update(update)
         if not mapping_result:
             raise InternalError(f"Telegram API domain mapping failed for local update '{update.update_id}'", PLATFORM_MAPPING_FAILED)  # noqa: E501
+        if local_attachments:
+            formatted_message = mapping_result.formatted_message or FormattedChatMessage.from_text(mapping_result.message.text)
+            formatted_message = formatted_message.with_attachments(local_attachments)
+            mapping_result = replace(
+                mapping_result,
+                message = replace(mapping_result.message, text = formatted_message.to_text()),
+                formatted_message = formatted_message,
+            )
         resolution_result = self.__di.telegram_data_resolver.resolve(mapping_result)
         if not resolution_result.message:
             raise InternalError(f"Telegram data resolution failed for local update '{update.update_id}'", PLATFORM_MAPPING_FAILED)
