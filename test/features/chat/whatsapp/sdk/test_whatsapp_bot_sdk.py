@@ -102,7 +102,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_photo(self):
         caption = "test photo"
-        attachment = ChatAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(id = "local123", chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
 
         result = self.sdk.send_photo(
             chat_config = self.chat_config,
@@ -123,11 +123,12 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(patched_attachment.message_id, self.message_id)
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
+        self.assertEqual(result.text, "test photo\n\n📎 [ local123 ]")
         self.assertEqual(result.chat_id, self.chat_uuid)
 
     def test_send_document(self):
         caption = "test document"
-        attachment = ChatAttachment(chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(id = "local456", chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
 
         result = self.sdk.send_document(
             chat_config = self.chat_config,
@@ -148,6 +149,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(patched_attachment.message_id, self.message_id)
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
+        self.assertEqual(result.text, "test document\n\n📎 [ local456 ]")
         self.assertEqual(result.chat_id, self.chat_uuid)
 
     def test_set_reaction(self):

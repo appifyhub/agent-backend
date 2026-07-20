@@ -233,7 +233,7 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertTrue(result.is_private)
         self.assertEqual(result.chat_type.value, "whatsapp")
 
-    def test_map_text_filled(self):
+    def test_map_content_filled(self):
         message = Message(
             id = "100",
             **{"from": "1234567890"},
@@ -242,11 +242,11 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
             text = Text(body = "Hello world"),
         )
 
-        result = self.mapper.map_text(message)
+        result = self.mapper.map_content(message).to_text()
 
         self.assertEqual(result, "Hello world")
 
-    def test_map_text_empty(self):
+    def test_map_content_empty(self):
         message = Message(
             id = "100",
             **{"from": "1234567890"},
@@ -254,7 +254,7 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
             type = "text",
         )
 
-        result = self.mapper.map_text(message)
+        result = self.mapper.map_content(message).to_text()
 
         self.assertEqual(result, "")
 
