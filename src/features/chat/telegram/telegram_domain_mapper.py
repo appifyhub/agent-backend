@@ -1,27 +1,35 @@
+from dataclasses import dataclass
 from datetime import datetime
-
-from pydantic import BaseModel
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
+from features.chat.message.formatted_chat_message import (
+    FormattedAttachmentPart,
+    FormattedChatMessage,
+    FormattedQuotePart,
+    FormattedTextPart,
+)
 from features.chat.telegram.model.attachment.file import File
-from features.chat.telegram.model.message import Message
+from features.chat.telegram.model.message import Message as TelegramMessage
 from features.chat.telegram.model.update import Update
 from features.users.user_remote_data import UserRemoteData
 from util import log
 from util.config import config
-from util.functions import generate_deterministic_short_uuid
 
 
 class TelegramDomainMapper:
 
-    class Result(BaseModel):
+    @dataclass(kw_only = True)
+    class Result:
+
         chat: ChatConfigRemoteData
         author: UserRemoteData | None
         message: ChatMessageRemoteData
+        formatted_message: FormattedChatMessage | None = None
         attachments: list[ChatAttachmentRemoteData]
+        replied_to_message_id: str | None = None
 
     def map_update(self, update: Update) -> Result | None:
         log.t(f"Mapping Telegram update: {update}")
@@ -31,25 +39,33 @@ class TelegramDomainMapper:
             return None
         result_chat = self.map_chat(message)
         result_author = self.map_author(message)
-        result_message = self.map_message(message)
         result_attachments = self.map_attachments(message)
+        result_formatted_message = self.map_content(message, result_attachments)
+        result_message = self.map_message(message, result_formatted_message)
+        replied_to_message_id = str(message.reply_to_message.message_id) if message.reply_to_message else None
         return TelegramDomainMapper.Result(
             chat = result_chat,
             author = result_author,
             message = result_message,
+            formatted_message = result_formatted_message,
             attachments = result_attachments,
+            replied_to_message_id = replied_to_message_id,
         )
 
-    def map_message(self, message: Message) -> ChatMessageRemoteData:
+    def map_message(self,
+        message: TelegramMessage,
+        formatted_message: FormattedChatMessage | None = None,
+    ) -> ChatMessageRemoteData:
         log.t(f"  Mapping message: {message}")
+        formatted_message = formatted_message or self.map_content(message)
         return ChatMessageRemoteData(
             message_id = str(message.message_id),
             sent_at = datetime.fromtimestamp(message.edit_date or message.date),
-            text = self.map_text(message),
+            text = formatted_message.to_text(),
         )
 
     # noinspection PyMethodMayBeStatic
-    def map_author(self, message: Message) -> UserRemoteData | None:
+    def map_author(self, message: TelegramMessage) -> UserRemoteData | None:
         if not message.from_user:
             return None
         log.t(f"  Mapping author {message.from_user}")
@@ -62,37 +78,30 @@ class TelegramDomainMapper:
             telegram_user_id = author.id,
         )
 
-    def map_text_as_reply(self, message: Message) -> str:
+    def map_content(
+        self,
+        message: TelegramMessage,
+        attachments: list[ChatAttachmentRemoteData] | None = None,
+    ) -> FormattedChatMessage:
         parts = []
-        if message.caption:
-            parts.append(f">>>> {message.caption}")
-        if message.text:
-            parts.append(f">>>> {message.text}")
-        attachments_as_text = self.map_attachments_as_text(message)
-        if attachments_as_text:
-            parts.append(f">>>> 📎 {attachments_as_text}")
-        log.t(f"  Mapping reply message text: {parts}")
-        return "\n\n".join(parts)
-
-    def map_text(self, message: Message) -> str:
-        parts = []
-        reply_text = self.map_text_as_reply(message.reply_to_message) if message.reply_to_message else None
-        if reply_text:
-            parts.append(f"{reply_text}")
         quote = message.quote.text if message.quote else None
         if quote:
-            parts.append(f">> {quote}")
+            parts.append(
+                FormattedQuotePart(message = FormattedChatMessage(parts = [
+                    FormattedTextPart(text = quote),
+                ])),
+            )
         if message.caption:
-            parts.append(f"{message.caption}")
+            parts.append(FormattedTextPart(text = message.caption))
         if message.text:
-            parts.append(message.text)
-        attachments_as_text = self.map_attachments_as_text(message)
-        if attachments_as_text:
-            parts.append(f"📎 {attachments_as_text}")
+            parts.append(FormattedTextPart(text = message.text))
+        attachments = attachments if attachments is not None else self.map_attachments(message)
+        if attachments:
+            parts.append(FormattedAttachmentPart.from_remote_data(attachments))
         log.t(f"  Mapping message text: {parts}")
-        return "\n\n".join(parts)
+        return FormattedChatMessage(parts = parts)
 
-    def map_chat(self, message: Message) -> ChatConfigRemoteData:
+    def map_chat(self, message: TelegramMessage) -> ChatConfigRemoteData:
         chat = message.chat
         log.t(f"  Mapping chat: {chat}")
         title = self.resolve_chat_name(str(chat.id), chat.title, chat.username, chat.first_name, chat.last_name)
@@ -130,20 +139,7 @@ class TelegramDomainMapper:
         log.t(f"  Resolved chat name {result}")
         return result
 
-    def map_attachments_as_text(self, message: Message) -> str | None:
-        attachments = self.map_attachments(message)
-        if not attachments:
-            return None
-        formatted_attachments = [
-            f"{generate_deterministic_short_uuid(attachment.external_id)} ({attachment.mime_type})"
-            if attachment.mime_type
-            else generate_deterministic_short_uuid(attachment.external_id)
-            for attachment in attachments
-        ]
-        log.t(f"  Mapping attachments: {formatted_attachments}")
-        return f"[ {', '.join(formatted_attachments)} ]"
-
-    def map_attachments(self, message: Message) -> list[ChatAttachmentRemoteData]:
+    def map_attachments(self, message: TelegramMessage) -> list[ChatAttachmentRemoteData]:
         attachments: list[ChatAttachmentRemoteData] = []
         if message.audio:
             log.t(f"  Mapping audio: {message.audio}")
