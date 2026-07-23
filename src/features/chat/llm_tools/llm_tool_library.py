@@ -16,6 +16,7 @@ from features.chat.chat_agent import ChatAgent
 from features.chat.chat_attachment_processor import ChatAttachmentProcessor
 from features.chat.chat_image_edit_service import ChatImageEditService
 from features.chat.dev_announcements_service import DevAnnouncementsService
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.smart_image_generator import SmartImageGenerator
 from features.integrations.integrations import add_messaging_frequency_warning, resolve_private_chat_id
@@ -495,9 +496,13 @@ def render_social_post(di: DI, url: str) -> str:
         url: [mandatory] The URL of the social media post to render, starting with 'http://' or 'https://'
     """
     try:
-        x_api_tool = di.tool_choice_resolver.require_tool(SocialCardOrchestrator.TOOL_TYPE, default_tool_for(SocialCardOrchestrator.TOOL_TYPE))
+        social_api_tools: list[ConfiguredTool] = []
+        for provider_class in di.social_post_provider_classes():
+            api_tool = di.tool_choice_resolver.get_tool(provider_class.tool_type, default_tool_for(provider_class.tool_type))
+            if api_tool:
+                social_api_tools.append(api_tool)
         vision_tool = di.tool_choice_resolver.require_tool(SocialCardOrchestrator.VISION_TOOL_TYPE, default_tool_for(SocialCardOrchestrator.VISION_TOOL_TYPE))
-        image_url = di.social_card_orchestrator(x_api_tool, vision_tool).execute(url)
+        image_url = di.social_card_orchestrator(social_api_tools, vision_tool).execute(url)
         invoker_chat = di.require_invoker_chat()
         di.platform_bot_sdk().smart_send_photo(
             media_mode = invoker_chat.media_mode,

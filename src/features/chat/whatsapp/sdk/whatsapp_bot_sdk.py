@@ -10,6 +10,7 @@ from features.chat.message.formatted_chat_message import FormattedAttachmentPart
 from features.chat.whatsapp.model.response import MessageResponse
 from features.integrations.integration_config import THE_AGENT
 from util import log
+from util.functions import obfuscate_url
 
 
 class WhatsAppBotSDK:
@@ -43,7 +44,7 @@ class WhatsAppBotSDK:
             image_url = public_url,
             caption = caption,
         )
-        content = self.__media_message_content(attachment, caption)
+        content = self.__format_media_message(attachment, caption)
         message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
@@ -63,7 +64,7 @@ class WhatsAppBotSDK:
             document_url = public_url,
             caption = caption,
         )
-        content = self.__media_message_content(attachment, caption)
+        content = self.__format_media_message(attachment, caption)
         message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
@@ -80,12 +81,12 @@ class WhatsAppBotSDK:
         self.__di.whatsapp_bot_api.mark_as_read(message_id = message_id)
 
     def send_button_link(self, chat_config: ChatConfig, link_url: str, button_text: str = "⚙️") -> ChatMessage:
-        text = f"{button_text} {link_url}"
         sent_message = self.__di.whatsapp_bot_api.send_text_message(
             recipient_id = chat_config.external_id,
-            text = text,
+            text = f"{button_text} {link_url}",
         )
-        return self.__store_api_response_as_message(sent_message, text = text, chat_id = chat_config.chat_id)
+        stored_text = f"{button_text} {obfuscate_url(link_url)}"
+        return self.__store_api_response_as_message(sent_message, text = stored_text, chat_id = chat_config.chat_id)
 
     # === Data utilities ===
 
@@ -107,7 +108,7 @@ class WhatsAppBotSDK:
         return self.__di.chat_message_repo.save(message)
 
     # noinspection PyMethodMayBeStatic
-    def __media_message_content(
+    def __format_media_message(
         self,
         attachment: ChatAttachment,
         caption: str | None,

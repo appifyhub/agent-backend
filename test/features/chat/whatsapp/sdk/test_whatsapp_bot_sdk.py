@@ -12,7 +12,7 @@ from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.response import ContactResponse, MessageResponse, SentMessageResponse
 from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
 from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
-from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
+from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 
 
@@ -28,7 +28,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_bot_api = Mock(spec = WhatsAppBotAPI)
         # noinspection PyPropertyAccess
-        self.mock_di.whatsapp_data_resolver = Mock(spec = WhatsAppDataResolver)
+        self.mock_di.whatsapp_chat_inbound_service = Mock(spec = WhatsAppChatInboundService)
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_domain_mapper = Mock(spec = WhatsAppDomainMapper)
         # noinspection PyPropertyAccess
@@ -163,7 +163,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
 
     def test_send_button_link(self):
-        link_url = "https://test.com"
+        link_url = "https://test.example.com/settings/key123"
 
         # Test settings button
         result = self.sdk.send_button_link(
@@ -181,6 +181,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
+        self.assertEqual(result.text, "⚙️ test...123")
 
         # Test default-to-settings button
         result = self.sdk.send_button_link(
@@ -197,6 +198,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
+        self.assertEqual(result.text, "⚙️ test...123")
 
         # Test custom button text
         result = self.sdk.send_button_link(
@@ -214,6 +216,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.chat_id, self.chat_uuid)
+        self.assertEqual(result.text, "test test...123")
 
     def test_store_api_response_creates_domain_message(self):
         result = self.sdk._WhatsAppBotSDK__store_api_response_as_message(

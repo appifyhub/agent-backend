@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.config.chat_config import ChatConfig
+from features.external_tools.configured_tool import ConfiguredTool
 from features.users.user import User
 from util.config import config
 from util.error_codes import DI_DEPENDENCY_NOT_MET
@@ -62,11 +63,11 @@ if TYPE_CHECKING:
     from features.chat.message.chat_message_repo import ChatMessageRepository
     from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
     from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
-    from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
+    from features.chat.telegram.telegram_chat_inbound_service import TelegramChatInboundService
     from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
     from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
     from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
-    from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
+    from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
     from features.connect.profile_connect_service import ProfileConnectService
@@ -76,13 +77,14 @@ if TYPE_CHECKING:
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
     from features.external_tools.access_token_resolver import AccessTokenResolver
-    from features.external_tools.configured_tool import ConfiguredTool
     from features.external_tools.tool_choice_resolver import ToolChoiceResolver
     from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
     from features.images.image_editor import ImageEditor
     from features.images.simple_image_generator import SimpleImageGenerator
     from features.images.smart_image_generator import SmartImageGenerator
     from features.integrations.platform_bot_sdk import PlatformBotSDK
+    from features.social_cards.providers.social_post_provider import SocialPostProvider
+    from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
     from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
     from features.sponsorships.sponsorship_repo import SponsorshipRepository
     from features.sponsorships.sponsorship_service import SponsorshipService
@@ -148,8 +150,8 @@ class DI:
     _domain_langchain_mapper: "DomainLangchainMapper | None"
     _telegram_domain_mapper: "TelegramDomainMapper | None"
     _whatsapp_domain_mapper: "WhatsAppDomainMapper | None"
-    _telegram_data_resolver: "TelegramDataResolver | None"
-    _whatsapp_data_resolver: "WhatsAppDataResolver | None"
+    _telegram_chat_inbound_service: "TelegramChatInboundService | None"
+    _whatsapp_chat_inbound_service: "WhatsAppChatInboundService | None"
     # Features & Dynamic Instances
     _llm_tool_library: "LLMToolLibrary | None"
     _command_processor: "CommandProcessor | None"
@@ -209,8 +211,8 @@ class DI:
         self._domain_langchain_mapper = None
         self._telegram_domain_mapper = None
         self._whatsapp_domain_mapper = None
-        self._telegram_data_resolver = None
-        self._whatsapp_data_resolver = None
+        self._telegram_chat_inbound_service = None
+        self._whatsapp_chat_inbound_service = None
         # Features & Dynamic Instances
         self._llm_tool_library = None
         self._command_processor = None
@@ -569,6 +571,7 @@ class DI:
             self._tool_choice_resolver = ToolChoiceResolver(self)
         return self._tool_choice_resolver
 
+    # noinspection PyMethodMayBeStatic
     @property
     def translations_cache(self) -> "TranslationsCache":
         from util.translations_cache import TranslationsCache
@@ -596,18 +599,18 @@ class DI:
         return self._whatsapp_domain_mapper
 
     @property
-    def telegram_data_resolver(self) -> "TelegramDataResolver":
-        if self._telegram_data_resolver is None:
-            from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
-            self._telegram_data_resolver = TelegramDataResolver(self)
-        return self._telegram_data_resolver
+    def telegram_chat_inbound_service(self) -> "TelegramChatInboundService":
+        if self._telegram_chat_inbound_service is None:
+            from features.chat.telegram.telegram_chat_inbound_service import TelegramChatInboundService
+            self._telegram_chat_inbound_service = TelegramChatInboundService(self)
+        return self._telegram_chat_inbound_service
 
     @property
-    def whatsapp_data_resolver(self) -> "WhatsAppDataResolver":
-        if self._whatsapp_data_resolver is None:
-            from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
-            self._whatsapp_data_resolver = WhatsAppDataResolver(self)
-        return self._whatsapp_data_resolver
+    def whatsapp_chat_inbound_service(self) -> "WhatsAppChatInboundService":
+        if self._whatsapp_chat_inbound_service is None:
+            from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
+            self._whatsapp_chat_inbound_service = WhatsAppChatInboundService(self)
+        return self._whatsapp_chat_inbound_service
 
     # === Features & Dynamic Instances ===
 
@@ -628,6 +631,7 @@ class DI:
             resolved_max_tokens,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_replicate_client(self, api_token: str, timeout_s: float | None = None) -> "ReplicateSDKClient":
         from httpx import Timeout
         from replicate.client import Client as ReplicateSDKClient
@@ -656,6 +660,7 @@ class DI:
             input_image_sizes,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_google_ai_client(
         self,
         api_key: str,
@@ -702,6 +707,7 @@ class DI:
             configured_tool,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_x_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -730,6 +736,7 @@ class DI:
             input_image_sizes,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_open_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -866,10 +873,29 @@ class DI:
         return PhotoDownloader(bearer_token = bearer_token)
 
     # noinspection PyMethodMayBeStatic
-    def social_card_orchestrator(self, x_api_tool: ConfiguredTool, vision_tool: ConfiguredTool) -> "SocialCardOrchestrator":
-        from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
-        return SocialCardOrchestrator(x_api_tool, vision_tool, self)
+    def social_post_provider_classes(self) -> list[type["SocialPostProvider"]]:
+        from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+        return [TwitterSocialPostProvider]
 
+    def twitter_social_post_provider(self, api_tool: ConfiguredTool, vision_tool: ConfiguredTool) -> "TwitterSocialPostProvider":
+        from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+        return TwitterSocialPostProvider(self, api_tool, vision_tool)
+
+    def social_post_provider(self,
+        provider_class: type["SocialPostProvider"],
+        api_tool: ConfiguredTool,
+        vision_tool: ConfiguredTool,
+    ) -> "SocialPostProvider":
+        from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+        if provider_class == TwitterSocialPostProvider:
+            return self.twitter_social_post_provider(api_tool, vision_tool)
+        raise InternalError(f"Unsupported social post provider class: {provider_class}", DI_DEPENDENCY_NOT_MET)
+
+    def social_card_orchestrator(self, api_tools: list[ConfiguredTool], vision_tool: ConfiguredTool) -> "SocialCardOrchestrator":
+        from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
+        return SocialCardOrchestrator(api_tools, vision_tool, self)
+
+    # noinspection PyMethodMayBeStatic
     def url_shortener(
         self,
         long_url: str,
@@ -887,7 +913,6 @@ class DI:
             self._exchange_rate_fetcher = ExchangeRateFetcher(self)
         return self._exchange_rate_fetcher
 
-    # noinspection PyMethodMayBeStatic
     def ai_web_search(self, search_query: str, configured_tool: ConfiguredTool) -> "AIWebSearch":
         from features.web_browsing.ai_web_search import AIWebSearch
         return AIWebSearch(search_query, configured_tool, self)
@@ -909,7 +934,6 @@ class DI:
             raw_prompt, configured_copywriter_tool, configured_image_gen_tool, self, aspect_ratio, output_size,
         )
 
-    # noinspection PyMethodMayBeStatic
     def simple_image_generator(
         self,
         prompt: str,

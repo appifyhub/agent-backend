@@ -62,7 +62,7 @@ class ChatProgressNotifier:
             self.start()
 
     def start(self):
-        log.d("Acquiring start lock...")
+        log.t("Acquiring start lock...")
         if self.__thread and self.__thread.is_alive():
             log.d(f"  Thread {self.__thread.name} is already running (before lock)")
             return

@@ -10,6 +10,7 @@ from util.functions import (
     extract_url_from_replicate_result,
     generate_short_uuid,
     mask_secret,
+    obfuscate_url,
     parse_ai_message_content,
     parse_gumroad_form,
     silent,
@@ -156,6 +157,26 @@ class FunctionsTest(unittest.TestCase):
         secret = "abcdefghijklmnopqrstuvwxyz"
         result = mask_secret(secret, mask = "#")
         self.assertEqual(result, "abc#####xyz")
+
+    def test_obfuscate_url_removes_https_scheme_and_keeps_edges(self):
+        result = obfuscate_url("https://test.example.com/settings/key123")
+
+        self.assertEqual(result, "test...123")
+
+    def test_obfuscate_url_removes_http_scheme_and_keeps_edges(self):
+        result = obfuscate_url("http://test.example.com/settings/key123")
+
+        self.assertEqual(result, "test...123")
+
+    def test_obfuscate_url_keeps_short_url_without_scheme(self):
+        result = obfuscate_url("https://abc1234")
+
+        self.assertEqual(result, "abc1234")
+
+    def test_obfuscate_url_keeps_url_without_scheme(self):
+        result = obfuscate_url("example.com/settings/key123")
+
+        self.assertEqual(result, "exam...123")
 
     def test_generate_short_uuid_length(self):
         result = generate_short_uuid()

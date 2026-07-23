@@ -65,6 +65,13 @@ def mask_secret(secret: str | SecretStr | None = None, mask: str = "*") -> str |
     return secret[:3] + (mask * 5) + secret[-3:]
 
 
+def obfuscate_url(url: str) -> str:
+    value = url.removeprefix("https://").removeprefix("http://")
+    if len(value) <= 7:
+        return value
+    return f"{value[:4]}...{value[-3:]}"
+
+
 def digest_md5(content: str) -> str:
     # noinspection InsecureHash
     hash_object = hashlib.md5()

@@ -15,6 +15,7 @@ from features.social_cards.card_utils import (
     rounded_rect_path,
     word_wrap_truncate,
 )
+from features.social_cards.domain import SocialLinkPreviewAsset
 from features.social_cards.theme import ThemeColors
 from util import log
 
@@ -167,7 +168,7 @@ def _globe_icon(cx: int, cy: int, r: int, color: str, opacity: float = 0.6) -> s
 
 
 def render_link_previews(
-    link_previews: list[dict],
+    link_previews: list[SocialLinkPreviewAsset],
     x: int,
     y: int,
     width: int,
@@ -177,23 +178,22 @@ def render_link_previews(
     content: list[str] = []
     cur_y = y
 
-    for i, preview in enumerate(link_previews):
-        title = preview.get("title") or ""
-        description = preview.get("description") or ""
-        domain = preview.get("domain") or ""
-        og_image_bytes = preview.get("og_image_bytes")
-        favicon_bytes = preview.get("favicon_bytes")
+    for i, preview_asset in enumerate(link_previews):
+        preview = preview_asset.link_preview
+        title = preview.title or ""
+        description = preview.description or ""
+        domain = preview.domain
         uid = f"lp-{i}"
 
-        if og_image_bytes:
+        if preview_asset.og_image_bytes:
             d, c, h = _render_with_image(
                 uid, x, cur_y, width, title, description, domain,
-                og_image_bytes, favicon_bytes, theme,
+                preview_asset.og_image_bytes, preview_asset.favicon_bytes, theme,
             )
         else:
             d, c, h = _render_without_image(
                 uid, x, cur_y, width, title, description, domain,
-                favicon_bytes, theme,
+                preview_asset.favicon_bytes, theme,
             )
 
         defs.extend(d)

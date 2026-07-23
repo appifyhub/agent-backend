@@ -9,10 +9,9 @@ from langchain_core.messages import AIMessage
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from features.chat.config.chat_config import ChatConfig
+from features.chat.ingested_chat_message import IngestedChatMessage
 from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.update import Update
-from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
-from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.chat.whatsapp.whatsapp_update_responder import respond_to_update
 from features.users.user import User
 
@@ -50,19 +49,42 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
         self.di.whatsapp_bot_sdk.send_text_message = Mock()
 
+    def __resolved_result(
+        self,
+        chat_config: ChatConfig | None = None,
+        author: User | None = None,
+        message: ChatMessage | None = None,
+        raw_message_text: str = "Test message text",
+    ):
+        return Mock(
+            spec = IngestedChatMessage,
+            chat = chat_config or ChatConfig(
+                chat_id = UUID(int = 123),
+                external_id = "123",
+                language_name = "English",
+                language_iso_code = "en",
+                title = "Test Chat",
+                is_private = False,
+                reply_chance_percent = 100,
+                release_notifications = ChatConfigDB.ReleaseNotifications.all,
+                media_mode = ChatConfigDB.MediaMode.photo,
+                chat_type = ChatConfigDB.ChatType.whatsapp,
+            ),
+            author = author,
+            message = message or Mock(
+                spec = ChatMessage,
+                message_id = "test-message-id",
+                sent_at = datetime.now(),
+                text = "Stored message text",
+            ),
+            raw_message_text = raw_message_text,
+        )
+
     def tearDown(self):
         self.sql.end_session()
 
     def test_successful_response(self):
         self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
-
-        message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text", sent_at = datetime.now())
-        self.di.whatsapp_domain_mapper.map_update.return_value = [
-            Mock(
-                spec = WhatsAppDomainMapper.Result,
-                message = message,
-            ),
-        ]
 
         author = User(
             id = UUID(int = 1),
@@ -85,14 +107,8 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
-        self.di.whatsapp_data_resolver.resolve_all.return_value = [
-            Mock(
-                spec = WhatsAppDataResolver.Result,
-                chat = chat_config,
-                author = author,
-                message = Mock(sent_at = datetime.now()),
-            ),
-        ]
+        resolved = self.__resolved_result(chat_config = chat_config, author = author)
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [resolved]
         self.di.chat_message_repo.get_latest_by_chat.return_value = []
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -102,6 +118,12 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         result = respond_to_update(self.update)
 
         self.assertTrue(result)
+        self.di.whatsapp_chat_inbound_service.ingest_update.assert_called_once_with(self.update)
+        self.di.chat_agent.assert_called_once_with(
+            raw_last_message = "Test message text",
+            last_message_id = "test-message-id",
+            configured_tool = self.di.tool_choice_resolver.get_tool.return_value,
+        )
         self.di.chat_agent.return_value.execute.assert_called_once()
         self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(chat_config, "Test response")
         self.mock_sleep.assert_called_once_with(0.1)
@@ -111,27 +133,8 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
             {"type": "thinking", "thinking": "A reaction is appropriate"},
             {"type": "text", "text": "👍"},
         ])
-        self.di.whatsapp_domain_mapper.map_update.return_value = [
-            Mock(
-                spec = WhatsAppDomainMapper.Result,
-                message = Mock(spec = ChatMessage, sent_at = datetime.now()),
-            ),
-        ]
-        self.di.whatsapp_data_resolver.resolve_all.return_value = [
-            Mock(
-                spec = WhatsAppDataResolver.Result,
-                chat = ChatConfig(
-                    chat_id = UUID(int = 123),
-                    external_id = "123",
-                    language_name = "English",
-                    language_iso_code = "en",
-                    title = "Test Chat",
-                    is_private = False,
-                    reply_chance_percent = 100,
-                    release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                    media_mode = ChatConfigDB.MediaMode.photo,
-                    chat_type = ChatConfigDB.ChatType.whatsapp,
-                ),
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [
+            self.__resolved_result(
                 author = Mock(spec = User, id = UUID(int = 1)),
                 message = Mock(
                     spec = ChatMessage,
@@ -158,27 +161,8 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
     def test_reaction_response_failure(self):
         self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
         self.di.platform_bot_sdk.return_value.set_reaction.side_effect = Exception("Reaction failed")
-        self.di.whatsapp_domain_mapper.map_update.return_value = [
-            Mock(
-                spec = WhatsAppDomainMapper.Result,
-                message = Mock(spec = ChatMessage, sent_at = datetime.now()),
-            ),
-        ]
-        self.di.whatsapp_data_resolver.resolve_all.return_value = [
-            Mock(
-                spec = WhatsAppDataResolver.Result,
-                chat = ChatConfig(
-                    chat_id = UUID(int = 123),
-                    external_id = "123",
-                    language_name = "English",
-                    language_iso_code = "en",
-                    title = "Test Chat",
-                    is_private = False,
-                    reply_chance_percent = 100,
-                    release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                    media_mode = ChatConfigDB.MediaMode.photo,
-                    chat_type = ChatConfigDB.ChatType.whatsapp,
-                ),
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [
+            self.__resolved_result(
                 author = Mock(spec = User, id = UUID(int = 1)),
                 message = Mock(
                     spec = ChatMessage,
@@ -203,12 +187,9 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.assertEqual(saved_message.text, "<reaction>👍</reaction>")
 
     def test_empty_response(self):
-        self.di.whatsapp_domain_mapper.map_update.return_value = [Mock(spec = WhatsAppDomainMapper.Result)]
-        self.di.whatsapp_data_resolver.resolve.return_value = Mock(
-            spec = WhatsAppDataResolver.Result,
-            chat = Mock(spec = ChatConfig, chat_id = "123"),
-            author = Mock(spec = User, id = UUID(int = 1)),
-        )
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [
+            self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1))),
+        ]
         self.di.chat_message_repo.get_latest_by_chat.return_value = []
         self.di.chat_agent.return_value.execute.return_value = Mock(content = "")
 
@@ -219,7 +200,7 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_mapping_error(self):
-        self.di.whatsapp_domain_mapper.map_update.return_value = None
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = []
 
         with patch("features.integrations.prompt_resolvers.simple_chat_error", return_value = "Mapping error"):
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -234,28 +215,20 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_empty_update_no_messages(self):
-        self.di.whatsapp_domain_mapper.map_update.return_value = []
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = []
 
         result = respond_to_update(self.update)
 
         self.assertFalse(result)
-        self.di.whatsapp_data_resolver.resolve_all.assert_not_called()
+        self.di.whatsapp_chat_inbound_service.ingest_update.assert_called_once_with(self.update)
         self.di.whatsapp_bot_sdk.send_text_message.assert_not_called()
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_general_exception(self):
         from collections import namedtuple
         with patch("features.chat.whatsapp.whatsapp_update_responder.silent", lambda f: f):
-            self.di.whatsapp_domain_mapper.map_update.return_value = [
-                Mock(spec = WhatsAppDomainMapper.Result, message = Mock(sent_at = datetime.now())),
-            ]
-            resolved_domain_data_mock = Mock(
-                spec = WhatsAppDataResolver.Result,
-                chat = Mock(spec = ChatConfig, chat_id = UUID(int = 123), external_id = "123"),
-                author = Mock(spec = User, id = UUID(int = 1)),
-                message = Mock(sent_at = datetime.now()),
-            )
-            self.di.whatsapp_data_resolver.resolve_all.return_value = [resolved_domain_data_mock]
+            resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+            self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [resolved_domain_data_mock]
 
             error_message = "Test error"
             ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])

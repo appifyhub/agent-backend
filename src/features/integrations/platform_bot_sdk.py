@@ -40,16 +40,16 @@ class PlatformBotSDK:
         chat_id: int | str,
         text: str,
     ) -> ChatMessage:
-        match self.__di.require_invoker_chat_type():
+        chat_type = self.__di.require_invoker_chat_type()
+        chat_config = self.__require_chat_config(chat_id, chat_type)
+
+        match chat_type:
             case ChatConfigDB.ChatType.telegram:
-                return self.__di.telegram_bot_sdk.send_text_message(chat_id, text)
+                return self.__di.telegram_bot_sdk.send_text_message(chat_config, text)
             case ChatConfigDB.ChatType.whatsapp:
-                chat_config = self.__di.chat_config_repo.get_by_external_identifiers(str(chat_id), ChatConfigDB.ChatType.whatsapp)
-                if not chat_config:
-                    raise NotFoundError(f"Chat config not found for chat: {chat_id}", CHAT_CONFIG_NOT_FOUND)
                 return self.__di.whatsapp_bot_sdk.send_text_message(chat_config, text)
             case _:
-                raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
+                raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
     def send_photo(
         self,
@@ -57,19 +57,17 @@ class PlatformBotSDK:
         photo_url: str,
         caption: str | None = None,
     ) -> ChatMessage:
-        chat_config = self.__di.chat_config_repo.get_by_external_identifiers(str(chat_id), self.__di.require_invoker_chat_type())
-        if not chat_config:
-            raise NotFoundError(f"Chat config not found for chat: {chat_id}", CHAT_CONFIG_NOT_FOUND)
+        chat_type = self.__di.require_invoker_chat_type()
+        chat_config = self.__require_chat_config(chat_id, chat_type)
+        attachment = self.prepare_outgoing_attachment(chat_config, photo_url, should_add_png_background = True)
 
-        match self.__di.require_invoker_chat_type():
+        match chat_type:
             case ChatConfigDB.ChatType.telegram:
-                attachment = self.prepare_outgoing_attachment(chat_config, photo_url, should_add_png_background = True)
-                return self.__di.telegram_bot_sdk.send_photo(chat_config.external_id, attachment, caption)
+                return self.__di.telegram_bot_sdk.send_photo(chat_config, attachment, caption)
             case ChatConfigDB.ChatType.whatsapp:
-                attachment = self.prepare_outgoing_attachment(chat_config, photo_url, should_add_png_background = True)
                 return self.__di.whatsapp_bot_sdk.send_photo(chat_config, attachment, caption)
             case _:
-                raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
+                raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
     def smart_send_photo(
         self,
@@ -102,51 +100,44 @@ class PlatformBotSDK:
         caption: str | None = None,
         thumbnail: str | None = None,
     ) -> ChatMessage:
-        chat_config = self.__di.chat_config_repo.get_by_external_identifiers(str(chat_id), self.__di.require_invoker_chat_type())
-        if not chat_config:
-            raise NotFoundError(f"Chat config not found for chat: {chat_id}", CHAT_CONFIG_NOT_FOUND)
+        chat_type = self.__di.require_invoker_chat_type()
+        chat_config = self.__require_chat_config(chat_id, chat_type)
 
         attachment = self.prepare_outgoing_attachment(chat_config, document_url, should_resize = False)
         thumbnail_url: str | None = None
         if thumbnail:
             thumbnail_attachment = self.prepare_outgoing_attachment(chat_config, thumbnail)
             thumbnail_url = self.__di.chat_attachment_service.create_public_url(thumbnail_attachment).url
-        match self.__di.require_invoker_chat_type():
+
+        match chat_type:
             case ChatConfigDB.ChatType.telegram:
                 return self.__di.telegram_bot_sdk.send_document(
-                    chat_id = chat_config.external_id,
+                    chat_config = chat_config,
                     attachment = attachment,
                     thumbnail = thumbnail_url,
                     caption = caption,
                 )
             case ChatConfigDB.ChatType.whatsapp:
-                return self.__di.whatsapp_bot_sdk.send_document(chat_config, attachment, caption)
+                return self.__di.whatsapp_bot_sdk.send_document(
+                    chat_config = chat_config,
+                    attachment = attachment,
+                    caption = caption,
+                )
             case _:
-                raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
+                raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
-    def send_button_link(
-        self,
-        chat_id: int | str,
-        link_url: str,
-        button_text: str = "⚙️",
-    ) -> ChatMessage:
-        match self.__di.require_invoker_chat_type():
+    def send_button_link(self, chat_id: int | str, link_url: str, button_text: str = "⚙️") -> ChatMessage:
+        chat_type = self.__di.require_invoker_chat_type()
+        chat_config = self.__require_chat_config(chat_id, chat_type)
+        match chat_type:
             case ChatConfigDB.ChatType.telegram:
-                return self.__di.telegram_bot_sdk.send_button_link(chat_id, link_url, button_text)
+                return self.__di.telegram_bot_sdk.send_button_link(chat_config, link_url, button_text)
             case ChatConfigDB.ChatType.whatsapp:
-                chat_config = self.__di.chat_config_repo.get_by_external_identifiers(str(chat_id), ChatConfigDB.ChatType.whatsapp)
-                if not chat_config:
-                    raise NotFoundError(f"Chat config not found for chat: {chat_id}", CHAT_CONFIG_NOT_FOUND)
                 return self.__di.whatsapp_bot_sdk.send_button_link(chat_config, link_url, button_text)
             case _:
-                raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
+                raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
-    def set_reaction(
-        self,
-        chat_id: int | str,
-        message_id: int | str,
-        reaction: str | None,
-    ) -> None:
+    def set_reaction(self, chat_id: int | str, message_id: int | str, reaction: str | None) -> None:
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
                 self.__di.telegram_bot_sdk.set_reaction(chat_id, message_id, reaction)
@@ -155,11 +146,7 @@ class PlatformBotSDK:
             case _:
                 raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
 
-    def set_chat_action(
-        self,
-        chat_id: int | str,
-        action: Literal["typing", "upload_photo"],
-    ) -> None:
+    def set_chat_action(self, chat_id: int | str, action: Literal["typing", "upload_photo"]) -> None:
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
                 self.__di.telegram_bot_sdk.set_chat_action(chat_id, action)
@@ -241,3 +228,9 @@ class PlatformBotSDK:
             delete_file_safe(temp_path)
             delete_file_safe(prepared_path)
             delete_file_safe(resized_path)
+
+    def __require_chat_config(self, chat_id: int | str, chat_type: ChatConfigDB.ChatType) -> ChatConfig:
+        chat_config = self.__di.chat_config_repo.get_by_external_identifiers(str(chat_id), chat_type)
+        if not chat_config:
+            raise NotFoundError(f"Chat config not found for chat: {chat_id}", CHAT_CONFIG_NOT_FOUND)
+        return chat_config

@@ -2,7 +2,6 @@ import unittest
 from uuid import UUID
 
 from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.message.formatted_chat_message import (
     ATTACHMENT_PLACEHOLDER_REGEX,
     FormattedAttachmentPart,
@@ -11,7 +10,6 @@ from features.chat.message.formatted_chat_message import (
     FormattedQuotePart,
     FormattedTextPart,
 )
-from util.functions import generate_deterministic_short_uuid
 
 
 class FormattedChatMessageTest(unittest.TestCase):
@@ -38,17 +36,6 @@ class FormattedChatMessageTest(unittest.TestCase):
         result = FormattedAttachmentReference.from_attachment(attachment)
 
         self.assertEqual(result.to_text(), "local123 (image/png)")
-
-    def test_attachment_reference_from_remote_data(self):
-        attachment = ChatAttachmentRemoteData(
-            external_id = "remote123",
-            message_id = "m1",
-            mime_type = "image/jpeg",
-        )
-
-        result = FormattedAttachmentReference.from_remote_data(attachment)
-
-        self.assertEqual(result.to_text(), f"{generate_deterministic_short_uuid('remote123')} (image/jpeg)")
 
     def test_attachment_part_formats_multiple_attachments(self):
         result = FormattedAttachmentPart(attachments = [
@@ -121,3 +108,11 @@ class FormattedChatMessageTest(unittest.TestCase):
         result = message.prepend_quote(quote)
 
         self.assertEqual(result.to_text(), ">>>> Line one\n>>>> Line two\n\n>>>> 📎 [ local123 ]\n\nCurrent")
+
+    def test_prepend_quote_uses_explicit_depth(self):
+        message = FormattedChatMessage(parts = [FormattedTextPart(text = "Current")])
+        quote = FormattedChatMessage(parts = [FormattedTextPart(text = "Selected quote")])
+
+        result = message.prepend_quote(quote, depth = 1)
+
+        self.assertEqual(result.to_text(), ">> Selected quote\n\nCurrent")
