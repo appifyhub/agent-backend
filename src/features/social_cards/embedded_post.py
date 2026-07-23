@@ -13,8 +13,8 @@ from features.social_cards.card_utils import (
     rounded_rect_path,
     word_wrap_truncate,
 )
+from features.social_cards.domain import SocialPost, SocialPostRenderAssets
 from features.social_cards.theme import ThemeColors
-from features.web_browsing.twitter_status_fetcher import TweetData
 
 EMBED_PAD = 20
 EMBED_AVATAR_SIZE = 36
@@ -33,13 +33,12 @@ _URL_RE = re.compile(r"https?://\S+")
 
 
 def render_embedded_post(
-    tweet: TweetData,
+    post: SocialPost,
     x: int,
     y: int,
     width: int,
     theme: ThemeColors,
-    profile_bytes: bytes | None,
-    media_bytes: bytes | None,
+    assets: SocialPostRenderAssets,
 ) -> tuple[list[str], list[str], int]:
     defs: list[str] = []
     content: list[str] = []
@@ -48,7 +47,7 @@ def render_embedded_post(
     pad = EMBED_PAD
     inner_w = width - 2 * pad
 
-    clean_text = _URL_RE.sub("", tweet.text).strip()
+    clean_text = _URL_RE.sub("", post.text).strip()
     clean_text = re.sub(r" +", " ", clean_text)
 
     body_lines = word_wrap_truncate(clean_text, inner_w, EMBED_BODY_FONT_SIZE, EMBED_BODY_MAX_LINES)
@@ -57,6 +56,7 @@ def render_embedded_post(
     photo_h = 0
     photo_data_b64: str | None = None
     photo_display_w = inner_w
+    media_bytes = assets.media[0].content if assets.media else None
     if media_bytes:
         try:
             img = Image.open(io.BytesIO(media_bytes))
@@ -89,14 +89,14 @@ def render_embedded_post(
     clip_id = "embed-avatar-clip"
     defs.append(f'<clipPath id="{clip_id}"><circle cx="{av_cx}" cy="{av_cy}" r="{EMBED_AVATAR_SIZE // 2}"/></clipPath>')
 
-    if profile_bytes:
-        av_b64 = b64_image(profile_bytes, image_mime(profile_bytes))
+    if assets.avatar_bytes:
+        av_b64 = b64_image(assets.avatar_bytes, image_mime(assets.avatar_bytes))
         content.append(
             f'<image clip-path="url(#{clip_id})" x="{av_x}" y="{cur_y}" '
             f'width="{EMBED_AVATAR_SIZE}" height="{EMBED_AVATAR_SIZE}" href="{av_b64}" preserveAspectRatio="xMidYMid slice"/>',
         )
     else:
-        initial = (tweet.user.handle or "?")[0].upper()
+        initial = (post.author.handle or "?")[0].upper()
         content.append(
             f'<circle cx="{av_cx}" cy="{av_cy}" r="{EMBED_AVATAR_SIZE // 2}" fill="{theme.text_color}" fill-opacity="0.2"/>'
             f'<text x="{av_cx}" y="{av_cy + 5}" text-anchor="middle" font-family="{FONT_NAME}" '
@@ -106,7 +106,7 @@ def render_embedded_post(
     # Name
     name_x = av_x + EMBED_AVATAR_SIZE + EMBED_AVATAR_GAP
     name_y = cur_y + (EMBED_AVATAR_SIZE + EMBED_NAME_FONT_SIZE) // 2 - 2
-    display_name = tweet.user.name or f"@{tweet.user.handle}"
+    display_name = post.author.display_name or f"@{post.author.handle}"
     max_name_w = inner_w - EMBED_AVATAR_SIZE - EMBED_AVATAR_GAP
     name_lines = word_wrap_truncate(display_name, max_name_w, EMBED_NAME_FONT_SIZE, 1)
     name_segments = [(sub, theme.text_color, "", is_emoji) for sub, is_emoji in emoji_split(name_lines[0]) if sub]

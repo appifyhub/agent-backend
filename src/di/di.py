@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
 from features.chat.config.chat_config import ChatConfig
+from features.external_tools.configured_tool import ConfiguredTool
 from features.users.user import User
 from util.config import config
 from util.error_codes import DI_DEPENDENCY_NOT_MET
@@ -76,13 +77,14 @@ if TYPE_CHECKING:
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
     from features.external_tools.access_token_resolver import AccessTokenResolver
-    from features.external_tools.configured_tool import ConfiguredTool
     from features.external_tools.tool_choice_resolver import ToolChoiceResolver
     from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
     from features.images.image_editor import ImageEditor
     from features.images.simple_image_generator import SimpleImageGenerator
     from features.images.smart_image_generator import SmartImageGenerator
     from features.integrations.platform_bot_sdk import PlatformBotSDK
+    from features.social_cards.providers.social_post_provider import SocialPostProvider
+    from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
     from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
     from features.sponsorships.sponsorship_repo import SponsorshipRepository
     from features.sponsorships.sponsorship_service import SponsorshipService
@@ -569,6 +571,7 @@ class DI:
             self._tool_choice_resolver = ToolChoiceResolver(self)
         return self._tool_choice_resolver
 
+    # noinspection PyMethodMayBeStatic
     @property
     def translations_cache(self) -> "TranslationsCache":
         from util.translations_cache import TranslationsCache
@@ -628,6 +631,7 @@ class DI:
             resolved_max_tokens,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_replicate_client(self, api_token: str, timeout_s: float | None = None) -> "ReplicateSDKClient":
         from httpx import Timeout
         from replicate.client import Client as ReplicateSDKClient
@@ -656,6 +660,7 @@ class DI:
             input_image_sizes,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_google_ai_client(
         self,
         api_key: str,
@@ -702,6 +707,7 @@ class DI:
             configured_tool,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_x_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -730,6 +736,7 @@ class DI:
             input_image_sizes,
         )
 
+    # noinspection PyMethodMayBeStatic
     def base_open_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -866,10 +873,29 @@ class DI:
         return PhotoDownloader(bearer_token = bearer_token)
 
     # noinspection PyMethodMayBeStatic
-    def social_card_orchestrator(self, x_api_tool: ConfiguredTool, vision_tool: ConfiguredTool) -> "SocialCardOrchestrator":
-        from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
-        return SocialCardOrchestrator(x_api_tool, vision_tool, self)
+    def social_post_provider_classes(self) -> list[type["SocialPostProvider"]]:
+        from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+        return [TwitterSocialPostProvider]
 
+    def twitter_social_post_provider(self, api_tool: ConfiguredTool, vision_tool: ConfiguredTool) -> "TwitterSocialPostProvider":
+        from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+        return TwitterSocialPostProvider(self, api_tool, vision_tool)
+
+    def social_post_provider(self,
+        provider_class: type["SocialPostProvider"],
+        api_tool: ConfiguredTool,
+        vision_tool: ConfiguredTool,
+    ) -> "SocialPostProvider":
+        from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+        if provider_class == TwitterSocialPostProvider:
+            return self.twitter_social_post_provider(api_tool, vision_tool)
+        raise InternalError(f"Unsupported social post provider class: {provider_class}", DI_DEPENDENCY_NOT_MET)
+
+    def social_card_orchestrator(self, api_tools: list[ConfiguredTool], vision_tool: ConfiguredTool) -> "SocialCardOrchestrator":
+        from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
+        return SocialCardOrchestrator(api_tools, vision_tool, self)
+
+    # noinspection PyMethodMayBeStatic
     def url_shortener(
         self,
         long_url: str,
@@ -887,7 +913,6 @@ class DI:
             self._exchange_rate_fetcher = ExchangeRateFetcher(self)
         return self._exchange_rate_fetcher
 
-    # noinspection PyMethodMayBeStatic
     def ai_web_search(self, search_query: str, configured_tool: ConfiguredTool) -> "AIWebSearch":
         from features.web_browsing.ai_web_search import AIWebSearch
         return AIWebSearch(search_query, configured_tool, self)
@@ -909,7 +934,6 @@ class DI:
             raw_prompt, configured_copywriter_tool, configured_image_gen_tool, self, aspect_ratio, output_size,
         )
 
-    # noinspection PyMethodMayBeStatic
     def simple_image_generator(
         self,
         prompt: str,
