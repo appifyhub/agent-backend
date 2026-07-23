@@ -28,6 +28,7 @@ def _make_di() -> DI:
         chat_id = UUID(int = 1),
         external_id = "tg-chat-1",
         media_mode = ChatConfigDB.MediaMode.photo,
+        chat_type = ChatConfigDB.ChatType.telegram,
     )
     di.invoker = SimpleNamespace(id = UUID(int = 2))
     di.telegram_bot_sdk = Mock()
@@ -102,7 +103,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
         self.assertEqual(stored_bytes, b"resized")
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
             None,
         )
@@ -144,7 +145,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         # the source URL must have no effect on storage — only the downloaded bytes are saved
         self.assertNotIn("remote_url", di.chat_attachment_service.save.call_args.kwargs)
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
             None,
         )
@@ -186,7 +187,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
         self.assertEqual(stored_bytes, b"document")
         di.telegram_bot_sdk.send_document.assert_called_once_with(
-            chat_id = di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
             attachment = di.chat_attachment_service.save.return_value,
             thumbnail = None,
             caption = None,
@@ -211,7 +212,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         mock_prepare.assert_not_called()
         di.chat_attachment_service.create_public_url.assert_called_once()
         di.telegram_bot_sdk.send_document.assert_called_once_with(
-            chat_id = di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
             attachment = di.chat_attachment_service.save.return_value,
             thumbnail = _public_attachment_url("stored-attachment"),
             caption = "caption",
@@ -251,14 +252,14 @@ class PlatformBotSDKTest(unittest.TestCase):
                 photo_url = "http://example.com/img.png",
                 caption = "caption",
                 thumbnail = "http://example.com/thumb.png",
-            )
+        )
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
             "caption",
         )
         di.telegram_bot_sdk.send_document.assert_called_once_with(
-            chat_id = di.chat_config_repo.get_by_external_identifiers.return_value.external_id,
+            chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
             attachment = di.chat_attachment_service.save.return_value,
             thumbnail = _public_attachment_url("stored-attachment"),
             caption = "caption",

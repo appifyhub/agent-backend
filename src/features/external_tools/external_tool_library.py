@@ -351,30 +351,6 @@ NANO_BANANA_2 = ExternalTool(
 
 ###  xAI  ###
 
-GROK_4_20_NON_REASONING = ExternalTool(
-    id = "grok-4.20-non-reasoning",
-    name = "Grok 4.20",
-    provider = XAI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision, ToolType.search],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 200,
-        output_1m_tokens = 600,
-        web_search_query = 5,
-    ),
-)
-
-GROK_4_20_REASONING = ExternalTool(
-    id = "grok-4.20-reasoning",
-    name = "Grok 4.20 (Reasoning)",
-    provider = XAI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 200,
-        output_1m_tokens = 600,
-        web_search_query = 5,
-    ),
-)
-
 GROK_4_3 = ExternalTool(
     id = "grok-4.3",
     name = "Grok 4.3",
@@ -383,7 +359,19 @@ GROK_4_3 = ExternalTool(
     cost_estimate = CostEstimate(
         input_1m_tokens = 200,
         output_1m_tokens = 600,
-        web_search_query = 5,
+        web_search_query = 0.5,
+    ),
+)
+
+GROK_4_5 = ExternalTool(
+    id = "grok-4.5",
+    name = "Grok 4.5",
+    provider = XAI,
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 200,
+        output_1m_tokens = 600,
+        web_search_query = 0.5,
     ),
 )
 
@@ -711,8 +699,7 @@ ALL_EXTERNAL_TOOLS = [
     NANO_BANANA_PRO,
     NANO_BANANA_2,
     # xAI
-    GROK_4_20_NON_REASONING,
-    GROK_4_20_REASONING,
+    GROK_4_5,
     GROK_4_3,
     IMAGE_GEN_GROK_IMAGINE,
     IMAGE_GEN_GROK_IMAGINE_QUALITY,

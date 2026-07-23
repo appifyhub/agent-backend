@@ -200,7 +200,7 @@ def apply_remote_data(
 
     if remote_data.telegram_username is not None:
         overrides["telegram_username"] = remote_data.telegram_username
-    if remote_data.telegram_chat_id is not None:
+    if remote_data.telegram_chat_id is not None and user.telegram_chat_id is None:
         overrides["telegram_chat_id"] = remote_data.telegram_chat_id
     if remote_data.telegram_user_id is not None:
         overrides["telegram_user_id"] = remote_data.telegram_user_id

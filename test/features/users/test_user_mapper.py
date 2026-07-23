@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import date
 from uuid import UUID
 
@@ -173,7 +174,7 @@ class UserMapperTest(unittest.TestCase):
         remote_data = UserRemoteData(
             full_name = "Remote Name",
             telegram_username = "remote-telegram",
-            telegram_chat_id = None,
+            telegram_chat_id = "remote-chat",
             telegram_user_id = 777,
             whatsapp_user_id = None,
             whatsapp_phone_number = SecretStr("18880004444"),
@@ -196,6 +197,14 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.is_on_waitlist, existing.is_on_waitlist)
         self.assertEqual(result.connect_key, existing.connect_key)
         self.assertEqual(result.group, existing.group)
+
+    def test_apply_remote_data_fills_missing_telegram_chat_id(self):
+        existing = replace(self.__domain_model(), telegram_chat_id = None)
+        remote_data = UserRemoteData(telegram_chat_id = "remote-chat")
+
+        result = apply_remote_data(existing, remote_data)
+
+        self.assertEqual(result.telegram_chat_id, "remote-chat")
 
     def test_apply_remote_data_fills_missing_full_name(self):
         existing = User(

@@ -8,3 +8,5 @@ class ChatMessageRemoteData:
     message_id: str
     sent_at: datetime
     text: str
+    replied_to_message_id: str | None = None
+    quote_text: str | None = None

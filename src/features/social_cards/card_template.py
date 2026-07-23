@@ -28,7 +28,7 @@ from features.social_cards.card_layout import (
     LOGO_SIZE,
     PHOTO_CORNER_RADIUS,
     PHOTO_GAP,
-    X_ICON_SIZE,
+    PLATFORM_ICON_SIZE,
 )
 from features.social_cards.card_utils import (
     FONT_NAME,
@@ -41,10 +41,10 @@ from features.social_cards.card_utils import (
     rounded_rect_path,
     text_width,
 )
+from features.social_cards.domain import SocialPost, SocialPostRenderAssets
 from features.social_cards.embedded_post import render_embedded_post
 from features.social_cards.link_preview import render_link_previews
 from features.social_cards.theme import ThemeColors
-from features.web_browsing.twitter_status_fetcher import TweetData
 from util.config import config
 
 _FONT_B64: str | None = None
@@ -83,8 +83,8 @@ def _agent_logo_key(theme: ThemeColors) -> str:
     return "agent_logo_color"
 
 
-def _x_logo_key(theme: ThemeColors) -> str:
-    return "x_logo_light" if theme.text_color == "#ffffff" else "x_logo_dark"
+def _platform_logo_key(post: SocialPost, theme: ThemeColors) -> str:
+    return post.platform.logo_light_key if theme.text_color == "#ffffff" else post.platform.logo_dark_key
 
 
 def _accent_color(theme: ThemeColors) -> str:
@@ -185,14 +185,11 @@ def _photo_cell_parts(
 
 
 def build_svg(
-    tweet: TweetData,
+    post: SocialPost,
     theme: ThemeColors,
     card_width: int,
-    profile_bytes: bytes | None,
-    media_bytes: list[bytes],
+    assets: SocialPostRenderAssets,
     short_url: str | None,
-    link_preview_data: list[dict] | None = None,
-    quoted_tweet_data: dict | None = None,
 ) -> str:
     cx = CARD_OUTER_PAD  # card left edge
     inner_w = card_width - 2 * CARD_INNER_PAD
@@ -236,14 +233,14 @@ def build_svg(
     y = CARD_OUTER_PAD + CARD_INNER_PAD
 
     # Header
-    if profile_bytes:
-        avatar_b64 = b64_image(profile_bytes, image_mime(profile_bytes))
+    if assets.avatar_bytes:
+        avatar_b64 = b64_image(assets.avatar_bytes, image_mime(assets.avatar_bytes))
         content.append(
             f'<image clip-path="url(#avatar-clip)" x="{cx + CARD_INNER_PAD}" y="{y}" '
             f'width="{AVATAR_SIZE}" height="{AVATAR_SIZE}" href="{avatar_b64}" preserveAspectRatio="xMidYMid slice"/>',
         )
     else:
-        initial = (tweet.user.handle or "?")[0].upper()
+        initial = (post.author.handle or "?")[0].upper()
         content.append(
             f'<circle cx="{av_cx}" cy="{av_cy_center}" r="{AVATAR_SIZE // 2}" fill="{theme.text_color}" fill-opacity="0.2"/>'
             f'<text x="{av_cx}" y="{av_cy_center + 8}" text-anchor="middle" font-family="{FONT_NAME}" '
@@ -259,21 +256,21 @@ def build_svg(
     def _name_segments(text: str) -> list[tuple[str, str, str, bool]]:
         return [(sub, theme.text_color, "", is_emoji) for sub, is_emoji in emoji_split(text) if sub]
 
-    if tweet.user.name:
+    if post.author.display_name:
         name_elems, name_end_x = render_text_segments(
-            _name_segments(tweet.user.name), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
+            _name_segments(post.author.display_name), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
         )
         content.extend(name_elems)
         handle_elems, _ = render_text_segments(
-            _name_segments(f" (@{tweet.user.handle})"), name_end_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 400,
+            _name_segments(f" (@{post.author.handle})"), name_end_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 400,
         )
         content.extend(handle_elems)
     else:
         handle_elems, _ = render_text_segments(
-            _name_segments(f"@{tweet.user.handle}"), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
+            _name_segments(f"@{post.author.handle}"), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
         )
         content.extend(handle_elems)
-    dt_str = _format_datetime(tweet.created_at)
+    dt_str = _format_datetime(post.created_at)
     if dt_str:
         content.append(
             f'<text x="{name_x}" y="{date_y}" font-family="{FONT_NAME}" font-size="{FONT_SIZE_DATE}" '
@@ -304,20 +301,19 @@ def build_svg(
 
     y += AVATAR_SIZE + CARD_SECTION_GAP
 
-    # Embedded quoted post (above body text) — replaces divider
-    if quoted_tweet_data:
+    # Embedded post (above body text) — replaces divider
+    if post.embedded_post and assets.embedded_post:
         quote_line_w = 4
         quote_line_gap = 12
         embed_x = body_x + quote_line_w + quote_line_gap
         embed_w = inner_w - quote_line_w - quote_line_gap
         ep_defs, ep_content, ep_height = render_embedded_post(
-            tweet = quoted_tweet_data["tweet"],
+            post = post.embedded_post,
             x = embed_x,
             y = y,
             width = embed_w,
             theme = theme,
-            profile_bytes = quoted_tweet_data.get("profile_bytes"),
-            media_bytes = quoted_tweet_data.get("media_bytes"),
+            assets = assets.embedded_post,
         )
         defs.extend(ep_defs)
         line_inset = round(ep_height * 0.05)
@@ -336,8 +332,8 @@ def build_svg(
         )
         y += CARD_SECTION_GAP
 
-    # Tweet body with colored tokens
-    lines = _word_wrap(tweet.text, inner_w, FONT_SIZE_BODY)
+    # Post body with colored tokens
+    lines = _word_wrap(post.text, inner_w, FONT_SIZE_BODY)
     if lines:
         for i, ln in enumerate(lines):
             line_y = y + FONT_SIZE_BODY + i * LINE_HEIGHT_BODY
@@ -349,9 +345,9 @@ def build_svg(
         y += len(lines) * LINE_HEIGHT_BODY + CARD_SECTION_GAP
 
     # Link previews (above photos)
-    if link_preview_data:
+    if assets.link_previews:
         lp_defs, lp_content, lp_height = render_link_previews(
-            link_previews = link_preview_data,
+            link_previews = assets.link_previews,
             x = body_x,
             y = y,
             width = inner_w,
@@ -363,6 +359,7 @@ def build_svg(
             y += lp_height + CARD_SECTION_GAP
 
     # Photos — sorted portrait → square → landscape
+    media_bytes = [asset.content for asset in assets.media]
     if media_bytes:
         sorted_media = sorted(media_bytes, key = _photo_sort_key)
         total = len(sorted_media)
@@ -441,16 +438,16 @@ def build_svg(
 
     # Footer — align icon center to text cap-height center
     footer_y = y + FONT_SIZE_FOOTER
-    icon_y = round(footer_y - (FONT_SIZE_FOOTER * 0.65 + X_ICON_SIZE) / 2)
-    x_logo_b64 = _logo_svg_b64(_x_logo_key(theme))
+    icon_y = round(footer_y - (FONT_SIZE_FOOTER * 0.65 + PLATFORM_ICON_SIZE) / 2)
+    platform_logo_b64 = _logo_svg_b64(_platform_logo_key(post, theme))
     content.append(
-        f'<image x="{body_x}" y="{icon_y}" width="{X_ICON_SIZE}" height="{X_ICON_SIZE}" '
-        f'href="{x_logo_b64}" opacity="{FOOTER_OPACITY}"/>',
+        f'<image x="{body_x}" y="{icon_y}" width="{PLATFORM_ICON_SIZE}" height="{PLATFORM_ICON_SIZE}" '
+        f'href="{platform_logo_b64}" opacity="{FOOTER_OPACITY}"/>',
     )
     if short_url:
         display_url = short_url.removeprefix("https://").removeprefix("http://")
         content.append(
-            f'<text x="{body_x + X_ICON_SIZE + 5}" y="{footer_y}" font-family="{FONT_NAME}" font-size="{FONT_SIZE_FOOTER}" '
+            f'<text x="{body_x + PLATFORM_ICON_SIZE + 5}" y="{footer_y}" font-family="{FONT_NAME}" font-size="{FONT_SIZE_FOOTER}" '  # noqa: E501
             f'fill="{theme.text_color}" opacity="{FOOTER_OPACITY}">{escape_xml(display_url)}</text>',
         )
     y += FONT_SIZE_FOOTER + CARD_INNER_PAD

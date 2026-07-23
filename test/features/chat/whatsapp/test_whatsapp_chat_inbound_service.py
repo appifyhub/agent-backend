@@ -12,10 +12,20 @@ from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.config.chat_config import ChatConfig
-from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
-from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
+from features.chat.whatsapp.model.attachment.media_attachment import MediaAttachment
+from features.chat.whatsapp.model.attachment.text import Text
+from features.chat.whatsapp.model.change import Change
+from features.chat.whatsapp.model.contact import Contact
+from features.chat.whatsapp.model.context import Context
+from features.chat.whatsapp.model.entry import Entry
+from features.chat.whatsapp.model.message import Message
+from features.chat.whatsapp.model.metadata import Metadata
+from features.chat.whatsapp.model.profile import Profile
+from features.chat.whatsapp.model.update import Update
+from features.chat.whatsapp.model.value import Value
+from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.integrations.integrations import resolve_agent_user
 from features.users.user import User
@@ -25,11 +35,11 @@ from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
 
 
-class WhatsAppDataResolverTest(unittest.TestCase):
+class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
     sql: SQLUtil
     mock_di: DI
-    resolver: WhatsAppDataResolver
+    resolver: WhatsAppChatInboundService
 
     def setUp(self):
         self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.whatsapp)
@@ -54,161 +64,143 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.mock_di.attachment_storage.owns_uri.side_effect = lambda uri: bool(uri) and uri.startswith("s3://the-agent/chats/")
         # noinspection PyPropertyAccess
         self.mock_di.chat_membership_service = MagicMock()
-        self.resolver = WhatsAppDataResolver(self.mock_di)
+        # noinspection PyPropertyAccess
+        self.mock_di.whatsapp_domain_mapper = MagicMock(wraps = WhatsAppDomainMapper())
+        self.resolver = WhatsAppChatInboundService(self.mock_di)
 
     def tearDown(self):
         self.sql.end_session()
 
-    def test_resolve_no_author(self):
-        chat_config_data = ChatConfigRemoteData(
-            external_id = "c1",
-            title = "Chat Title",
-            is_private = True,
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        message_data = ChatMessageRemoteData(
-            message_id = "m1",
-            sent_at = datetime.now(),
-            text = "This is a message",
-        )
-        mapping_result = WhatsAppDomainMapper.Result(
-            chat = chat_config_data,
-            author = None,
-            message = message_data,
-            attachments = [],
+    @staticmethod
+    def __value(
+        messages: list[Message],
+        contacts: list[Contact] | None = None,
+        wa_id: str = "1",
+        full_name: str | None = "New User",
+    ) -> Value:
+        if contacts is None:
+            contacts = [Contact(profile = Profile(name = full_name), wa_id = wa_id)]
+        return Value(
+            messaging_product = "whatsapp",
+            metadata = Metadata(display_phone_number = "123", phone_number_id = "phone-id"),
+            contacts = contacts,
+            messages = messages,
         )
 
-        result = self.resolver.resolve(mapping_result)
+    def test_ingest_update_empty(self):
+        result = self.resolver.ingest_update(Update(object = "whatsapp_business_account", entry = []))
+
+        self.assertEqual(result, [])
+
+    def test_ingest_update_orders_raw_messages_oldest_first(self):
+        now = int(datetime.now().timestamp())
+        latest = Message(
+            id = "latest",
+            **{"from": "1"},
+            timestamp = str(now),
+            type = "text",
+            text = Text(body = "Latest"),
+        )
+        oldest = Message(
+            id = "oldest",
+            **{"from": "1"},
+            timestamp = str(now - 10),
+            type = "text",
+            text = Text(body = "Oldest"),
+        )
+        value = self.__value([latest, oldest])
+        update = Update(
+            object = "whatsapp_business_account",
+            entry = [Entry(id = "entry", changes = [Change(value = value, field = "messages")])],
+        )
+
+        results = self.resolver.ingest_update(update)
+
+        self.assertEqual([result.message.message_id for result in results], ["oldest", "latest"])
+
+    def test_ingest_message_no_author(self):
+        message = Message(
+            id = "m1",
+            **{"from": ""},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "text",
+            text = Text(body = "This is a message"),
+        )
+
+        result = self.resolver.ingest_message(message, self.__value([message], contacts = []))
 
         self.assertIsNone(result.author)
-        self.assertEqual(result.chat.external_id, chat_config_data.external_id)
-        self.assertEqual(result.chat.is_private, chat_config_data.is_private)
-        self.assertIsNone(result.author)
-        self.assertEqual(result.message.chat_id, result.chat.chat_id)
-        self.assertEqual(result.message.message_id, message_data.message_id)
+        self.assertEqual(result.message.message_id, "m1")
         self.assertIsNone(result.message.author_id)
         self.assertEqual(result.attachments, [])
+        self.assertEqual(result.raw_message_text, "This is a message")
 
-    def test_resolve_no_author_with_attachment_raises(self):
-        mapping_result = WhatsAppDomainMapper.Result(
-            chat = ChatConfigRemoteData(
-                external_id = "c1",
-                title = "Chat Title",
-                is_private = True,
-                chat_type = ChatConfigDB.ChatType.whatsapp,
-            ),
-            author = None,
-            message = ChatMessageRemoteData(
-                message_id = "m1",
-                sent_at = datetime.now(),
-                text = "This is a message",
-            ),
-            attachments = [
-                ChatAttachmentRemoteData(
-                    external_id = "e1",
-                    message_id = "m1",
-                    mime_type = "image/jpeg",
-                ),
-            ],
+    def test_ingest_message_no_author_with_attachment_raises(self):
+        message = Message(
+            id = "m1",
+            **{"from": ""},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "image",
+            image = MediaAttachment(id = "e1", mime_type = "image/jpeg"),
         )
 
         with self.assertRaises(InternalError):
-            self.resolver.resolve(mapping_result)
+            self.resolver.ingest_message(message, self.__value([message], contacts = []))
 
-    def test_resolve_with_author_bot(self):
-        chat_config_data = ChatConfigRemoteData(
-            external_id = "c1",
-            title = "Chat Title",
-            is_private = True,
-            chat_type = ChatConfigDB.ChatType.whatsapp,
+    def test_ingest_message_from_agent_skips_remote_attachments(self):
+        agent_id = self.agent_user.whatsapp_user_id
+        assert agent_id is not None
+        message = Message(
+            id = "m1",
+            **{"from": agent_id},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "image",
+            image = MediaAttachment(id = "e1", mime_type = "image/jpeg", caption = "This is a message"),
         )
-        author_data = UserRemoteData(
-            whatsapp_user_id = self.agent_user.whatsapp_user_id,
-            full_name = self.agent_user.full_name,
-        )
-        message_data = ChatMessageRemoteData(
-            message_id = "m1",
-            sent_at = datetime.now(),
-            text = "This is a message",
-        )
-        attachment_data = ChatAttachmentRemoteData(
-            external_id = "e1",
-            message_id = message_data.message_id,
-            last_url = "path/to/file.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
-        )
-        mapping_result = WhatsAppDomainMapper.Result(
-            chat = chat_config_data,
-            author = author_data,
-            message = message_data,
-            attachments = [attachment_data],
-        )
+        original_save = self.mock_di.chat_message_repo.save
+        self.mock_di.chat_message_repo.save = Mock(wraps = original_save)
 
-        result = self.resolver.resolve(mapping_result)
+        result = self.resolver.ingest_message(
+            message,
+            self.__value([message], wa_id = agent_id, full_name = self.agent_user.full_name),
+        )
 
         assert result.author is not None
-        self.assertIsNotNone(result.author.id)
-        self.assertEqual(result.author.whatsapp_user_id, author_data.whatsapp_user_id)
-        self.assertEqual(result.chat.external_id, chat_config_data.external_id)
-        self.assertEqual(result.chat.is_private, chat_config_data.is_private)
-        self.assertEqual(result.message.chat_id, result.chat.chat_id)
-        self.assertEqual(result.message.message_id, message_data.message_id)
-        self.assertIsNotNone(result.message.author_id)
-        # attachment resolution is skipped for the agent's own messages — the SDK archives outbound media itself
+        self.assertEqual(result.author.whatsapp_user_id, agent_id)
         self.assertEqual(result.attachments, [])
+        self.mock_di.whatsapp_domain_mapper.map_attachments.assert_not_called()
         self.mock_di.whatsapp_bot_api.download_media.assert_not_called()
         self.mock_di.chat_membership_service.sync.assert_not_called()
+        self.mock_di.chat_message_repo.save.assert_called_once()
 
-    def test_resolve_with_author_normal(self):
-        chat_config_data = ChatConfigRemoteData(
-            external_id = "c1",
-            title = "Chat Title",
-            is_private = True,
-            chat_type = ChatConfigDB.ChatType.whatsapp,
+    def test_ingest_message_with_attachment_uses_local_attachment_id(self):
+        message = Message(
+            id = "m1",
+            **{"from": "1"},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "image",
+            image = MediaAttachment(id = "e1", mime_type = "image/jpeg", caption = "This is a message"),
         )
-        author_data = UserRemoteData(
-            whatsapp_user_id = "1",
-            full_name = "New User",
-        )
-        message_data = ChatMessageRemoteData(
-            message_id = "m1",
-            sent_at = datetime.now(),
-            text = "This is a message",
-        )
-        attachment_data = ChatAttachmentRemoteData(
-            external_id = "e1",
-            message_id = message_data.message_id,
-            last_url = "path/to/file.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
-        )
-        mapping_result = WhatsAppDomainMapper.Result(
-            chat = chat_config_data,
-            author = author_data,
-            message = message_data,
-            attachments = [attachment_data],
-        )
+        original_save = self.mock_di.chat_message_repo.save
+        self.mock_di.chat_message_repo.save = Mock(wraps = original_save)
 
-        result = self.resolver.resolve(mapping_result)
+        result = self.resolver.ingest_message(message, self.__value([message]))
 
         assert result.author is not None
-        self.assertIsNotNone(result.author.id)
-        self.assertEqual(result.author.whatsapp_user_id, author_data.whatsapp_user_id)
-        self.assertEqual(result.chat.external_id, chat_config_data.external_id)
-        self.assertEqual(result.chat.is_private, chat_config_data.is_private)
-        self.assertEqual(result.message.chat_id, result.chat.chat_id)
-        self.assertEqual(result.message.message_id, message_data.message_id)
-        self.assertIsNotNone(result.message.author_id)
-        self.assertEqual(result.attachments[0].id, generate_deterministic_short_uuid(attachment_data.external_id))
-        self.assertEqual(result.attachments[0].external_id, attachment_data.external_id)
-        self.assertEqual(result.attachments[0].message_id, attachment_data.message_id)
+        attachment_id = generate_deterministic_short_uuid("e1")
+        self.assertEqual(result.attachments[0].id, attachment_id)
+        self.assertEqual(result.attachments[0].message_id, "m1")
         self.assertEqual(result.attachments[0].chat_id, result.chat.chat_id)
         self.assertEqual(result.attachments[0].uploader_user_id, result.author.id)
-        self.assertIn(f"📎 [ {generate_deterministic_short_uuid(attachment_data.external_id)} (image/jpeg) ]", result.message.text)
+        self.assertIn(f"📎 [ {attachment_id} (image/jpeg) ]", result.message.text)
+        self.assertEqual(result.raw_message_text, "This is a message")
+        mapped_message = self.mock_di.whatsapp_domain_mapper.map_message.call_args.args[0]
+        self.assertIs(mapped_message, message)
+        self.assertNotIn(attachment_id, result.raw_message_text)
+        self.mock_di.chat_message_repo.save.assert_called_once()
         self.mock_di.chat_membership_service.sync.assert_called_once()
 
-    def test_resolve_with_reply_uses_local_attachment_id(self):
+    def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
@@ -229,44 +221,36 @@ class WhatsAppDataResolverTest(unittest.TestCase):
                 mime_type = "image/png",
             ),
         )
-        mapping_result = WhatsAppDomainMapper.Result(
-            chat = ChatConfigRemoteData(
-                external_id = "c1",
-                title = "Chat Title",
-                is_private = True,
-                chat_type = ChatConfigDB.ChatType.whatsapp,
-            ),
-            author = UserRemoteData(
-                whatsapp_user_id = "1",
-                full_name = "New User",
-            ),
-            message = ChatMessageRemoteData(
-                message_id = "new-message",
-                sent_at = datetime.now(),
-                text = "Please use this",
-            ),
-            attachments = [],
-            replied_to_message_id = "old-message",
+        message = Message(
+            id = "new-message",
+            **{"from": "c1"},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "text",
+            text = Text(body = "Please use this"),
+            context = Context(id = "old-message"),
         )
 
-        result = self.resolver.resolve(mapping_result)
+        result = self.resolver.ingest_message(
+            message,
+            self.__value([message], wa_id = "c1"),
+        )
 
         self.assertIn(">>>> Original caption", result.message.text)
         self.assertIn(">>>> 📎 [ local123 (image/png) ]", result.message.text)
         self.assertIn("Please use this", result.message.text)
         self.assertNotIn("remote123", result.message.text)
 
-    def test_resolve_author_none(self):
-        result = self.resolver.resolve_author(None)
+    def test_store_author_none(self):
+        result = self.resolver.store_author(None)
         self.assertIsNone(result)
 
-    def test_resolve_author_new(self):
+    def test_store_author_new(self):
         mapped_data = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
 
-        result = self.resolver.resolve_author(mapped_data)
+        result = self.resolver.store_author(mapped_data)
         saved_user = self.sql.user_repo().get_by_whatsapp_user_id(mapped_data.whatsapp_user_id or "")
 
         assert result is not None
@@ -279,7 +263,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.group, UserDB.Group.standard)
         self.assertEqual(result.created_at, datetime.now().date())
 
-    def test_resolve_author_by_whatsapp_user_id(self):
+    def test_store_author_by_whatsapp_user_id(self):
         existing_user_data = User(
             whatsapp_user_id = "1234567890",
             full_name = "Existing User",
@@ -291,7 +275,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             full_name = "Updated User",
         )
 
-        result = self.resolver.resolve_author(mapped_data)
+        result = self.resolver.store_author(mapped_data)
         assert result is not None
         saved_user = self.sql.user_repo().get(result.id)
 
@@ -307,21 +291,21 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.created_at, existing_user.created_at)
 
     @patch("features.users.user_repo.UserRepository.count")
-    def test_resolve_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
+    def test_store_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
         mock_count.return_value = config.max_users  # reach maximum immediately
         mapped_data = UserRemoteData(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
 
-        result = self.resolver.resolve_author(mapped_data)
+        result = self.resolver.store_author(mapped_data)
         assert result is not None
         self.assertTrue(result.is_on_waitlist)
         self.assertFalse(result.is_invited_to_start)
         self.assertFalse(result.are_policies_accepted)
         mock_count.assert_called_once()
 
-    def test_resolve_author_existing(self):
+    def test_store_author_existing(self):
         existing_user_data = User(
             whatsapp_user_id = "1",
             full_name = "Existing User",
@@ -358,7 +342,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             full_name = "Updated User",
         )
 
-        result = self.resolver.resolve_author(mapped_data)
+        result = self.resolver.store_author(mapped_data)
         assert result is not None
 
         saved_user = self.sql.user_repo().get(result.id)
@@ -397,7 +381,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_api_crypto_exchange, existing_user.tool_choice_api_crypto_exchange)
         self.assertEqual(result.tool_choice_api_twitter, existing_user.tool_choice_api_twitter)
 
-    def test_resolve_author_preserves_name_when_empty(self):
+    def test_store_author_preserves_name_when_empty(self):
         existing_user_data = User(
             whatsapp_user_id = "1",
             full_name = "Existing User",
@@ -410,7 +394,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             full_name = None,
         )
 
-        result = self.resolver.resolve_author(mapped_data_none)
+        result = self.resolver.store_author(mapped_data_none)
         assert result is not None
         self.assertEqual(result.id, existing_user.id)
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
@@ -421,22 +405,23 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             full_name = "",
         )
 
-        result = self.resolver.resolve_author(mapped_data_empty)
+        result = self.resolver.store_author(mapped_data_empty)
         assert result is not None
         self.assertEqual(result.id, existing_user.id)
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
 
-    def test_resolve_chat_message_new(self):
+    def test_store_message_new(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
         mapped_data = ChatMessageRemoteData(
             message_id = "m1",
             sent_at = datetime.now(),
-            text = "This is a message",
+            text = "Raw message",
         )
+        formatted_text = "Formatted message"
 
-        result = self.resolver.resolve_chat_message(mapped_data, chat.chat_id, None)
+        result = self.resolver.store_message(mapped_data, formatted_text, chat.chat_id, None)
         saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
 
         self.assertEqual(result, saved_message)
@@ -444,9 +429,10 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message_id, mapped_data.message_id)
         self.assertIsNone(result.author_id)
         self.assertEqual(result.sent_at, mapped_data.sent_at)
-        self.assertEqual(result.text, mapped_data.text)
+        self.assertEqual(result.text, formatted_text)
+        self.assertEqual(mapped_data.text, "Raw message")
 
-    def test_resolve_chat_message_with_existing(self):
+    def test_store_message_with_existing(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
@@ -463,10 +449,11 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         mapped_data = ChatMessageRemoteData(
             message_id = "m1",
             sent_at = datetime.now(),
-            text = "Updated message",
+            text = "Raw updated message",
         )
+        formatted_text = "Formatted updated message"
 
-        result = self.resolver.resolve_chat_message(mapped_data, chat.chat_id, new_author.id)
+        result = self.resolver.store_message(mapped_data, formatted_text, chat.chat_id, new_author.id)
         saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
 
         self.assertEqual(result, saved_message)
@@ -474,9 +461,10 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.message_id, mapped_data.message_id)
         self.assertEqual(result.author_id, new_author.id)
         self.assertEqual(result.sent_at, mapped_data.sent_at)
-        self.assertEqual(result.text, mapped_data.text)
+        self.assertEqual(result.text, formatted_text)
+        self.assertEqual(mapped_data.text, "Raw updated message")
 
-    def test_resolve_chat_attachment_new(self):
+    def test_store_attachment_new(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
@@ -492,7 +480,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
             mime_type = "image/jpeg",
         )
 
-        result = self.resolver.resolve_chat_attachment(mapped_data, chat.chat_id, uploader.id)
+        result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
         saved_attachment = self.sql.chat_attachment_repo().get_by_external_id(chat.chat_id, mapped_data.external_id)
 
         self.assertEqual(result, saved_attachment)
@@ -506,7 +494,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.assertEqual(result.extension, "jpg")
         self.assertEqual(result.mime_type, "image/jpeg")
 
-    def test_resolve_chat_attachment_existing(self):
+    def test_store_attachment_existing(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
@@ -528,7 +516,7 @@ class WhatsAppDataResolverTest(unittest.TestCase):
         self.sql.chat_attachment_repo().save(old_attachment_data)
 
         mapped_data = ChatAttachmentRemoteData(external_id = "e1", message_id = "m1")
-        result = self.resolver.resolve_chat_attachment(mapped_data, chat.chat_id, uploader.id)
+        result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
         saved_attachment = self.sql.chat_attachment_repo().get("i1")
 
         self.assertEqual(result, saved_attachment)

@@ -1,4 +1,4 @@
-CARD_OUTER_PAD = 24  # transparent shadow margin around card
+CARD_OUTER_PAD = 30  # transparent shadow margin around card
 CARD_CORNER_RADIUS = 40
 CARD_INNER_PAD = 54  # padding inside the card
 CARD_SECTION_GAP = 28  # vertical gap between header / body / photos / footer
@@ -8,7 +8,7 @@ AVATAR_SIZE = 64
 AVATAR_GAP = 16  # gap between avatar and name column
 LOGO_SIZE = 32
 LOGO_CIRCLE_R = 26
-X_ICON_SIZE = 12  # footer X/Twitter icon
+PLATFORM_ICON_SIZE = 12
 HEADER_HEIGHT = AVATAR_SIZE + CARD_INNER_PAD
 DIVIDER_OPACITY = 0.2
 FOOTER_OPACITY = 0.45

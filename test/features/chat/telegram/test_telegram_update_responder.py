@@ -9,10 +9,9 @@ from langchain_core.messages import AIMessage
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from features.chat.config.chat_config import ChatConfig
+from features.chat.ingested_chat_message import IngestedChatMessage
 from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.model.update import Update
-from features.chat.telegram.telegram_data_resolver import TelegramDataResolver
-from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.chat.telegram.telegram_update_responder import respond_to_update
 from features.users.user import User
 
@@ -50,31 +49,16 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
         self.di.telegram_bot_sdk.send_text_message = Mock()
 
-    def tearDown(self):
-        self.sql.end_session()
-
-    def test_successful_response(self):
-        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
-
-        self.di.telegram_domain_mapper.map_update.return_value = Mock(
-            spec = TelegramDomainMapper.Result,
-            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
-        )
-
-        author = User(
-            id = UUID(int = 1),
-            telegram_username = "test_user",
-            full_name = "Test User",
-            telegram_user_id = 1,
-            connect_key = "TG-USER-KEY1",
-            group = UserDB.Group.standard,
-            created_at = date.today(),
-            telegram_chat_id = "123",
-        )
-
-        self.di.telegram_data_resolver.resolve.return_value = Mock(
-            spec = TelegramDataResolver.Result,
-            chat = ChatConfig(
+    def __resolved_result(
+        self,
+        chat_config: ChatConfig | None = None,
+        author: User | None = None,
+        message: ChatMessage | None = None,
+        raw_message_text: str = "Test message text",
+    ):
+        return Mock(
+            spec = IngestedChatMessage,
+            chat = chat_config or ChatConfig(
                 chat_id = UUID(int = 123),
                 external_id = "123",
                 language_name = "English",
@@ -87,7 +71,29 @@ class TelegramUpdateResponderTest(unittest.TestCase):
                 chat_type = ChatConfigDB.ChatType.telegram,
             ),
             author = author,
+            message = message or Mock(spec = ChatMessage, message_id = "test-message-id"),
+            raw_message_text = raw_message_text,
         )
+
+    def tearDown(self):
+        self.sql.end_session()
+
+    def test_successful_response(self):
+        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
+
+        author = User(
+            id = UUID(int = 1),
+            telegram_username = "test_user",
+            full_name = "Test User",
+            telegram_user_id = 1,
+            connect_key = "TG-USER-KEY1",
+            group = UserDB.Group.standard,
+            created_at = date.today(),
+            telegram_chat_id = "123",
+        )
+
+        resolved = self.__resolved_result(author = author)
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved
         self.di.chat_message_repo.get_latest_by_chat.return_value = []
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -97,8 +103,14 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         result = respond_to_update(self.update)
 
         self.assertTrue(result)
+        self.di.telegram_chat_inbound_service.ingest_update.assert_called_once_with(self.update)
+        self.di.chat_agent.assert_called_once_with(
+            raw_last_message = "Test message text",
+            last_message_id = "test-message-id",
+            configured_tool = self.di.tool_choice_resolver.get_tool.return_value,
+        )
         self.di.chat_agent.return_value.execute.assert_called_once()
-        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Test response")
+        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(resolved.chat, "Test response")
         self.mock_sleep.assert_called_once_with(0.1)
 
     def test_reaction_response(self):
@@ -106,24 +118,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             {"type": "thinking", "thinking": "A reaction is appropriate"},
             {"type": "text", "text": "👍"},
         ])
-        self.di.telegram_domain_mapper.map_update.return_value = Mock(
-            spec = TelegramDomainMapper.Result,
-            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
-        )
-        self.di.telegram_data_resolver.resolve.return_value = Mock(
-            spec = TelegramDataResolver.Result,
-            chat = ChatConfig(
-                chat_id = UUID(int = 123),
-                external_id = "123",
-                language_name = "English",
-                language_iso_code = "en",
-                title = "Test Chat",
-                is_private = False,
-                reply_chance_percent = 100,
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                media_mode = ChatConfigDB.MediaMode.photo,
-                chat_type = ChatConfigDB.ChatType.telegram,
-            ),
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = self.__resolved_result(
             author = Mock(spec = User, id = UUID(int = 1)),
             message = Mock(spec = ChatMessage, message_id = "test-message-id"),
         )
@@ -143,24 +138,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
     def test_reaction_response_failure(self):
         self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "👍")
         self.di.platform_bot_sdk.return_value.set_reaction.side_effect = Exception("Reaction failed")
-        self.di.telegram_domain_mapper.map_update.return_value = Mock(
-            spec = TelegramDomainMapper.Result,
-            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
-        )
-        self.di.telegram_data_resolver.resolve.return_value = Mock(
-            spec = TelegramDataResolver.Result,
-            chat = ChatConfig(
-                chat_id = UUID(int = 123),
-                external_id = "123",
-                language_name = "English",
-                language_iso_code = "en",
-                title = "Test Chat",
-                is_private = False,
-                reply_chance_percent = 100,
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-                media_mode = ChatConfigDB.MediaMode.photo,
-                chat_type = ChatConfigDB.ChatType.telegram,
-            ),
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = self.__resolved_result(
             author = Mock(spec = User, id = UUID(int = 1)),
             message = Mock(spec = ChatMessage, message_id = "test-message-id"),
         )
@@ -178,10 +156,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.assertEqual(saved_message.text, "<reaction>👍</reaction>")
 
     def test_empty_response(self):
-        self.di.telegram_domain_mapper.map_update.return_value = Mock(spec = TelegramDomainMapper.Result)
-        self.di.telegram_data_resolver.resolve.return_value = Mock(
-            spec = TelegramDataResolver.Result,
-            chat = Mock(spec = ChatConfig, chat_id = "123"),
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = self.__resolved_result(
             author = Mock(spec = User, id = UUID(int = 1)),
         )
         self.di.chat_message_repo.get_latest_by_chat.return_value = []
@@ -194,7 +169,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_mapping_error(self):
-        self.di.telegram_domain_mapper.map_update.return_value = None
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = None
 
         with patch("features.integrations.prompt_resolvers.simple_chat_error", return_value = "Mapping error"):
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -209,15 +184,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_no_author_returns_false(self):
-        self.di.telegram_domain_mapper.map_update.return_value = Mock(
-            spec = TelegramDomainMapper.Result,
-            message = Mock(spec = ChatMessage, message_id = "test-message-id", text = "Test message text"),
-        )
-        self.di.telegram_data_resolver.resolve.return_value = Mock(
-            spec = TelegramDataResolver.Result,
-            chat = Mock(spec = ChatConfig, chat_id = "123"),
-            author = None,
-        )
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = self.__resolved_result(author = None)
 
         result = respond_to_update(self.update)
 
@@ -228,19 +195,14 @@ class TelegramUpdateResponderTest(unittest.TestCase):
     def test_general_exception(self):
         from collections import namedtuple
         with patch("features.chat.telegram.telegram_update_responder.silent", lambda f: f):
-            self.di.telegram_domain_mapper.map_update.return_value = Mock(spec = TelegramDomainMapper.Result)
-            resolved_domain_data_mock = Mock(
-                spec = TelegramDataResolver.Result,
-                chat = Mock(spec = ChatConfig, chat_id = UUID(int = 123), external_id = "123"),
-                author = Mock(spec = User, id = UUID(int = 1)),
-            )
-            self.di.telegram_data_resolver.resolve.return_value = resolved_domain_data_mock
+            resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+            self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved_domain_data_mock
 
             error_message = "Test error"
             ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
             error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
-            # Raise exception during message fetching, after resolved_domain_data is set
-            self.di.chat_message_repo.get_latest_by_chat.side_effect = Exception(error_message)
+            # Raise exception after resolved_domain_data is set
+            self.di.chat_agent.side_effect = Exception(error_message)
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
             self.di.telegram_bot_sdk.send_text_message = Mock()
 
@@ -249,6 +211,6 @@ class TelegramUpdateResponderTest(unittest.TestCase):
                 result = respond_to_update(self.update)
 
         self.assertFalse(result)
-        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with("123", "Error response")
+        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(resolved_domain_data_mock.chat, "Error response")
         self.mock_sleep.assert_called_once_with(0.1)
         self.di.chat_message_repo.save.assert_not_called()
