@@ -1,17 +1,22 @@
-import time
 from dataclasses import replace
+from datetime import datetime
 from typing import Literal
 
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
+from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
-from features.chat.message.formatted_chat_message import FormattedChatMessage
+from features.chat.message.formatted_chat_message import (
+    FormattedAttachmentPart,
+    FormattedChatMessage,
+    FormattedChatMessagePart,
+    FormattedTextPart,
+)
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.model.message import Message
-from features.chat.telegram.model.update import Update
+from features.integrations.integration_config import THE_AGENT
 from util import log
-from util.error_codes import PLATFORM_MAPPING_FAILED
-from util.errors import InternalError
+from util.functions import obfuscate_url
 
 
 class TelegramBotSDK:
@@ -25,24 +30,24 @@ class TelegramBotSDK:
 
     def send_text_message(
         self,
-        chat_id: int | str,
+        chat_config: ChatConfig,
         text: str,
         parse_mode: str = "markdown",
         disable_notification: bool = False,
         link_preview_options: dict | None = None,
     ) -> ChatMessage:
         sent_message = self.__di.telegram_bot_api.send_text_message(
-            chat_id = chat_id,
+            chat_id = chat_config.external_id,
             text = text,
             parse_mode = parse_mode,
             disable_notification = disable_notification,
             link_preview_options = link_preview_options,
         )
-        return self.__store_api_response_as_message(sent_message)
+        return self.__store_api_response_as_message(sent_message, text = text, chat_config = chat_config)
 
     def send_photo(
         self,
-        chat_id: int | str,
+        chat_config: ChatConfig,
         attachment: ChatAttachment,
         caption: str | None = None,
         parse_mode: str = "markdown",
@@ -52,20 +57,21 @@ class TelegramBotSDK:
         public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
         # sending will generate a real message ID
         sent_message = self.__di.telegram_bot_api.send_photo(
-            chat_id = chat_id,
+            chat_id = chat_config.external_id,
             photo_url = public_url,
             caption = caption,
             parse_mode = parse_mode,
             disable_notification = disable_notification,
         )
-        message = self.__store_api_response_as_message(sent_message, local_attachments = [attachment])
+        content = self.__format_media_message(attachment, caption)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 
     def send_document(
         self,
-        chat_id: int | str,
+        chat_config: ChatConfig,
         attachment: ChatAttachment,
         parse_mode: str = "markdown",
         thumbnail: str | None = None,
@@ -76,14 +82,15 @@ class TelegramBotSDK:
         public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
         # sending will generate a real message ID
         sent_message = self.__di.telegram_bot_api.send_document(
-            chat_id = chat_id,
+            chat_id = chat_config.external_id,
             document_url = public_url,
             caption = caption,
             parse_mode = parse_mode,
             thumbnail = thumbnail,
             disable_notification = disable_notification,
         )
-        message = self.__store_api_response_as_message(sent_message, local_attachments = [attachment])
+        content = self.__format_media_message(attachment, caption)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -103,9 +110,10 @@ class TelegramBotSDK:
     def set_reaction(self, chat_id: int | str, message_id: int | str, reaction: str | None):
         self.__di.telegram_bot_api.set_reaction(chat_id = chat_id, message_id = message_id, reaction = reaction)
 
-    def send_button_link(self, chat_id: int | str, link_url: str, button_text: str = "⚙️") -> ChatMessage:
-        sent_message = self.__di.telegram_bot_api.send_button_link(chat_id, link_url, button_text)
-        return self.__store_api_response_as_message(sent_message)
+    def send_button_link(self, chat_config: ChatConfig, link_url: str, button_text: str = "⚙️") -> ChatMessage:
+        sent_message = self.__di.telegram_bot_api.send_button_link(chat_config.external_id, link_url, button_text)
+        stored_text = f"{button_text} {obfuscate_url(link_url)}"
+        return self.__store_api_response_as_message(sent_message, text = stored_text, chat_config = chat_config)
 
     def get_chat_member(self, chat_id: int | str, user_id: int | str) -> ChatMember | None:
         try:
@@ -123,27 +131,22 @@ class TelegramBotSDK:
 
     # === Data utilities ===
 
-    def __store_api_response_as_message(
-        self,
-        raw_api_response: dict,
-        local_attachments: list[ChatAttachment] | None = None,
-    ) -> ChatMessage:
+    def __store_api_response_as_message(self, raw_api_response: dict, text: str, chat_config: ChatConfig) -> ChatMessage:
         log.t("Storing API message data...")
-        message = Message(**raw_api_response["result"])
-        update = Update(update_id = time.time_ns(), message = message)
-        mapping_result = self.__di.telegram_domain_mapper.map_update(update)
-        if not mapping_result:
-            raise InternalError(f"Telegram API domain mapping failed for local update '{update.update_id}'", PLATFORM_MAPPING_FAILED)  # noqa: E501
-        if local_attachments:
-            formatted_message = mapping_result.formatted_message or FormattedChatMessage.from_text(mapping_result.message.text)
-            formatted_message = formatted_message.with_attachments(local_attachments)
-            mapping_result = replace(
-                mapping_result,
-                message = replace(mapping_result.message, text = formatted_message.to_text()),
-                formatted_message = formatted_message,
-            )
-        resolution_result = self.__di.telegram_data_resolver.resolve(mapping_result)
-        if not resolution_result.message:
-            raise InternalError(f"Telegram data resolution failed for local update '{update.update_id}'", PLATFORM_MAPPING_FAILED)
-        # noinspection PyTypeChecker
-        return resolution_result.message
+        api_message = Message(**raw_api_response["result"])
+        message = ChatMessage(
+            message_id = str(api_message.message_id),
+            chat_id = chat_config.chat_id,
+            author_id = THE_AGENT.id,
+            sent_at = datetime.fromtimestamp(api_message.date),
+            text = text,
+        )
+        return self.__di.chat_message_repo.save(message)
+
+    # noinspection PyMethodMayBeStatic
+    def __format_media_message(self, attachment: ChatAttachment, caption: str | None) -> FormattedChatMessage:
+        parts: list[FormattedChatMessagePart] = []
+        if caption:
+            parts.append(FormattedTextPart(text = caption))
+        parts.append(FormattedAttachmentPart.from_attachments([attachment]))
+        return FormattedChatMessage(parts = parts)
