@@ -1,4 +1,4 @@
-CARD_OUTER_PAD = 24  # transparent shadow margin around card
+CARD_OUTER_PAD = 30  # transparent shadow margin around card
 CARD_CORNER_RADIUS = 40
 CARD_INNER_PAD = 54  # padding inside the card
 CARD_SECTION_GAP = 28  # vertical gap between header / body / photos / footer
