@@ -4,8 +4,6 @@ import re
 from dataclasses import dataclass, field
 
 from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
-from util.functions import generate_deterministic_short_uuid as uuid_of
 
 ATTACHMENT_PLACEHOLDER_TEXT = "📎 [ {attachments} ]"
 ATTACHMENT_PLACEHOLDER_REGEX = re.compile(r"📎 \[ [^\]\r\n]+ \]")
@@ -26,10 +24,6 @@ class FormattedAttachmentReference:
     @classmethod
     def from_attachment(cls, attachment: ChatAttachment) -> FormattedAttachmentReference:
         return cls(id = attachment.id, mime_type = attachment.mime_type)
-
-    @classmethod
-    def from_remote_data(cls, attachment: ChatAttachmentRemoteData) -> FormattedAttachmentReference:
-        return cls(id = uuid_of(attachment.external_id), mime_type = attachment.mime_type)
 
     def to_text(self) -> str:
         return f"{self.id} ({self.mime_type})" if self.mime_type else self.id
@@ -66,15 +60,6 @@ class FormattedAttachmentPart:
         return cls(
             attachments = [
                 FormattedAttachmentReference.from_attachment(attachment)
-                for attachment in attachments
-            ],
-        )
-
-    @classmethod
-    def from_remote_data(cls, attachments: list[ChatAttachmentRemoteData]) -> FormattedAttachmentPart:
-        return cls(
-            attachments = [
-                FormattedAttachmentReference.from_remote_data(attachment)
                 for attachment in attachments
             ],
         )
@@ -154,8 +139,8 @@ class FormattedChatMessage:
             parts.append(FormattedAttachmentPart.from_attachments(attachments))
         return FormattedChatMessage(parts = parts)
 
-    def prepend_quote(self, message: FormattedChatMessage) -> FormattedChatMessage:
-        return FormattedChatMessage(parts = [FormattedQuotePart(message = message, depth = 2), *self.parts])
+    def prepend_quote(self, message: FormattedChatMessage, depth: int = 2) -> FormattedChatMessage:
+        return FormattedChatMessage(parts = [FormattedQuotePart(message = message, depth = depth), *self.parts])
 
     def to_text(self) -> str:
         return "\n\n".join(

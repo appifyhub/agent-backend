@@ -6,9 +6,9 @@ from langchain_core.messages import AIMessage
 from db.sql import get_detached_session
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
+from features.chat.ingested_chat_message import IngestedChatMessage
 from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.update import Update
-from features.chat.whatsapp.whatsapp_data_resolver import WhatsAppDataResolver
 from features.external_tools.intelligence_presets import default_tool_for
 from features.integrations import prompt_resolvers
 from features.integrations.integrations import format_reaction_response, is_reaction_response, resolve_agent_user
@@ -25,17 +25,15 @@ def respond_to_update(update: Update) -> bool:
     with get_detached_session() as db:
         di = DI(db)
 
-        resolved_domain_data_all: list[WhatsAppDataResolver.Result] = []
-        resolved_domain_data: WhatsAppDataResolver.Result | None = None
+        resolved_domain_data_all: list[IngestedChatMessage] = []
+        resolved_domain_data: IngestedChatMessage | None = None
         try:
-            # map to storage models for persistence
-            domain_update = di.whatsapp_domain_mapper.map_update(update)
-            if not domain_update:
+            # store and map to domain models (throws in case of error)
+            resolved_domain_data_all = di.whatsapp_chat_inbound_service.ingest_update(update)
+            if not resolved_domain_data_all:
                 log.w("No messages to process in this WhatsApp update (likely a status update or notification)")
                 return False
 
-            # store and map to domain models (throws in case of error)
-            resolved_domain_data_all = di.whatsapp_data_resolver.resolve_all(domain_update)
             # filter out messages without authors
             resolved_domain_data_all = [message for message in resolved_domain_data_all if message.author]
             if not resolved_domain_data_all:
@@ -49,7 +47,7 @@ def respond_to_update(update: Update) -> bool:
             # process the update using LLM; get instead of require to allow the first message to be sent
             tool = di.tool_choice_resolver.get_tool(ChatAgent.TOOL_TYPE, default_tool_for(ChatAgent.TOOL_TYPE))
             chat_agent = di.chat_agent(
-                raw_last_message = resolved_domain_data.message.text,
+                raw_last_message = resolved_domain_data.raw_message_text,
                 last_message_id = resolved_domain_data.message.message_id,
                 configured_tool = tool,
             )
@@ -100,7 +98,7 @@ def respond_to_update(update: Update) -> bool:
 @silent
 def __notify_of_errors(
     di: DI,
-    resolved_domain_data: WhatsAppDataResolver.Result | None,
+    resolved_domain_data: IngestedChatMessage | None,
     error: Exception,
 ):
     if resolved_domain_data:
