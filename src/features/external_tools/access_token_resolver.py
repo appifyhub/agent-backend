@@ -17,6 +17,7 @@ from features.external_tools.external_tool_provider_library import (
     XAI,
     X,
 )
+from features.integrations.integration_config import SYSTEM_AGENTS
 from features.users.user import User
 from util import log
 from util.config import config
@@ -69,6 +70,12 @@ class AccessTokenResolver:
     def get_access_token(self, provider: ExternalToolProvider) -> ResolvedToken | None:
         log.t(f"Resolving access token for provider '{provider.id}'")
         invoker = self.__di.invoker
+
+        if any(invoker.id == agent.id for agent in SYSTEM_AGENTS):
+            platform_token = self.__get_platform_token_for_provider(provider)
+            if platform_token:
+                log.t(f"Using platform token for system agent '{invoker.full_name}'")
+                return ResolvedToken(token = platform_token, payer_id = invoker.id, uses_credits = False)
 
         # check if invoker has a direct token
         user_token = self.__get_user_token_for_provider(invoker, provider)

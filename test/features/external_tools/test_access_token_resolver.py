@@ -22,6 +22,7 @@ from features.external_tools.external_tool_provider_library import (
     XAI,
     X,
 )
+from features.integrations.integration_config import SYSTEM_AGENTS
 from features.sponsorships.sponsorship import Sponsorship
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
@@ -426,6 +427,30 @@ class AccessTokenResolverTest(unittest.TestCase):
         self.assertIsInstance(token, ResolvedToken)
         self.assertEqual(token.token.get_secret_value(), "platform-openai-key")
         self.assertTrue(token.uses_credits)
+
+    def test_get_access_token_system_agents_use_platform_key_without_credits(self):
+        resolver = AccessTokenResolver(self.mock_di)
+
+        for agent in SYSTEM_AGENTS:
+            with self.subTest(agent_id = agent.id):
+                system_agent = replace(
+                    self.invoker_user,
+                    id = agent.id,
+                    open_ai_key = SecretStr("stale-agent-key"),
+                    credit_balance = 0.0,
+                )
+                self.mock_di.invoker = system_agent
+                self.mock_sponsorship_repo.reset_mock()
+
+                with patch("features.external_tools.access_token_resolver.config") as mock_config:
+                    mock_config.platform_open_ai_key = SecretStr("platform-openai-key")
+                    token = resolver.get_access_token(self.openai_provider)
+
+                assert token is not None
+                self.assertEqual(token.token.get_secret_value(), "platform-openai-key")
+                self.assertEqual(token.payer_id, agent.id)
+                self.assertFalse(token.uses_credits)
+                self.mock_sponsorship_repo.get_all_by_receiver.assert_not_called()
 
     def test_get_access_token_returns_none_when_platform_key_is_invalid(self):
         user_with_credits = replace(
