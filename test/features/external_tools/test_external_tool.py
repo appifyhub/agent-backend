@@ -146,6 +146,7 @@ class ExternalToolTest(unittest.TestCase):
             ToolType.embedding,
             ToolType.api_fiat_exchange,
             ToolType.api_crypto_exchange,
+            ToolType.api_stock_quote,
             ToolType.api_twitter,
             ToolType.deprecated,
         ]

@@ -49,6 +49,7 @@ def domain(db_model: UserDB | None) -> User | None:
         replicate_key = _secret(db_model.replicate_key),
         rapid_api_key = _secret(db_model.rapid_api_key),
         coinmarketcap_key = _secret(db_model.coinmarketcap_key),
+        twelve_data_api_key = _secret(db_model.twelve_data_api_key),
         x_key = _secret(db_model.x_key),
         x_ai_key = _secret(db_model.x_ai_key),
 
@@ -63,6 +64,7 @@ def domain(db_model: UserDB | None) -> User | None:
         tool_choice_embedding = db_model.tool_choice_embedding,
         tool_choice_api_fiat_exchange = db_model.tool_choice_api_fiat_exchange,
         tool_choice_api_crypto_exchange = db_model.tool_choice_api_crypto_exchange,
+        tool_choice_api_stock_quote = db_model.tool_choice_api_stock_quote,
         tool_choice_api_twitter = db_model.tool_choice_api_twitter,
 
         credit_balance = db_model.credit_balance,
@@ -102,6 +104,7 @@ def db(domain_model: User | None) -> UserDB | None:
         replicate_key = _secret_value(domain_model.replicate_key),
         rapid_api_key = _secret_value(domain_model.rapid_api_key),
         coinmarketcap_key = _secret_value(domain_model.coinmarketcap_key),
+        twelve_data_api_key = _secret_value(domain_model.twelve_data_api_key),
         x_key = _secret_value(domain_model.x_key),
         x_ai_key = _secret_value(domain_model.x_ai_key),
 
@@ -116,6 +119,7 @@ def db(domain_model: User | None) -> UserDB | None:
         tool_choice_embedding = domain_model.tool_choice_embedding,
         tool_choice_api_fiat_exchange = domain_model.tool_choice_api_fiat_exchange,
         tool_choice_api_crypto_exchange = domain_model.tool_choice_api_crypto_exchange,
+        tool_choice_api_stock_quote = domain_model.tool_choice_api_stock_quote,
         tool_choice_api_twitter = domain_model.tool_choice_api_twitter,
 
         credit_balance = domain_model.credit_balance,
@@ -151,6 +155,7 @@ def apply_to_db_model(
     db_model.replicate_key = _secret_value(domain_model.replicate_key)
     db_model.rapid_api_key = _secret_value(domain_model.rapid_api_key)
     db_model.coinmarketcap_key = _secret_value(domain_model.coinmarketcap_key)
+    db_model.twelve_data_api_key = _secret_value(domain_model.twelve_data_api_key)
     db_model.x_key = _secret_value(domain_model.x_key)
     db_model.x_ai_key = _secret_value(domain_model.x_ai_key)
 
@@ -165,6 +170,7 @@ def apply_to_db_model(
     db_model.tool_choice_embedding = domain_model.tool_choice_embedding
     db_model.tool_choice_api_fiat_exchange = domain_model.tool_choice_api_fiat_exchange
     db_model.tool_choice_api_crypto_exchange = domain_model.tool_choice_api_crypto_exchange
+    db_model.tool_choice_api_stock_quote = domain_model.tool_choice_api_stock_quote
     db_model.tool_choice_api_twitter = domain_model.tool_choice_api_twitter
 
     db_model.credit_balance = domain_model.credit_balance

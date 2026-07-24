@@ -36,7 +36,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(result.credit_balance, 0.0)
         self.assertEqual(result.group, UserDB.Group.standard)
 
-    def test_save_persists_secret_fields(self):
+    def test_save_persists_secret_and_tool_choice_fields(self):
         user = self.__user(
             connect_key = "SECRET-KEY-0001",
             about_me = SecretStr("about"),
@@ -49,8 +49,10 @@ class UserRepositoryTest(unittest.TestCase):
             replicate_key = SecretStr("replicate"),
             rapid_api_key = SecretStr("rapid"),
             coinmarketcap_key = SecretStr("coinmarketcap"),
+            twelve_data_api_key = SecretStr("twelve-data"),
             x_key = SecretStr("x"),
             x_ai_key = SecretStr("x-ai"),
+            tool_choice_api_stock_quote = "quote",
         )
 
         result = self.repo.save(user)
@@ -66,8 +68,10 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(fetched.replicate_key.get_secret_value(), "replicate")
         self.assertEqual(fetched.rapid_api_key.get_secret_value(), "rapid")
         self.assertEqual(fetched.coinmarketcap_key.get_secret_value(), "coinmarketcap")
+        self.assertEqual(fetched.twelve_data_api_key.get_secret_value(), "twelve-data")
         self.assertEqual(fetched.x_key.get_secret_value(), "x")
         self.assertEqual(fetched.x_ai_key.get_secret_value(), "x-ai")
+        self.assertEqual(fetched.tool_choice_api_stock_quote, "quote")
 
     def test_get_returns_saved_user(self):
         created = self.repo.save(self.__user(connect_key = "GET-USER-0001"))
@@ -252,8 +256,10 @@ class UserRepositoryTest(unittest.TestCase):
         replicate_key: SecretStr | None = None,
         rapid_api_key: SecretStr | None = None,
         coinmarketcap_key: SecretStr | None = None,
+        twelve_data_api_key: SecretStr | None = None,
         x_key: SecretStr | None = None,
         x_ai_key: SecretStr | None = None,
+        tool_choice_api_stock_quote: str | None = None,
         credit_balance: float = 0.0,
         group: UserDB.Group = UserDB.Group.standard,
     ) -> User:
@@ -274,8 +280,10 @@ class UserRepositoryTest(unittest.TestCase):
             replicate_key = replicate_key,
             rapid_api_key = rapid_api_key,
             coinmarketcap_key = coinmarketcap_key,
+            twelve_data_api_key = twelve_data_api_key,
             x_key = x_key,
             x_ai_key = x_ai_key,
+            tool_choice_api_stock_quote = tool_choice_api_stock_quote,
             credit_balance = credit_balance,
             connect_key = connect_key,
             group = group,

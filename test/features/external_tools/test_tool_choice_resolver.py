@@ -10,7 +10,11 @@ from di.di import DI
 from features.external_tools.access_token_resolver import AccessTokenResolver, ResolvedToken
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET, GPT_4O_MINI
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_6_SONNET,
+    GPT_4O_MINI,
+    TWELVE_DATA_STOCK_QUOTE,
+)
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver, ToolResolutionError
 from features.users.user import User
 
@@ -32,6 +36,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
             anthropic_key = SecretStr("test_anthropic_key"),
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_vision = "gpt-4o-mini",
+            tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
@@ -257,3 +262,9 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertEqual(vision_result.definition, GPT_4O_MINI)
         self.assertEqual(vision_result.token.get_secret_value(), "test_token_2")
         self.assertEqual(vision_result.purpose, ToolType.vision)
+
+        stock_result = resolver.get_tool(ToolType.api_stock_quote)
+        self.assertIsNotNone(stock_result)
+        assert stock_result is not None
+        self.assertEqual(stock_result.definition, TWELVE_DATA_STOCK_QUOTE)
+        self.assertEqual(stock_result.purpose, ToolType.api_stock_quote)

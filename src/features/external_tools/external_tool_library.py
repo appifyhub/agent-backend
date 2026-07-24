@@ -8,6 +8,7 @@ from features.external_tools.external_tool_provider_library import (
     PERPLEXITY,
     RAPID_API,
     REPLICATE,
+    TWELVE_DATA,
     XAI,
     X,
 )
@@ -654,6 +655,16 @@ CRYPTO_CURRENCY_EXCHANGE = ExternalTool(
     ),
 )
 
+TWELVE_DATA_STOCK_QUOTE = ExternalTool(
+    id = "quote",
+    name = "Twelve Data's Stock Quote",
+    provider = TWELVE_DATA,
+    types = [ToolType.api_stock_quote],
+    cost_estimate = CostEstimate(
+        api_call = 0,
+    ),
+)
+
 ###  Internal  ###
 
 TRANSFER_TOOL = ExternalTool(
@@ -724,6 +735,7 @@ ALL_EXTERNAL_TOOLS = [
     FIAT_CURRENCY_EXCHANGE,
     X_READ_POST,
     CRYPTO_CURRENCY_EXCHANGE,
+    TWELVE_DATA_STOCK_QUOTE,
     # Internal
     TRANSFER_TOOL,
 ]

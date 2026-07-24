@@ -13,6 +13,7 @@ from features.external_tools.external_tool_provider_library import (
     PERPLEXITY,
     RAPID_API,
     REPLICATE,
+    TWELVE_DATA,
     XAI,
     X,
 )
@@ -147,6 +148,8 @@ class AccessTokenResolver:
                 token = config.platform_rapid_api_key
             case COINMARKETCAP.id:
                 token = config.platform_coinmarketcap_key
+            case TWELVE_DATA.id:
+                token = config.platform_twelve_data_api_key
             case X.id:
                 token = config.platform_x_key
             case XAI.id:
@@ -169,6 +172,8 @@ class AccessTokenResolver:
                 return user.rapid_api_key
             case COINMARKETCAP.id:
                 return user.coinmarketcap_key
+            case TWELVE_DATA.id:
+                return user.twelve_data_api_key
             case GOOGLE_AI.id:
                 return user.google_ai_key
             case X.id:

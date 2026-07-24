@@ -21,6 +21,7 @@ from features.external_tools.external_tool_library import (
     TEXT_EMBEDDING_3_SMALL,
     TEXT_EMBEDDING_5_LARGE,
     TRANSFER_TOOL,
+    TWELVE_DATA_STOCK_QUOTE,
     WHISPER_1,
     X_READ_POST,
 )
@@ -47,6 +48,7 @@ class PresetChoices:
     embedding: ExternalTool
     api_fiat_exchange: ExternalTool
     api_crypto_exchange: ExternalTool
+    api_stock_quote: ExternalTool
     api_twitter: ExternalTool
     credit_transfer: ExternalTool
 
@@ -63,6 +65,7 @@ class PresetChoices:
             ToolType.embedding.value: self.embedding.id,
             ToolType.api_fiat_exchange.value: self.api_fiat_exchange.id,
             ToolType.api_crypto_exchange.value: self.api_crypto_exchange.id,
+            ToolType.api_stock_quote.value: self.api_stock_quote.id,
             ToolType.api_twitter.value: self.api_twitter.id,
         }
 
@@ -81,6 +84,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         embedding = TEXT_EMBEDDING_3_SMALL,
         api_fiat_exchange = FIAT_CURRENCY_EXCHANGE,
         api_crypto_exchange = CRYPTO_CURRENCY_EXCHANGE,
+        api_stock_quote = TWELVE_DATA_STOCK_QUOTE,
         api_twitter = X_READ_POST,
         credit_transfer = TRANSFER_TOOL,
     ),
@@ -97,6 +101,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         embedding = TEXT_EMBEDDING_5_LARGE,
         api_fiat_exchange = FIAT_CURRENCY_EXCHANGE,
         api_crypto_exchange = CRYPTO_CURRENCY_EXCHANGE,
+        api_stock_quote = TWELVE_DATA_STOCK_QUOTE,
         api_twitter = X_READ_POST,
         credit_transfer = TRANSFER_TOOL,
     ),
@@ -113,6 +118,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         embedding = TEXT_EMBEDDING_3_SMALL,
         api_fiat_exchange = FIAT_CURRENCY_EXCHANGE,
         api_crypto_exchange = CRYPTO_CURRENCY_EXCHANGE,
+        api_stock_quote = TWELVE_DATA_STOCK_QUOTE,
         api_twitter = X_READ_POST,
         credit_transfer = TRANSFER_TOOL,
     ),

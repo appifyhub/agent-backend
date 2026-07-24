@@ -34,6 +34,7 @@ class IntelligencePresetsTest(unittest.TestCase):
         self.assertEqual(result["chat"], choices.chat.id)
         self.assertEqual(result["search"], choices.search.id)
         self.assertEqual(result["embedding"], choices.embedding.id)
+        self.assertEqual(result["api_stock_quote"], choices.api_stock_quote.id)
 
     def test_get_all_presets_returns_dict_with_all_presets(self):
         result = get_all_presets()

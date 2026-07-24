@@ -26,7 +26,13 @@ from features.chat.telegram.model.user import User as TelegramUser
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.external_tools.access_token_resolver import AccessTokenResolver
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET, GPT_4O, IMAGE_GEN_FLUX_1_1, SONAR
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_6_SONNET,
+    GPT_4O,
+    IMAGE_GEN_FLUX_1_1,
+    SONAR,
+    TWELVE_DATA_STOCK_QUOTE,
+)
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
 from features.users.user_repo import UserRepository
@@ -75,11 +81,13 @@ class SettingsControllerTest(unittest.TestCase):
             replicate_key = SecretStr("test_replicate_key"),
             rapid_api_key = SecretStr("test_rapid_api_key"),
             coinmarketcap_key = SecretStr("test_coinmarketcap_key"),
+            twelve_data_api_key = SecretStr("test_twelve_data_api_key"),
             tool_choice_chat = "gpt-4o",
             tool_choice_reasoning = "claude-3-7-sonnet-latest",
             tool_choice_vision = "gpt-4o",
             tool_choice_images_gen = "dall-e-3",
             tool_choice_search = "perplexity-search",
+            tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.developer,
             created_at = datetime.now().date(),
         )
@@ -278,6 +286,8 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(result.replicate_key, mask_secret(self.invoker_user.replicate_key))
         self.assertEqual(result.rapid_api_key, mask_secret(self.invoker_user.rapid_api_key))
         self.assertEqual(result.coinmarketcap_key, mask_secret(self.invoker_user.coinmarketcap_key))
+        self.assertEqual(result.twelve_data_api_key, mask_secret(self.invoker_user.twelve_data_api_key))
+        self.assertEqual(result.tool_choice_api_stock_quote, TWELVE_DATA_STOCK_QUOTE.id)
 
     def test_save_user_settings_with_all_tokens(self):
         controller = SettingsController(self.mock_di)
@@ -288,11 +298,13 @@ class SettingsControllerTest(unittest.TestCase):
             replicate_key = "new_replicate_key",
             rapid_api_key = "new_rapid_api_key",
             coinmarketcap_key = "new_coinmarketcap_key",
+            twelve_data_api_key = "new_twelve_data_api_key",
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_reasoning = GPT_4O.id,
             tool_choice_vision = CLAUDE_4_6_SONNET.id,
             tool_choice_images_gen = IMAGE_GEN_FLUX_1_1.id,
             tool_choice_search = SONAR.id,
+            tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
         )
 
         # Should not raise any exception
@@ -666,6 +678,7 @@ class SettingsControllerTest(unittest.TestCase):
             replicate_key = self.invoker_user.replicate_key,
             rapid_api_key = self.invoker_user.rapid_api_key,
             coinmarketcap_key = self.invoker_user.coinmarketcap_key,
+            twelve_data_api_key = self.invoker_user.twelve_data_api_key,
             tool_choice_chat = self.invoker_user.tool_choice_chat,
             tool_choice_reasoning = self.invoker_user.tool_choice_reasoning,
             tool_choice_vision = self.invoker_user.tool_choice_vision,
@@ -867,6 +880,7 @@ class SettingsControllerTest(unittest.TestCase):
             replicate_key = self.invoker_user.replicate_key,
             rapid_api_key = self.invoker_user.rapid_api_key,
             coinmarketcap_key = self.invoker_user.coinmarketcap_key,
+            twelve_data_api_key = self.invoker_user.twelve_data_api_key,
             tool_choice_chat = self.invoker_user.tool_choice_chat,
             tool_choice_reasoning = self.invoker_user.tool_choice_reasoning,
             tool_choice_vision = self.invoker_user.tool_choice_vision,
