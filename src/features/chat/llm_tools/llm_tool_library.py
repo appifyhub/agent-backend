@@ -29,6 +29,7 @@ from util.error_codes import (
     EXTERNAL_EMPTY_RESPONSE,
     IMAGE_EDIT_FAILED,
     IMAGE_GENERATION_FAILED,
+    INVALID_ASSET_AMOUNT,
     INVALID_ATTACHMENT_OPERATION,
     PROFILE_CONNECT_FAILED,
 )
@@ -158,18 +159,31 @@ def fetch_web_content(di: DI, url: str, offset: str | None = None) -> str:
         return __error(e)
 
 
-def get_exchange_rate(di: DI, base_currency: str, desired_currency: str, amount: str | None = None) -> str:
+def get_asset_price(di: DI, asset: str, currency: str, asset_type: str | None = None, force: bool = False, amount: str | None = None) -> str:
     """
-    Fetches the exchange rate between two (crypto or fiat) currencies.
+    Fetches the price of a fiat currency, cryptocurrency, or stock in another currency.
 
     Args:
-        base_currency: [mandatory] The currency code of the base currency, e.g. 'USD' or 'BTC'
-        desired_currency: [mandatory] The currency code of the desired currency, e.g. 'EUR' or 'ADA'
-        amount: [optional] The amount of the base currency to convert; not sending this will assume value of 1.0
+        asset: [mandatory] The fiat, cryptocurrency, or stock marker, optionally exchange-qualified with ':' for stocks
+        currency: [mandatory] The fiat or cryptocurrency code in which to return the price
+        asset_type: [optional] One of 'fiat', 'crypto', or 'stock'. Set this whenever the user's intent identifies the type, especially for symbols shared by stocks and cryptocurrencies
+        force: [optional] Bypass cached prices, to use only when the user explicitly asks for refreshed data
+        amount: [optional] The asset amount to price; not sending this will assume 1.0
     """
     try:
-        result = di.exchange_rate_fetcher.execute(base_currency, desired_currency, float(amount) if amount else 1.0)
-        return __success({"exchange_rate": result})
+        try:
+            numeric_amount = float(amount) if amount else 1.0
+        except (TypeError, ValueError) as e:
+            raise ValidationError("Asset amount must be numeric", INVALID_ASSET_AMOUNT) from e
+
+        result = di.asset_price_service.execute(
+            asset = asset,
+            currency = currency,
+            asset_type = asset_type,
+            amount = numeric_amount,
+            force = force,
+        )
+        return __success({"asset_price": result.as_dict()})
     except Exception as e:
         return __error(e)
 
@@ -544,7 +558,7 @@ def __error(message: str | Exception) -> str:
 ALL_LLM_TOOLS: dict[str, Callable[..., str]] = {
     "fetch_web_content": fetch_web_content,
     "process_media": process_media,
-    "get_exchange_rate": get_exchange_rate,
+    "get_asset_price": get_asset_price,
     "set_up_currency_price_alert": set_up_currency_price_alert,
     "remove_currency_price_alerts": remove_currency_price_alerts,
     "list_currency_price_alerts": list_currency_price_alerts,

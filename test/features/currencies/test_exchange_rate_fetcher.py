@@ -113,6 +113,20 @@ class ExchangeRateFetcherTest(unittest.TestCase):
 
     # noinspection PyUnusedLocal
     @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
+    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_fiat_conversion_rate")
+    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_crypto_conversion_rate")
+    def test_execute_force_propagates_through_every_conversion_leg(self, mock_get_crypto, mock_get_fiat, mock_sleep):
+        mock_get_fiat.return_value = 1.2
+        mock_get_crypto.return_value = 0.000025
+        fetcher = ExchangeRateFetcher(self.mock_di)
+
+        fetcher.execute("EUR", "BTC", force = True)
+
+        mock_get_fiat.assert_called_once_with("EUR", "USD", force = True)
+        mock_get_crypto.assert_called_once_with("USD", "BTC", force = True)
+
+    # noinspection PyUnusedLocal
+    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
     def test_execute_unsupported_currency(self, mock_sleep):
         fetcher = ExchangeRateFetcher(self.mock_di)
         with self.assertRaises(ValidationError):
@@ -128,6 +142,19 @@ class ExchangeRateFetcherTest(unittest.TestCase):
         self.assertEqual(rate, 1.5)
         # noinspection PyUnresolvedReferences
         m.assert_not_called()
+
+    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
+    def test_get_crypto_conversion_rate_force_bypasses_cache(self, mock_sleep):
+        self.mock_cache_repo.get.return_value = self.cache_entry
+        self.mock_web_fetcher.fetch_json.return_value = {"data": {"BTC": {"quote": {"USD": {"price": 40000}}}}}
+        fetcher = ExchangeRateFetcher(self.mock_di)
+
+        rate = fetcher.get_crypto_conversion_rate("BTC", "USD", force = True)
+
+        self.assertEqual(rate, 40000)
+        self.mock_cache_repo.get.assert_not_called()
+        self.mock_di.tracked_web_fetcher.assert_called_once()
+        self.assertTrue(self.mock_di.tracked_web_fetcher.call_args.kwargs["force"])
 
     # noinspection PyUnusedLocal
     @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
@@ -160,6 +187,8 @@ class ExchangeRateFetcherTest(unittest.TestCase):
         self.assertIsInstance(saved_entry, ToolsCache)
         self.assertEqual(saved_entry.value, "20.0")
         self.assertFalse(saved_entry.is_expired())
+        expected_expiration = datetime.now() + timedelta(minutes = 9)
+        self.assertAlmostEqual(saved_entry.expires_at.timestamp(), expected_expiration.timestamp(), delta = 1)
 
     # noinspection PyUnusedLocal
     @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
@@ -182,6 +211,19 @@ class ExchangeRateFetcherTest(unittest.TestCase):
         self.assertEqual(rate, 1.5)
         # noinspection PyUnresolvedReferences
         m.assert_not_called()
+
+    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
+    def test_get_fiat_conversion_rate_force_bypasses_cache(self, mock_sleep):
+        self.mock_cache_repo.get.return_value = self.cache_entry
+        self.mock_web_fetcher.fetch_json.return_value = {"rates": {"EUR": {"rate_for_amount": "0.85"}}}
+        fetcher = ExchangeRateFetcher(self.mock_di)
+
+        rate = fetcher.get_fiat_conversion_rate("USD", "EUR", force = True)
+
+        self.assertEqual(rate, 0.85)
+        self.mock_cache_repo.get.assert_not_called()
+        self.mock_di.tracked_web_fetcher.assert_called_once()
+        self.assertTrue(self.mock_di.tracked_web_fetcher.call_args.kwargs["force"])
 
     # noinspection PyUnusedLocal
     @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)

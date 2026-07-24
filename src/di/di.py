@@ -71,9 +71,11 @@ if TYPE_CHECKING:
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
     from features.connect.profile_connect_service import ProfileConnectService
+    from features.currencies.asset_price_service import AssetPriceService
     from features.currencies.currency_alert_service import CurrencyAlertService
     from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
     from features.currencies.price_alert_repo import PriceAlertRepository
+    from features.currencies.stock_quote_fetcher import StockQuoteFetcher
     from features.documents.document_search import DocumentSearch
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
     from features.external_tools.access_token_resolver import AccessTokenResolver
@@ -155,7 +157,9 @@ class DI:
     # Features & Dynamic Instances
     _llm_tool_library: "LLMToolLibrary | None"
     _command_processor: "CommandProcessor | None"
+    _asset_price_service: "AssetPriceService | None"
     _exchange_rate_fetcher: "ExchangeRateFetcher | None"
+    _stock_quote_fetcher: "StockQuoteFetcher | None"
 
     def __init__(
         self,
@@ -216,7 +220,9 @@ class DI:
         # Features & Dynamic Instances
         self._llm_tool_library = None
         self._command_processor = None
+        self._asset_price_service = None
         self._exchange_rate_fetcher = None
+        self._stock_quote_fetcher = None
 
     # === Cloning ===
 
@@ -820,6 +826,7 @@ class DI:
         cache_ttl_json: timedelta | None = None,
         auto_fetch_html: bool = False,
         auto_fetch_json: bool = False,
+        force: bool = False,
     ) -> "WebFetcher":
         from features.web_browsing.web_fetcher import WebFetcher
         return WebFetcher(
@@ -827,6 +834,7 @@ class DI:
             headers, params,
             cache_ttl_html, cache_ttl_json,
             auto_fetch_html, auto_fetch_json,
+            force,
         )
 
     def tracked_web_fetcher(
@@ -839,6 +847,7 @@ class DI:
         cache_ttl_json: timedelta | None = None,
         auto_fetch_html: bool = False,
         auto_fetch_json: bool = False,
+        force: bool = False,
     ) -> "WebFetcherUsageTrackingDecorator":
         from features.accounting.usage.decorators.web_fetcher_usage_tracking_decorator import WebFetcherUsageTrackingDecorator
 
@@ -846,6 +855,7 @@ class DI:
             url, headers, params,
             cache_ttl_html, cache_ttl_json,
             auto_fetch_html, auto_fetch_json,
+            force,
         )
         return WebFetcherUsageTrackingDecorator(
             base_fetcher,
@@ -907,11 +917,25 @@ class DI:
         return UrlShortener(long_url, custom_slug, valid_until, max_visits)
 
     @property
+    def asset_price_service(self) -> "AssetPriceService":
+        if self._asset_price_service is None:
+            from features.currencies.asset_price_service import AssetPriceService
+            self._asset_price_service = AssetPriceService(self)
+        return self._asset_price_service
+
+    @property
     def exchange_rate_fetcher(self) -> "ExchangeRateFetcher":
         if self._exchange_rate_fetcher is None:
             from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
             self._exchange_rate_fetcher = ExchangeRateFetcher(self)
         return self._exchange_rate_fetcher
+
+    @property
+    def stock_quote_fetcher(self) -> "StockQuoteFetcher":
+        if self._stock_quote_fetcher is None:
+            from features.currencies.stock_quote_fetcher import StockQuoteFetcher
+            self._stock_quote_fetcher = StockQuoteFetcher(self)
+        return self._stock_quote_fetcher
 
     def ai_web_search(self, search_query: str, configured_tool: ConfiguredTool) -> "AIWebSearch":
         from features.web_browsing.ai_web_search import AIWebSearch

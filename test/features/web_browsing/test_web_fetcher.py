@@ -74,6 +74,24 @@ class WebFetcherTest(unittest.TestCase):
         )
         result = fetcher.fetch_html()
         self.assertEqual(result, "Cached HTML content")
+        self.assertFalse(fetcher.made_request)
+
+    @requests_mock.Mocker()
+    def test_fetch_html_force_bypasses_cache_and_replaces_it(self, m: requests_mock.Mocker):
+        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry_html
+        m.get(DEFAULT_URL, text = "Fresh HTML content", status_code = 200)
+        fetcher = WebFetcher(
+            DEFAULT_URL,
+            self.mock_di,
+            force = True,
+        )
+
+        result = fetcher.fetch_html()
+
+        self.assertEqual(result, "Fresh HTML content")
+        self.assertTrue(fetcher.made_request)
+        self.mock_di.tools_cache_repo.get.assert_not_called()
+        self.mock_di.tools_cache_repo.save.assert_called_once()
 
     @requests_mock.Mocker()
     def test_fetch_html_expired_cache_refreshes(self, m: requests_mock.Mocker):
@@ -170,6 +188,24 @@ class WebFetcherTest(unittest.TestCase):
         )
         result = fetcher.fetch_json()
         self.assertEqual(result, {"key": "Cached value"})
+        self.assertFalse(fetcher.made_request)
+
+    @requests_mock.Mocker()
+    def test_fetch_json_force_bypasses_cache_and_replaces_it(self, m: requests_mock.Mocker):
+        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry_json
+        m.get(DEFAULT_URL, json = {"key": "Fresh value"}, status_code = 200)
+        fetcher = WebFetcher(
+            DEFAULT_URL,
+            self.mock_di,
+            force = True,
+        )
+
+        result = fetcher.fetch_json()
+
+        self.assertEqual(result, {"key": "Fresh value"})
+        self.assertTrue(fetcher.made_request)
+        self.mock_di.tools_cache_repo.get.assert_not_called()
+        self.mock_di.tools_cache_repo.save.assert_called_once()
 
     @requests_mock.Mocker()
     def test_fetch_json_expired_cache_refreshes(self, m: requests_mock.Mocker):
@@ -253,6 +289,19 @@ class WebFetcherTest(unittest.TestCase):
             auto_fetch_json = True,
         )
         self.assertIsNone(fetcher.json)
+
+    @requests_mock.Mocker()
+    def test_fetch_json_retains_structured_http_error(self, m: requests_mock.Mocker):
+        error = {"status": "error", "code": 429, "message": "API credits exhausted"}
+        m.get(DEFAULT_URL, json = error, status_code = 429)
+        self.mock_di.tools_cache_repo.get.return_value = None
+        fetcher = WebFetcher(DEFAULT_URL, self.mock_di)
+
+        result = fetcher.fetch_json()
+
+        self.assertIsNone(result)
+        self.assertEqual(fetcher.status_code, 429)
+        self.assertEqual(fetcher.error_json, error)
 
     @requests_mock.Mocker()
     def test_custom_headers(self, m: requests_mock.Mocker):
