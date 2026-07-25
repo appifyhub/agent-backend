@@ -1,9 +1,49 @@
 import unittest
 
 from features.external_tools.external_tool import CostEstimate, ToolType
+from features.external_tools.external_tool_library import (
+    ALL_EXTERNAL_TOOLS,
+    CLAUDE_5_OPUS,
+    GPT_5_6_LUNA,
+    GPT_5_6_SOL,
+    GPT_5_6_TERRA,
+)
 
 
 class ExternalToolTest(unittest.TestCase):
+
+    def test_new_text_models_have_expected_ids_types_and_costs(self):
+        expected_types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision]
+        expected_models = (
+            (GPT_5_6_SOL, "gpt-5.6-sol", 500, 3000),
+            (GPT_5_6_TERRA, "gpt-5.6-terra", 250, 1500),
+            (GPT_5_6_LUNA, "gpt-5.6-luna", 100, 600),
+            (CLAUDE_5_OPUS, "claude-opus-5", 500, 2500),
+        )
+
+        for model, model_id, input_cost, output_cost in expected_models:
+            with self.subTest(model_id = model_id):
+                self.assertEqual(model.id, model_id)
+                self.assertEqual(model.types, expected_types)
+                self.assertEqual(model.cost_estimate.input_1m_tokens, input_cost)
+                self.assertEqual(model.cost_estimate.output_1m_tokens, output_cost)
+                self.assertIn(model, ALL_EXTERNAL_TOOLS)
+
+    def test_deprecated_text_models_are_not_available(self):
+        available_ids = {tool.id for tool in ALL_EXTERNAL_TOOLS}
+        deprecated_ids = {
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5.1",
+            "gpt-5.2",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "claude-opus-4-7",
+        }
+
+        self.assertTrue(deprecated_ids.isdisjoint(available_ids))
 
     def test_returns_zero_for_empty_estimate(self):
         estimate = CostEstimate()

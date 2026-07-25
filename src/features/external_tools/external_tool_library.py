@@ -17,50 +17,6 @@ from features.external_tools.external_tool_provider_library import (
 
 ###  Open AI  ###
 
-GPT_4_1 = ExternalTool(
-    id = "gpt-4.1",
-    name = "GPT 4.1",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 200,
-        output_1m_tokens = 800,
-    ),
-)
-
-GPT_4_1_MINI = ExternalTool(
-    id = "gpt-4.1-mini",
-    name = "GPT 4.1 Mini",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 40,
-        output_1m_tokens = 160,
-    ),
-)
-
-GPT_5 = ExternalTool(
-    id = "gpt-5",
-    name = "GPT 5",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 125,
-        output_1m_tokens = 1000,
-    ),
-)
-
-GPT_5_MINI = ExternalTool(
-    id = "gpt-5-mini",
-    name = "GPT 5 Mini",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 25,
-        output_1m_tokens = 200,
-    ),
-)
-
 GPT_5_NANO = ExternalTool(
     id = "gpt-5-nano",
     name = "GPT 5 Nano",
@@ -69,28 +25,6 @@ GPT_5_NANO = ExternalTool(
     cost_estimate = CostEstimate(
         input_1m_tokens = 5,
         output_1m_tokens = 40,
-    ),
-)
-
-GPT_5_1 = ExternalTool(
-    id = "gpt-5.1",
-    name = "GPT 5.1",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 125,
-        output_1m_tokens = 1000,
-    ),
-)
-
-GPT_5_2 = ExternalTool(
-    id = "gpt-5.2",
-    name = "GPT 5.2",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 175,
-        output_1m_tokens = 1400,
     ),
 )
 
@@ -116,25 +50,36 @@ GPT_5_5 = ExternalTool(
     ),
 )
 
-GPT_4O = ExternalTool(
-    id = "gpt-4o",
-    name = "GPT 4o",
+GPT_5_6_SOL = ExternalTool(
+    id = "gpt-5.6-sol",
+    name = "GPT 5.6 Sol",
     provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 250,
-        output_1m_tokens = 1000,
+        input_1m_tokens = 500,
+        output_1m_tokens = 3000,
     ),
 )
 
-GPT_4O_MINI = ExternalTool(
-    id = "gpt-4o-mini",
-    name = "GPT 4o Mini",
+GPT_5_6_TERRA = ExternalTool(
+    id = "gpt-5.6-terra",
+    name = "GPT 5.6 Terra",
     provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 15,
-        output_1m_tokens = 60,
+        input_1m_tokens = 250,
+        output_1m_tokens = 1500,
+    ),
+)
+
+GPT_5_6_LUNA = ExternalTool(
+    id = "gpt-5.6-luna",
+    name = "GPT 5.6 Luna",
+    provider = OPEN_AI,
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 100,
+        output_1m_tokens = 600,
     ),
 )
 
@@ -230,9 +175,9 @@ CLAUDE_5_SONNET = ExternalTool(
     ),
 )
 
-CLAUDE_4_7_OPUS = ExternalTool(
-    id = "claude-opus-4-7",
-    name = "Claude Opus 4.7",
+CLAUDE_4_8_OPUS = ExternalTool(
+    id = "claude-opus-4-8",
+    name = "Claude Opus 4.8",
     provider = ANTHROPIC,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
@@ -242,9 +187,9 @@ CLAUDE_4_7_OPUS = ExternalTool(
     ),
 )
 
-CLAUDE_4_8_OPUS = ExternalTool(
-    id = "claude-opus-4-8",
-    name = "Claude Opus 4.8",
+CLAUDE_5_OPUS = ExternalTool(
+    id = "claude-opus-5",
+    name = "Claude Opus 5",
     provider = ANTHROPIC,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
@@ -679,17 +624,12 @@ TRANSFER_TOOL = ExternalTool(
 
 ALL_EXTERNAL_TOOLS = [
     # Open AI
-    GPT_4_1,
-    GPT_4_1_MINI,
-    GPT_5,
-    GPT_5_MINI,
     GPT_5_NANO,
-    GPT_5_1,
-    GPT_5_2,
     GPT_5_4,
     GPT_5_5,
-    GPT_4O,
-    GPT_4O_MINI,
+    GPT_5_6_SOL,
+    GPT_5_6_TERRA,
+    GPT_5_6_LUNA,
     GPT_4O_TRANSCRIBE,
     GPT_4O_MINI_TRANSCRIBE,
     WHISPER_1,
@@ -699,8 +639,8 @@ ALL_EXTERNAL_TOOLS = [
     CLAUDE_4_5_HAIKU,
     CLAUDE_4_6_SONNET,
     CLAUDE_5_SONNET,
-    CLAUDE_4_7_OPUS,
     CLAUDE_4_8_OPUS,
+    CLAUDE_5_OPUS,
     CLAUDE_5_FABLE,
     # Google AI
     GEMINI_FLASH_LITE_LATEST,

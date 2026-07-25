@@ -28,7 +28,7 @@ from features.external_tools.access_token_resolver import AccessTokenResolver
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
-    GPT_4O,
+    GPT_5_5,
     IMAGE_GEN_FLUX_1_1,
     SONAR,
     TWELVE_DATA_STOCK_QUOTE,
@@ -300,7 +300,7 @@ class SettingsControllerTest(unittest.TestCase):
             coinmarketcap_key = "new_coinmarketcap_key",
             twelve_data_api_key = "new_twelve_data_api_key",
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
-            tool_choice_reasoning = GPT_4O.id,
+            tool_choice_reasoning = GPT_5_5.id,
             tool_choice_vision = CLAUDE_4_6_SONNET.id,
             tool_choice_images_gen = IMAGE_GEN_FLUX_1_1.id,
             tool_choice_search = SONAR.id,

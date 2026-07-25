@@ -7,7 +7,12 @@ from langchain_xai import ChatXAI
 
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ExternalTool, ToolType
-from features.external_tools.external_tool_library import CLAUDE_5_FABLE, CLAUDE_5_SONNET
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_8_OPUS,
+    CLAUDE_5_FABLE,
+    CLAUDE_5_OPUS,
+    CLAUDE_5_SONNET,
+)
 from features.external_tools.external_tool_provider_library import (
     ANTHROPIC,
     GOOGLE_AI,
@@ -20,6 +25,8 @@ from util.error_codes import UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError
 
 NO_TEMPERATURE_MODELS = {
+    CLAUDE_4_8_OPUS.id,
+    CLAUDE_5_OPUS.id,
     CLAUDE_5_SONNET.id,
     CLAUDE_5_FABLE.id,
 }

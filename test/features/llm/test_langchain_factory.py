@@ -10,6 +10,7 @@ from pydantic import SecretStr
 
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
+from features.external_tools.external_tool_library import CLAUDE_4_8_OPUS, CLAUDE_5_OPUS
 from features.external_tools.external_tool_provider_library import ANTHROPIC, GOOGLE_AI, OPEN_AI, PERPLEXITY
 from features.llm.langchain_factory import create
 from util.errors import ConfigurationError
@@ -88,6 +89,22 @@ class LangchainFactoryTest(unittest.TestCase):
         result = create(configured_tool, 4096)
 
         self.assertIsInstance(result, ChatAnthropic)
+
+    @patch("features.llm.langchain_factory.ChatAnthropic")
+    @patch("features.llm.langchain_factory.config")
+    def test_create_current_opus_models_without_temperature(self, mock_config, mock_chat_anthropic):
+        mock_config.web_retries = 5
+        mock_config.web_timeout_s = 15
+
+        api_key = SecretStr("test-anthropic-key")
+        for tool in (CLAUDE_4_8_OPUS, CLAUDE_5_OPUS):
+            with self.subTest(tool = tool.id):
+                mock_chat_anthropic.reset_mock()
+                configured_tool = self._make_configured_tool(tool, api_key, ToolType.reasoning)
+
+                create(configured_tool, 4096)
+
+                self.assertNotIn("temperature", mock_chat_anthropic.call_args.kwargs)
 
     @patch("features.llm.langchain_factory.config")
     def test_create_perplexity_search_model(self, mock_config):
