@@ -1,4 +1,5 @@
 import unittest
+from collections import namedtuple
 from datetime import date
 from unittest.mock import Mock, patch
 from uuid import UUID
@@ -14,6 +15,8 @@ from features.chat.message.chat_message import ChatMessage
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_update_responder import respond_to_update
 from features.users.user import User
+from util.error_codes import PLATFORM_MAPPING_FAILED
+from util.errors import ServiceError
 
 
 class TelegramUpdateResponderTest(unittest.TestCase):
@@ -169,6 +172,8 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_mapping_error(self):
+        raw_message = Mock(message_id = 42, chat = Mock(id = 123))
+        self.update = Mock(spec = Update, edited_message = None, message = raw_message)
         self.di.telegram_chat_inbound_service.ingest_update.return_value = None
 
         with patch("features.integrations.prompt_resolvers.simple_chat_error", return_value = "Mapping error"):
@@ -181,6 +186,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+        self.di.telegram_bot_sdk.set_reaction.assert_called_once_with(123, 42, "💔")
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_no_author_returns_false(self):
@@ -193,24 +199,29 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
 
     def test_general_exception(self):
-        from collections import namedtuple
-        with patch("features.chat.telegram.telegram_update_responder.silent", lambda f: f):
-            resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
-            self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved_domain_data_mock
+        resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved_domain_data_mock
 
-            error_message = "Test error"
-            ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
-            error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
-            # Raise exception after resolved_domain_data is set
-            self.di.chat_agent.side_effect = Exception(error_message)
-            self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
-            self.di.telegram_bot_sdk.send_text_message = Mock()
+        error = ServiceError(
+            message = "Test error",
+            error_code = PLATFORM_MAPPING_FAILED,
+            http_status = 500,
+            emoji = "🧨",
+        )
+        ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
+        error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
+        self.di.chat_agent.side_effect = error
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
+        self.di.telegram_bot_sdk.set_reaction.side_effect = Exception("Reaction failed")
+        self.di.telegram_bot_sdk.send_text_message = Mock()
 
-            with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
-                mock_error.return_value = "Error response"
-                result = respond_to_update(self.update)
+        with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
+            mock_error.return_value = "Error response"
+            result = respond_to_update(self.update)
 
         self.assertFalse(result)
+        self.di.telegram_bot_sdk.set_reaction.assert_called_once_with("123", "test-message-id", "💔")
+        mock_error.assert_called_once_with(str(error), emoji = "🧨")
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(resolved_domain_data_mock.chat, "Error response")
         self.mock_sleep.assert_called_once_with(0.1)
         self.di.chat_message_repo.save.assert_not_called()
