@@ -10,7 +10,13 @@ from pydantic import SecretStr
 
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_8_OPUS, CLAUDE_5_OPUS
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_8_OPUS,
+    CLAUDE_5_OPUS,
+    GPT_5_6_LUNA,
+    GPT_5_6_SOL,
+    GPT_5_6_TERRA,
+)
 from features.external_tools.external_tool_provider_library import ANTHROPIC, GOOGLE_AI, OPEN_AI, PERPLEXITY
 from features.llm.langchain_factory import create
 from util.errors import ConfigurationError
@@ -77,6 +83,22 @@ class LangchainFactoryTest(unittest.TestCase):
         result = create(configured_tool, 4096)
 
         self.assertIsInstance(result, ChatOpenAI)
+
+    @patch("features.llm.langchain_factory.ChatOpenAI")
+    @patch("features.llm.langchain_factory.config")
+    def test_create_gpt_5_6_models_without_reasoning(self, mock_config, mock_chat_openai):
+        mock_config.web_retries = 3
+        mock_config.web_timeout_s = 10
+
+        api_key = SecretStr("test-openai-key")
+        for tool in (GPT_5_6_SOL, GPT_5_6_TERRA, GPT_5_6_LUNA):
+            with self.subTest(tool = tool.id):
+                mock_chat_openai.reset_mock()
+                configured_tool = self._make_configured_tool(tool, api_key, ToolType.chat)
+
+                create(configured_tool, 4096)
+
+                self.assertEqual(mock_chat_openai.call_args.kwargs["reasoning_effort"], "none")
 
     @patch("features.llm.langchain_factory.config")
     def test_create_anthropic_reasoning_model(self, mock_config):

@@ -12,6 +12,9 @@ from features.external_tools.external_tool_library import (
     CLAUDE_5_FABLE,
     CLAUDE_5_OPUS,
     CLAUDE_5_SONNET,
+    GPT_5_6_LUNA,
+    GPT_5_6_SOL,
+    GPT_5_6_TERRA,
 )
 from features.external_tools.external_tool_provider_library import (
     ANTHROPIC,
@@ -31,6 +34,12 @@ NO_TEMPERATURE_MODELS = {
     CLAUDE_5_FABLE.id,
 }
 
+NO_REASONING_MODELS = {
+    GPT_5_6_SOL.id,
+    GPT_5_6_TERRA.id,
+    GPT_5_6_LUNA.id,
+}
+
 
 def create(configured_tool: ConfiguredTool, max_tokens: int) -> BaseChatModel:
     definition = configured_tool.definition
@@ -46,6 +55,8 @@ def create(configured_tool: ConfiguredTool, max_tokens: int) -> BaseChatModel:
     }
     if temperature is not None:
         model_args["temperature"] = temperature
+    if definition.id in NO_REASONING_MODELS:
+        model_args["reasoning_effort"] = "none"
 
     match definition.provider.id:
         case OPEN_AI.id:
