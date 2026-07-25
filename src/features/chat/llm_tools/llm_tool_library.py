@@ -164,9 +164,9 @@ def get_asset_price(di: DI, asset: str, currency: str, asset_type: str | None = 
     Fetches the price of a fiat currency, cryptocurrency, or stock in another currency.
 
     Args:
-        asset: [mandatory] The fiat, cryptocurrency, or stock marker, optionally exchange-qualified with ':' for stocks
+        asset: [mandatory] The fiat, cryptocurrency, or stock marker, e.g. 'DHER' or exchange-qualified 'DHER:XETR'
         currency: [mandatory] The fiat or cryptocurrency code in which to return the price
-        asset_type: [optional] One of 'fiat', 'crypto', or 'stock'. Set this whenever the user's intent identifies the type, especially for symbols shared by stocks and cryptocurrencies
+        asset_type: [optional] One of 'fiat', 'crypto', or 'stock'
         force: [optional] Bypass cached prices, to use only when the user explicitly asks for refreshed data
         amount: [optional] The asset amount to price; not sending this will assume 1.0
     """
@@ -188,23 +188,19 @@ def get_asset_price(di: DI, asset: str, currency: str, asset_type: str | None = 
         return __error(e)
 
 
-def set_up_currency_price_alert(
-    di: DI,
-    base_currency: str,
-    desired_currency: str,
-    threshold_percent: int,
-) -> str:
+def set_up_asset_price_alert(di: DI, asset: str, currency: str, threshold_percent: int, asset_type: str | None = None) -> str:
     """
-    Sets up a price alert at the given threshold for the given currency pair.
+    Sets up a price alert at the given threshold for a fiat currency, cryptocurrency, or stock.
 
     Args:
-        base_currency: [mandatory] The currency code of the base currency, e.g. 'USD' or 'BTC'
-        desired_currency: [mandatory] The currency code of the desired currency, e.g. 'EUR' or 'ADA'
+        asset: [mandatory] The fiat, cryptocurrency, or stock marker, e.g. 'DHER' or exchange-qualified 'DHER:XETR'
+        currency: [mandatory] The fiat or cryptocurrency code in which to return the price
         threshold_percent: [mandatory] The trigger threshold, in percent [0-100], that triggers the price alert
+        asset_type: [optional] One of 'fiat', 'crypto', or 'stock'
     """
     try:
-        service = di.currency_alert_service(di.invoker_chat_id)
-        alert = service.create_alert(base_currency, desired_currency, threshold_percent)
+        service = di.asset_alert_service(di.invoker_chat_id)
+        alert = service.create_alert(asset, currency, threshold_percent, asset_type)
         response_data: dict[str, Any] = {"created_alert_data": alert.model_dump(mode = "json")}
         add_messaging_frequency_warning(response_data, di.invoker_chat_type)
         return __success(response_data)
@@ -212,24 +208,25 @@ def set_up_currency_price_alert(
         return __error(e)
 
 
-def remove_currency_price_alerts(di: DI, base_currency: str, desired_currency: str) -> str:
+def remove_asset_price_alert(di: DI, asset: str, currency: str, asset_type: str | None = None) -> str:
     """
-    Deletes the oldest price alert for the given currency pair.
+    Deletes the price alert for the given fiat currency, cryptocurrency, or stock.
 
     Args:
-        base_currency: [mandatory] The currency code of the base currency, e.g. 'USD' or 'BTC'
-        desired_currency: [mandatory] The currency code of the desired currency, e.g. 'EUR' or 'ADA'
+        asset: [mandatory] The fiat, cryptocurrency, or stock marker, e.g. 'DHER' or exchange-qualified 'DHER:XETR'
+        currency: [mandatory] The fiat or cryptocurrency code in which to return the price
+        asset_type: [optional] One of 'fiat', 'crypto', or 'stock'
     """
     try:
-        service = di.currency_alert_service(di.invoker_chat_id)
-        alert = service.delete_alert(base_currency, desired_currency)
+        service = di.asset_alert_service(di.invoker_chat_id)
+        alert = service.delete_alert(asset, currency, asset_type)
         deleted_alert_data = alert.model_dump(mode = "json") if alert else None
         return __success({"deleted_alert_data": deleted_alert_data})
     except Exception as e:
         return __error(e)
 
 
-def list_currency_price_alerts(di: DI) -> str:
+def list_asset_price_alerts(di: DI) -> str:
     """
     Lists all price alerts.
 
@@ -237,7 +234,7 @@ def list_currency_price_alerts(di: DI) -> str:
         None.
     """
     try:
-        service = di.currency_alert_service(di.invoker_chat_id)
+        service = di.asset_alert_service(di.invoker_chat_id)
         alerts = service.get_active_alerts()
         return __success({"alerts": [alert.model_dump(mode = "json") for alert in alerts]})
     except Exception as e:
@@ -559,9 +556,9 @@ ALL_LLM_TOOLS: dict[str, Callable[..., str]] = {
     "fetch_web_content": fetch_web_content,
     "process_media": process_media,
     "get_asset_price": get_asset_price,
-    "set_up_currency_price_alert": set_up_currency_price_alert,
-    "remove_currency_price_alerts": remove_currency_price_alerts,
-    "list_currency_price_alerts": list_currency_price_alerts,
+    "set_up_asset_price_alert": set_up_asset_price_alert,
+    "remove_asset_price_alert": remove_asset_price_alert,
+    "list_asset_price_alerts": list_asset_price_alerts,
     "generate_image": generate_image,
     "ai_web_search": ai_web_search,
     "announce_maintenance_or_news": announce_maintenance_or_news,

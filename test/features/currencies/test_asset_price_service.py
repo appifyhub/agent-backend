@@ -113,7 +113,7 @@ class AssetPriceServiceTest(unittest.TestCase):
     def test_native_stock_price_preserves_metadata_and_calculates_amount(self):
         self.mock_di.stock_quote_fetcher.execute.return_value = self.stock_quote
 
-        result = self.service.execute("AAPL", "USD", asset_type = AssetType.stock, amount = 3)
+        result = self.service.execute("AAPL", "USD", asset_type = "stock", amount = 3)
 
         self.assertEqual(result.asset, "XNAS:AAPL")
         self.assertEqual(result.unit_price, 210.5)
@@ -155,6 +155,38 @@ class AssetPriceServiceTest(unittest.TestCase):
             "USD",
             "EUR",
             force = True,
+        )
+
+    def test_normalized_stock_identity_is_converted_to_provider_qualifier_order(self):
+        self.mock_di.stock_quote_fetcher.execute.return_value = self.stock_quote
+
+        result = self.service.execute_normalized(
+            asset_id = "XNAS:AAPL",
+            currency = "USD",
+            asset_type = AssetType.stock,
+        )
+
+        self.assertEqual(result.asset, "XNAS:AAPL")
+        self.mock_di.stock_quote_fetcher.execute.assert_called_once_with("AAPL:XNAS", force = False)
+
+    def test_normalized_currency_identity_uses_existing_marker_order(self):
+        self.mock_di.exchange_rate_fetcher.execute.return_value = {
+            "rate": 0.85,
+            "value": 0.85,
+        }
+
+        result = self.service.execute_normalized(
+            asset_id = "USD",
+            currency = "EUR",
+            asset_type = AssetType.fiat,
+        )
+
+        self.assertEqual(result.asset, "USD")
+        self.mock_di.exchange_rate_fetcher.execute.assert_called_once_with(
+            "USD",
+            "EUR",
+            1.0,
+            force = False,
         )
 
     def test_non_stock_result_omits_stock_metadata_from_dict(self):

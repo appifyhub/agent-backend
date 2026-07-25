@@ -19,7 +19,7 @@ class AssetPriceService:
         self,
         asset: str,
         currency: str,
-        asset_type: str | AssetType | None = None,
+        asset_type: str | None = None,
         amount: float = 1.0,
         force: bool = False,
     ) -> AssetPrice:
@@ -36,7 +36,7 @@ class AssetPriceService:
             raise ValidationError(f"Unsupported currency: {normalized_currency}", INVALID_CURRENCY)
         log.t(f"Fetching price for {normalized_amount} {normalized_asset} in {normalized_currency}")
 
-        resolved_type = self.__resolve_asset_type(normalized_asset, asset_type)
+        resolved_type = self.resolve_asset_type(normalized_asset, asset_type)
         match resolved_type:
             case AssetType.stock:
                 log.t(f"Asset {normalized_asset} resolved as stock, fetching quote")
@@ -54,11 +54,18 @@ class AssetPriceService:
                     value = result["value"],
                 )
 
+    def execute_normalized(self, asset_id: str, currency: str, asset_type: AssetType, force: bool = False) -> AssetPrice:
+        asset = asset_id
+        if asset_type == AssetType.stock and ":" in asset_id:
+            qualifier, symbol = asset_id.split(":", maxsplit = 1)
+            asset = f"{symbol}:{qualifier}"
+        return self.execute(asset = asset, currency = currency, asset_type = asset_type.value, force = force)
+
     @staticmethod
-    def __resolve_asset_type(asset: str, asset_type: str | AssetType | None) -> AssetType:
+    def resolve_asset_type(asset: str, asset_type: str | None) -> AssetType:
         if asset_type is not None:
             try:
-                return AssetType(asset_type.strip().lower() if isinstance(asset_type, str) else asset_type)
+                return AssetType(asset_type.strip().lower())
             except ValueError as e:
                 raise ValidationError(f"Unsupported asset type: {asset_type}. Supported types are fiat, crypto, and stock", INVALID_ASSET_TYPE) from e  # noqa: E501
         if asset in SUPPORTED_FIAT:

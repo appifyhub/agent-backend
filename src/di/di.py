@@ -71,8 +71,8 @@ if TYPE_CHECKING:
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
     from features.connect.profile_connect_service import ProfileConnectService
+    from features.currencies.asset_alert_service import AssetAlertService
     from features.currencies.asset_price_service import AssetPriceService
-    from features.currencies.currency_alert_service import CurrencyAlertService
     from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
     from features.currencies.price_alert_repo import PriceAlertRepository
     from features.currencies.stock_quote_fetcher import StockQuoteFetcher
@@ -941,9 +941,9 @@ class DI:
         from features.web_browsing.ai_web_search import AIWebSearch
         return AIWebSearch(search_query, configured_tool, self)
 
-    def currency_alert_service(self, target_chat_id: str | None) -> "CurrencyAlertService":
-        from features.currencies.currency_alert_service import CurrencyAlertService
-        return CurrencyAlertService(target_chat_id, self)
+    def asset_alert_service(self, target_chat_id: str | None) -> "AssetAlertService":
+        from features.currencies.asset_alert_service import AssetAlertService
+        return AssetAlertService(target_chat_id, self)
 
     def smart_image_generator(
         self,

@@ -3,6 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 from db.model.price_alert import PriceAlertDB
+from features.currencies.asset_price import AssetType
 from features.currencies.price_alert import PriceAlert
 from features.currencies.price_alert_mapper import apply_to_db_model, db, domain
 
@@ -28,8 +29,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         db_model = PriceAlertDB(
             chat_id = self.chat_id,
             owner_id = self.owner_id,
-            base_currency = "USD",
-            desired_currency = "EUR",
+            asset_type = AssetType.fiat.value,
+            asset_id = "USD",
+            currency = "EUR",
             threshold_percent = 5,
             last_price = 0.85,
             last_price_time = self.last_price_time,
@@ -40,8 +42,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.chat_id, self.chat_id)
         self.assertEqual(result.owner_id, self.owner_id)
-        self.assertEqual(result.base_currency, "USD")
-        self.assertEqual(result.desired_currency, "EUR")
+        self.assertEqual(result.asset_type, AssetType.fiat)
+        self.assertEqual(result.asset_id, "USD")
+        self.assertEqual(result.currency, "EUR")
         self.assertEqual(result.threshold_percent, 5)
         self.assertEqual(result.last_price, 0.85)
         self.assertEqual(result.last_price_time, self.last_price_time)
@@ -50,8 +53,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         domain_model = PriceAlert(
             chat_id = self.chat_id,
             owner_id = self.owner_id,
-            base_currency = "USD",
-            desired_currency = "EUR",
+            asset_type = AssetType.fiat,
+            asset_id = "USD",
+            currency = "EUR",
             threshold_percent = 5,
             last_price = 0.85,
             last_price_time = self.last_price_time,
@@ -62,8 +66,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.chat_id, self.chat_id)
         self.assertEqual(result.owner_id, self.owner_id)
-        self.assertEqual(result.base_currency, "USD")
-        self.assertEqual(result.desired_currency, "EUR")
+        self.assertEqual(result.asset_type, AssetType.fiat.value)
+        self.assertEqual(result.asset_id, "USD")
+        self.assertEqual(result.currency, "EUR")
         self.assertEqual(result.threshold_percent, 5)
         self.assertEqual(result.last_price, 0.85)
         self.assertEqual(result.last_price_time, self.last_price_time)
@@ -72,8 +77,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         original = PriceAlert(
             chat_id = self.chat_id,
             owner_id = self.owner_id,
-            base_currency = "USD",
-            desired_currency = "EUR",
+            asset_type = AssetType.fiat,
+            asset_id = "USD",
+            currency = "EUR",
             threshold_percent = 5,
             last_price = 0.85,
             last_price_time = self.last_price_time,
@@ -87,8 +93,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         db_model = PriceAlertDB(
             chat_id = self.chat_id,
             owner_id = self.owner_id,
-            base_currency = "USD",
-            desired_currency = "EUR",
+            asset_type = AssetType.fiat.value,
+            asset_id = "USD",
+            currency = "EUR",
             threshold_percent = 5,
             last_price = 0.85,
             last_price_time = self.last_price_time,
@@ -96,8 +103,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         domain_model = PriceAlert(
             chat_id = UUID("33333333-3333-3333-3333-333333333333"),
             owner_id = UUID("44444444-4444-4444-4444-444444444444"),
-            base_currency = "GBP",
-            desired_currency = "CHF",
+            asset_type = AssetType.crypto,
+            asset_id = "GBP",
+            currency = "CHF",
             threshold_percent = 10,
             last_price = 1.15,
             last_price_time = datetime(2026, 1, 2, 12, 0, 0),
@@ -106,8 +114,9 @@ class PriceAlertMapperTest(unittest.TestCase):
         apply_to_db_model(domain_model, db_model)
 
         self.assertEqual(db_model.chat_id, self.chat_id)
-        self.assertEqual(db_model.base_currency, "USD")
-        self.assertEqual(db_model.desired_currency, "EUR")
+        self.assertEqual(db_model.asset_type, AssetType.fiat.value)
+        self.assertEqual(db_model.asset_id, "USD")
+        self.assertEqual(db_model.currency, "EUR")
         self.assertEqual(db_model.owner_id, domain_model.owner_id)
         self.assertEqual(db_model.threshold_percent, domain_model.threshold_percent)
         self.assertEqual(db_model.last_price, domain_model.last_price)
