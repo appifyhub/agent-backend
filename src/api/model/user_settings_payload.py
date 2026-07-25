@@ -15,6 +15,7 @@ class UserSettingsPayload(BaseModel):
     replicate_key: str | None = None
     rapid_api_key: str | None = None
     coinmarketcap_key: str | None = None
+    twelve_data_api_key: str | None = None
     x_key: str | None = None
     x_ai_key: str | None = None
 
@@ -29,6 +30,7 @@ class UserSettingsPayload(BaseModel):
     tool_choice_embedding: str | None = None
     tool_choice_api_fiat_exchange: str | None = None
     tool_choice_api_crypto_exchange: str | None = None
+    tool_choice_api_stock_quote: str | None = None
     tool_choice_api_twitter: str | None = None
 
     are_policies_accepted: bool | None = None
@@ -45,6 +47,7 @@ class UserSettingsPayload(BaseModel):
         "replicate_key",
         "rapid_api_key",
         "coinmarketcap_key",
+        "twelve_data_api_key",
         "x_key",
         "x_ai_key",
         "tool_choice_chat",
@@ -58,6 +61,7 @@ class UserSettingsPayload(BaseModel):
         "tool_choice_embedding",
         "tool_choice_api_fiat_exchange",
         "tool_choice_api_crypto_exchange",
+        "tool_choice_api_stock_quote",
         "tool_choice_api_twitter",
         mode = "before",
     )

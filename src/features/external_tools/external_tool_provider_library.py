@@ -74,6 +74,14 @@ COINMARKETCAP = ExternalToolProvider(
     tools = ["Crypto"],
 )
 
+TWELVE_DATA = ExternalToolProvider(
+    id = "twelve-data",
+    name = "Twelve Data",
+    token_management_url = "https://twelvedata.com/account/api-keys",
+    token_format = "abc...123",
+    tools = ["Stocks"],
+)
+
 INTERNAL = ExternalToolProvider(
     id = "internal",
     name = "Internal",
@@ -83,4 +91,16 @@ INTERNAL = ExternalToolProvider(
 )
 
 
-ALL_PROVIDERS = [OPEN_AI, ANTHROPIC, GOOGLE_AI, XAI, PERPLEXITY, REPLICATE, RAPID_API, X, COINMARKETCAP, INTERNAL]
+ALL_PROVIDERS = [
+    OPEN_AI,
+    ANTHROPIC,
+    GOOGLE_AI,
+    XAI,
+    PERPLEXITY,
+    REPLICATE,
+    RAPID_API,
+    X,
+    COINMARKETCAP,
+    TWELVE_DATA,
+    INTERNAL,
+]

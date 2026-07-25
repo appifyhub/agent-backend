@@ -23,6 +23,7 @@ class UserSettingsResponse(BaseModel):
     replicate_key: str | None = None
     rapid_api_key: str | None = None
     coinmarketcap_key: str | None = None
+    twelve_data_api_key: str | None = None
     x_key: str | None = None
     x_ai_key: str | None = None
 
@@ -37,6 +38,7 @@ class UserSettingsResponse(BaseModel):
     tool_choice_embedding: str | None = None
     tool_choice_api_fiat_exchange: str | None = None
     tool_choice_api_crypto_exchange: str | None = None
+    tool_choice_api_stock_quote: str | None = None
     tool_choice_api_twitter: str | None = None
 
     credit_balance: float

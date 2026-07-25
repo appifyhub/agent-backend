@@ -5,12 +5,21 @@ Revises: 907f4ee4b4cf
 Create Date: 2025-09-21 03:38:40.822866
 
 """
+import os
+import uuid
 from typing import Sequence, Union
 
 from alembic import op
 from sqlalchemy import text
 
-from features.integrations.integration_config import BACKGROUND_AGENT, THE_AGENT
+THE_AGENT_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, "the-agent"))
+BACKGROUND_AGENT_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, "the-agent-background"))
+
+
+def _env(name: str, default: str) -> str:
+    value = os.environ.get(name, "").strip()
+    return value if value else default
+
 
 # revision identifiers, used by Alembic.
 revision: str = "80a73d49a9a8"
@@ -57,12 +66,12 @@ def upgrade() -> None:
             SELECT 1 FROM simulants WHERE id = :id
         )
     """).bindparams(
-        id = str(THE_AGENT.id),
-        full_name = THE_AGENT.full_name,
-        group = THE_AGENT.group.value,
-        telegram_username = THE_AGENT.telegram_username,
-        telegram_chat_id = THE_AGENT.telegram_chat_id,
-        telegram_user_id = THE_AGENT.telegram_user_id,
+        id = THE_AGENT_ID,
+        full_name = _env("AGENT_BOT_NAME", "The Agent"),
+        group = "standard",
+        telegram_username = _env("TELEGRAM_BOT_USERNAME", "the_agent"),
+        telegram_chat_id = _env("TELEGRAM_BOT_ID", "1234567890"),
+        telegram_user_id = int(_env("TELEGRAM_BOT_ID", "1234567890")),
         created_at = "2024-01-01",  # Default date
     ))
 
@@ -91,9 +100,9 @@ def upgrade() -> None:
         WHERE t.id = :agent_id
         AND NOT EXISTS (SELECT 1 FROM simulants WHERE id = :bg_id)
     """).bindparams(
-        bg_id = str(BACKGROUND_AGENT.id),
-        bg_full_name = BACKGROUND_AGENT.full_name,
-        agent_id = str(THE_AGENT.id),
+        bg_id = BACKGROUND_AGENT_ID,
+        bg_full_name = _env("BACKGROUND_BOT_NAME", "The Agent's Pulse"),
+        agent_id = THE_AGENT_ID,
     ))
 
 

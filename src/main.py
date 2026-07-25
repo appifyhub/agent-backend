@@ -54,7 +54,7 @@ from features.chat.telegram.release_summary_responder import respond_with_summar
 from features.chat.telegram.telegram_update_responder import respond_to_update
 from features.chat.whatsapp.model.update import Update as WhatsAppUpdate
 from features.chat.whatsapp.whatsapp_update_responder import respond_to_update as respond_to_whatsapp_update
-from features.currencies.currency_alert_responder import respond_with_currency_alerts
+from features.currencies.asset_alert_responder import respond_with_asset_alerts
 from features.integrations.integrations import resolve_agent_user
 from util import log
 from util.config import Config, config
@@ -169,14 +169,14 @@ async def gumroad_ping(
 
 
 @app.post("/notify/price-alerts")
-def notify_of_currency_alerts(
+def notify_of_asset_alerts(
     db = Depends(get_session),
     _ = Depends(verify_api_key),
 ) -> dict:
     agent_user = resolve_agent_user(ChatConfigDB.ChatType.background)
     assert agent_user.id is not None
     di = DI(db, agent_user.id.hex)
-    return respond_with_currency_alerts(di)
+    return respond_with_asset_alerts(di)
 
 
 @app.post("/notify/release")

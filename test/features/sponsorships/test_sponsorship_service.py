@@ -39,6 +39,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
@@ -61,6 +62,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
         )
 
         mock_sponsorship = Sponsorship(
@@ -86,9 +88,10 @@ class SponsorshipServiceTest(unittest.TestCase):
         self.assertEqual(saved_sponsorship.sponsored_at, mock_sponsorship.sponsored_at)
         self.assertIsNotNone(saved_sponsorship.accepted_at)
 
-    def test_sponsor_user_success(self):
+    def test_sponsor_user_success_with_twelve_data_key(self):
         sponsor_user_id_hex = self.user.id.hex
         receiver_telegram_username = "receiver_username"
+        sponsor_user = replace(self.user, open_ai_key = None, twelve_data_api_key = SecretStr("twelve-data-key"))
 
         receiver_user = User(
             id = UUID(int = 2),
@@ -102,10 +105,11 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
-        self.mock_user_repo.get.return_value = self.user
+        self.mock_user_repo.get.return_value = sponsor_user
         self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
         self.mock_sponsorship_repo.get_all_by_receiver.return_value = []  # Ensure sponsor has no received sponsorships
         self.mock_user_repo.get_by_telegram_username.return_value = None
@@ -253,6 +257,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
         )
 
         self.mock_user_repo.get.return_value = sponsor_without_keys
@@ -317,6 +322,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
@@ -347,6 +353,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
@@ -399,6 +406,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
@@ -436,6 +444,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
         )
 
         # Create a real pending sponsorship
@@ -559,6 +568,7 @@ class SponsorshipServiceTest(unittest.TestCase):
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
+            twelve_data_api_key = None,
         )
         self.assertFalse(user_without_keys.has_any_api_key())
 

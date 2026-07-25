@@ -94,6 +94,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_replicate_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_rapid_api_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_coinmarketcap_key.get_secret_value(), "invalid")
+        self.assertEqual(config.platform_twelve_data_api_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_x_key.get_secret_value(), "invalid")
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "invalid")
         self.assertEqual(config.s3_access_key.get_secret_value(), "local")
@@ -172,6 +173,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["PLATFORM_REPLICATE_KEY"] = "platform-replicate-key"
         os.environ["PLATFORM_RAPID_API_KEY"] = "platform-rapid-api-key"
         os.environ["PLATFORM_COINMARKETCAP_KEY"] = "platform-coinmarketcap-key"
+        os.environ["TWELVE_DATA_API_KEY"] = "twelve-data-api-key"
         os.environ["PLATFORM_X_KEY"] = "platform-x-key"
         os.environ["PLATFORM_X_AI_KEY"] = "platform-x-ai-key"
         os.environ["S3_ACCESS_KEY"] = "s3-access-key"
@@ -248,6 +250,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.platform_replicate_key.get_secret_value(), "platform-replicate-key")
         self.assertEqual(config.platform_rapid_api_key.get_secret_value(), "platform-rapid-api-key")
         self.assertEqual(config.platform_coinmarketcap_key.get_secret_value(), "platform-coinmarketcap-key")
+        self.assertEqual(config.platform_twelve_data_api_key.get_secret_value(), "twelve-data-api-key")
         self.assertEqual(config.platform_x_key.get_secret_value(), "platform-x-key")
         self.assertEqual(config.platform_x_ai_key.get_secret_value(), "platform-x-ai-key")
         self.assertEqual(config.s3_access_key.get_secret_value(), "s3-access-key")

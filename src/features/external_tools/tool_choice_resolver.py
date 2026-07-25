@@ -92,6 +92,8 @@ class ToolChoiceResolver:
                 return self.__di.invoker.tool_choice_api_fiat_exchange
             case ToolType.api_crypto_exchange:
                 return self.__di.invoker.tool_choice_api_crypto_exchange
+            case ToolType.api_stock_quote:
+                return self.__di.invoker.tool_choice_api_stock_quote
             case ToolType.api_twitter:
                 return self.__di.invoker.tool_choice_api_twitter
         log.w(f"Unknown purpose '{purpose.value}'")

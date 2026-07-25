@@ -13,9 +13,11 @@ from features.external_tools.external_tool_provider_library import (
     PERPLEXITY,
     RAPID_API,
     REPLICATE,
+    TWELVE_DATA,
     XAI,
     X,
 )
+from features.integrations.integration_config import SYSTEM_AGENTS
 from features.users.user import User
 from util import log
 from util.config import config
@@ -68,6 +70,12 @@ class AccessTokenResolver:
     def get_access_token(self, provider: ExternalToolProvider) -> ResolvedToken | None:
         log.t(f"Resolving access token for provider '{provider.id}'")
         invoker = self.__di.invoker
+
+        if any(invoker.id == agent.id for agent in SYSTEM_AGENTS):
+            platform_token = self.__get_platform_token_for_provider(provider)
+            if platform_token:
+                log.t(f"Using platform token for system agent '{invoker.full_name}'")
+                return ResolvedToken(token = platform_token, payer_id = invoker.id, uses_credits = False)
 
         # check if invoker has a direct token
         user_token = self.__get_user_token_for_provider(invoker, provider)
@@ -147,6 +155,8 @@ class AccessTokenResolver:
                 token = config.platform_rapid_api_key
             case COINMARKETCAP.id:
                 token = config.platform_coinmarketcap_key
+            case TWELVE_DATA.id:
+                token = config.platform_twelve_data_api_key
             case X.id:
                 token = config.platform_x_key
             case XAI.id:
@@ -169,6 +179,8 @@ class AccessTokenResolver:
                 return user.rapid_api_key
             case COINMARKETCAP.id:
                 return user.coinmarketcap_key
+            case TWELVE_DATA.id:
+                return user.twelve_data_api_key
             case GOOGLE_AI.id:
                 return user.google_ai_key
             case X.id:

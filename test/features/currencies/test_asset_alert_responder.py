@@ -10,19 +10,20 @@ from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_repo import ChatConfigRepository
-from features.currencies.currency_alert_responder import respond_with_currency_alerts
-from features.currencies.currency_alert_service import DATETIME_PRINT_FORMAT, CurrencyAlertService
+from features.currencies.asset_alert_responder import respond_with_asset_alerts
+from features.currencies.asset_alert_service import DATETIME_PRINT_FORMAT, AssetAlertService
+from features.currencies.asset_price import AssetType
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from util.translations_cache import TranslationsCache
 
 
-class CurrencyAlertResponderTest(unittest.TestCase):
+class AssetAlertResponderTest(unittest.TestCase):
 
     mock_di: DI
     mock_scoped_di: DI
-    mock_currency_alert_service: CurrencyAlertService
+    mock_asset_alert_service: AssetAlertService
     mock_announcement_service: SysAnnouncementsService
 
     def setUp(self):
@@ -35,9 +36,9 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
 
-        # Mock the currency_alert_service method to return a mock service
-        self.mock_currency_alert_service = Mock(spec = CurrencyAlertService)
-        self.mock_di.currency_alert_service.return_value = self.mock_currency_alert_service
+        # Mock the asset_alert_service method to return a mock service
+        self.mock_asset_alert_service = Mock(spec = AssetAlertService)
+        self.mock_di.asset_alert_service.return_value = self.mock_asset_alert_service
 
         # Mock DI clone method and its dependencies
         # Create a single scoped_di that will be used by all tests
@@ -98,24 +99,24 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         # Create actual TriggeredAlert objects
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            CurrencyAlertService.TriggeredAlert(
+            AssetAlertService.TriggeredAlert(
                 chat_id = UUID(int = 123), owner_id = test_owner_id,
-                base_currency = "BTC", desired_currency = "USD", threshold_percent = 5,
-                old_rate = 10000, old_rate_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_rate = 11000, new_rate_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
+                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
+                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
+                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
                 price_change_percent = 10,
             ),
-            CurrencyAlertService.TriggeredAlert(
+            AssetAlertService.TriggeredAlert(
                 chat_id = UUID(int = 456), owner_id = test_owner_id,
-                base_currency = "ETH", desired_currency = "EUR", threshold_percent = 3,
-                old_rate = 2000, old_rate_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_rate = 2100, new_rate_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
+                asset_type = AssetType.crypto, asset_id = "ETH", currency = "EUR", threshold_percent = 3,
+                old_price = 2000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
+                new_price = 2100, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
                 price_change_percent = 5,
             ),
         ]
 
         # Mock the service's instance methods
-        self.mock_currency_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
 
         # Mock translations cache
         self.mock_scoped_di.translations_cache.get.return_value = None  # No cached translation
@@ -130,7 +131,7 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         mock_answer = Mock(content = "Test announcement")
         self.mock_announcement_service.execute.return_value = (mock_chat, mock_answer)
 
-        result = respond_with_currency_alerts(self.mock_di)
+        result = respond_with_asset_alerts(self.mock_di)
 
         # Assertions
         self.assertEqual(result["alerts_triggered"], 2)
@@ -140,7 +141,7 @@ class CurrencyAlertResponderTest(unittest.TestCase):
 
         # Verify the mock methods were called
         # noinspection PyUnresolvedReferences
-        self.mock_currency_alert_service.get_triggered_alerts.assert_called_once()
+        self.mock_asset_alert_service.get_triggered_alerts.assert_called_once()
         # Verify announcements were sent via scoped DI's platform_bot_sdk
         # noinspection PyUnresolvedReferences
         self.assertEqual(self.mock_platform_bot_sdk.send_text_message.call_count, 2)
@@ -148,9 +149,9 @@ class CurrencyAlertResponderTest(unittest.TestCase):
     # noinspection PyUnusedLocal
     def test_no_triggered_alerts(self):
         # Mock the service's instance to return no alerts
-        self.mock_currency_alert_service.get_triggered_alerts.return_value = []
+        self.mock_asset_alert_service.get_triggered_alerts.return_value = []
 
-        result = respond_with_currency_alerts(self.mock_di)
+        result = respond_with_asset_alerts(self.mock_di)
 
         # Assertions
         self.assertEqual(result["alerts_triggered"], 0)
@@ -164,17 +165,17 @@ class CurrencyAlertResponderTest(unittest.TestCase):
     def test_announcement_creation_failure(self):
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            CurrencyAlertService.TriggeredAlert(
+            AssetAlertService.TriggeredAlert(
                 chat_id = UUID(int = 123), owner_id = test_owner_id,
-                base_currency = "BTC", desired_currency = "USD", threshold_percent = 5,
-                old_rate = 10000, old_rate_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_rate = 11000, new_rate_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
+                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
+                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
+                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
                 price_change_percent = 10,
             ),
         ]
 
         # Mock the service's instance
-        self.mock_currency_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
 
         # Mock translations cache to return no cached content
         self.mock_scoped_di.translations_cache.get.return_value = None
@@ -188,7 +189,7 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         mock_answer = Mock(content = None)
         self.mock_announcement_service.execute.return_value = (mock_chat, mock_answer)
 
-        result = respond_with_currency_alerts(self.mock_di)
+        result = respond_with_asset_alerts(self.mock_di)
 
         # Assertions - no announcements created due to failure
         self.assertEqual(result["alerts_triggered"], 1)
@@ -203,24 +204,24 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         # Create actual TriggeredAlert objects
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            CurrencyAlertService.TriggeredAlert(
+            AssetAlertService.TriggeredAlert(
                 chat_id = UUID(int = 123), owner_id = test_owner_id,
-                base_currency = "BTC", desired_currency = "USD", threshold_percent = 5,
-                old_rate = 10000, old_rate_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_rate = 11000, new_rate_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
+                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
+                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
+                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
                 price_change_percent = 10,
             ),
         ]
 
         # Mock the service's instance
-        self.mock_currency_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
 
         # Mock the translations cache to return cached content
         self.mock_scoped_di.translations_cache.get.return_value = "Cached announcement"
 
         self.mock_platform_bot_sdk.send_text_message.side_effect = Exception("Notification failed")
 
-        result = respond_with_currency_alerts(self.mock_di)
+        result = respond_with_asset_alerts(self.mock_di)
 
         self.assertEqual(result["alerts_triggered"], 1)
         self.assertEqual(result["announcements_created"], 0)
@@ -234,22 +235,22 @@ class CurrencyAlertResponderTest(unittest.TestCase):
         # Create actual TriggeredAlert objects
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            CurrencyAlertService.TriggeredAlert(
+            AssetAlertService.TriggeredAlert(
                 chat_id = UUID(int = 123), owner_id = test_owner_id,
-                base_currency = "BTC", desired_currency = "USD", threshold_percent = 5,
-                old_rate = 10000, old_rate_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_rate = 11000, new_rate_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
+                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
+                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
+                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
                 price_change_percent = 10,
             ),
         ]
 
         # Mock the service's instance
-        self.mock_currency_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
 
         # Mock the translations cache to return cached content
         self.mock_scoped_di.translations_cache.get.return_value = "Cached announcement"
 
-        result = respond_with_currency_alerts(self.mock_di)
+        result = respond_with_asset_alerts(self.mock_di)
 
         # Assertions
         self.assertEqual(result["alerts_triggered"], 1)

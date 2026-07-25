@@ -38,6 +38,7 @@ class User:
     replicate_key: SecretStr | None = None
     rapid_api_key: SecretStr | None = None
     coinmarketcap_key: SecretStr | None = None
+    twelve_data_api_key: SecretStr | None = None
     x_key: SecretStr | None = None
     x_ai_key: SecretStr | None = None
 
@@ -52,6 +53,7 @@ class User:
     tool_choice_embedding: str | None = None
     tool_choice_api_fiat_exchange: str | None = None
     tool_choice_api_crypto_exchange: str | None = None
+    tool_choice_api_stock_quote: str | None = None
     tool_choice_api_twitter: str | None = None
 
     credit_balance: float = 0.0
@@ -72,6 +74,7 @@ class User:
             self.replicate_key,
             self.rapid_api_key,
             self.coinmarketcap_key,
+            self.twelve_data_api_key,
             self.x_key,
             self.x_ai_key,
         ])

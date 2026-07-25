@@ -16,6 +16,7 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
 
     def setUp(self):
         self.mock_fetcher = Mock(spec = WebFetcher)
+        self.mock_fetcher.made_request = True
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_api_call = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_spending_service = Mock(spec = SpendingService)
@@ -105,12 +106,41 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
 
         self.assertEqual(result, "<html>content</html>")
 
+    def test_delegates_request_metadata_properties(self):
+        self.mock_fetcher.made_request = True
+        self.mock_fetcher.status_code = 429
+        self.mock_fetcher.error_json = {"status": "error", "code": 429}
+
+        self.assertTrue(self.decorator.made_request)
+        self.assertEqual(self.decorator.status_code, 429)
+        self.assertEqual(self.decorator.error_json, {"status": "error", "code": 429})
+
     def test_fetch_json_calls_validate_pre_flight(self):
         self.mock_fetcher.fetch_json = Mock(return_value = {"data": "test"})
 
         self.decorator.fetch_json()
 
         self.mock_spending_service.validate_pre_flight.assert_called_once()
+
+    def test_fetch_json_cache_hit_is_not_tracked_or_deducted(self):
+        self.mock_fetcher.made_request = False
+        self.mock_fetcher.fetch_json = Mock(return_value = {"data": "cached"})
+
+        result = self.decorator.fetch_json()
+
+        self.assertEqual(result, {"data": "cached"})
+        self.mock_tracking_service.track_api_call.assert_not_called()
+        self.mock_spending_service.deduct.assert_not_called()
+
+    def test_fetch_html_cache_hit_is_not_tracked_or_deducted(self):
+        self.mock_fetcher.made_request = False
+        self.mock_fetcher.fetch_html = Mock(return_value = "<html>cached</html>")
+
+        result = self.decorator.fetch_html()
+
+        self.assertEqual(result, "<html>cached</html>")
+        self.mock_tracking_service.track_api_call.assert_not_called()
+        self.mock_spending_service.deduct.assert_not_called()
 
     def test_fetch_json_failure_tracks_without_deduction(self):
         self.mock_fetcher.fetch_json = Mock(side_effect = RuntimeError("Network error"))

@@ -8,7 +8,7 @@ from features.accounting.usage.participant_details import ParticipantDetails, Pa
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_mapper import db, domain
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_4O
+from features.external_tools.external_tool_library import GPT_5_5
 
 
 class UsageRecordMapperTest(unittest.TestCase):
@@ -16,7 +16,7 @@ class UsageRecordMapperTest(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
         # Use a real tool as requested by the user
-        self.tool = GPT_4O
+        self.tool = GPT_5_5
 
         self.payer_id = uuid.uuid4()
         self.db_record = UsageRecordDB(
@@ -92,7 +92,7 @@ class UsageRecordMapperTest(unittest.TestCase):
 
     def test_db_to_domain(self):
         # The domain() mapper iterates over ALL_EXTERNAL_TOOLS imported in the module.
-        # Since we are using a real tool (GPT_4O), it should be found automatically.
+        # Since we are using a real tool (GPT_5_5), it should be found automatically.
 
         domain_obj = domain(self.db_record)
 

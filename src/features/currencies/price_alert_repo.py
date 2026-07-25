@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from db.model.price_alert import PriceAlertDB
+from features.currencies.asset_price import AssetType
 from features.currencies.price_alert import PriceAlert
 from features.currencies.price_alert_mapper import apply_to_db_model, db, domain
 
@@ -18,13 +19,15 @@ class PriceAlertRepository:
     def get(
         self,
         chat_id: UUID,
-        base_currency: str,
-        desired_currency: str,
+        asset_type: AssetType,
+        asset_id: str,
+        currency: str,
     ) -> PriceAlert | None:
         db_model = self._db.query(PriceAlertDB).filter(
             PriceAlertDB.chat_id == chat_id,
-            PriceAlertDB.base_currency == base_currency,
-            PriceAlertDB.desired_currency == desired_currency,
+            PriceAlertDB.asset_type == asset_type.value,
+            PriceAlertDB.asset_id == asset_id,
+            PriceAlertDB.currency == currency,
         ).first()
         return domain(db_model)
 
@@ -45,8 +48,9 @@ class PriceAlertRepository:
     def save(self, price_alert: PriceAlert) -> PriceAlert:
         existing = self._db.query(PriceAlertDB).filter(
             PriceAlertDB.chat_id == price_alert.chat_id,
-            PriceAlertDB.base_currency == price_alert.base_currency,
-            PriceAlertDB.desired_currency == price_alert.desired_currency,
+            PriceAlertDB.asset_type == price_alert.asset_type.value,
+            PriceAlertDB.asset_id == price_alert.asset_id,
+            PriceAlertDB.currency == price_alert.currency,
         ).first()
         if existing is not None:
             apply_to_db_model(price_alert, existing)
@@ -63,13 +67,15 @@ class PriceAlertRepository:
     def delete(
         self,
         chat_id: UUID,
-        base_currency: str,
-        desired_currency: str,
+        asset_type: AssetType,
+        asset_id: str,
+        currency: str,
     ) -> PriceAlert | None:
         db_model = self._db.query(PriceAlertDB).filter(
             PriceAlertDB.chat_id == chat_id,
-            PriceAlertDB.base_currency == base_currency,
-            PriceAlertDB.desired_currency == desired_currency,
+            PriceAlertDB.asset_type == asset_type.value,
+            PriceAlertDB.asset_id == asset_id,
+            PriceAlertDB.currency == currency,
         ).first()
         if db_model is None:
             return None

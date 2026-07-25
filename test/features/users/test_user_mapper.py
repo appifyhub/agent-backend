@@ -48,6 +48,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.replicate_key.get_secret_value(), "replicate")
         self.assertEqual(result.rapid_api_key.get_secret_value(), "rapid")
         self.assertEqual(result.coinmarketcap_key.get_secret_value(), "coinmarketcap")
+        self.assertEqual(result.twelve_data_api_key.get_secret_value(), "twelve-data")
         self.assertEqual(result.x_key.get_secret_value(), "x")
         self.assertEqual(result.x_ai_key.get_secret_value(), "x-ai")
         self.assertEqual(result.tool_choice_chat, "chat-tool")
@@ -61,6 +62,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_embedding, "embedding-tool")
         self.assertEqual(result.tool_choice_api_fiat_exchange, "fiat-tool")
         self.assertEqual(result.tool_choice_api_crypto_exchange, "crypto-tool")
+        self.assertEqual(result.tool_choice_api_stock_quote, "stock-tool")
         self.assertEqual(result.tool_choice_api_twitter, "twitter-tool")
         self.assertEqual(result.credit_balance, 123.45)
         self.assertTrue(result.is_on_waitlist)
@@ -91,8 +93,10 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.replicate_key, "replicate")
         self.assertEqual(result.rapid_api_key, "rapid")
         self.assertEqual(result.coinmarketcap_key, "coinmarketcap")
+        self.assertEqual(result.twelve_data_api_key, "twelve-data")
         self.assertEqual(result.x_key, "x")
         self.assertEqual(result.x_ai_key, "x-ai")
+        self.assertEqual(result.tool_choice_api_stock_quote, "stock-tool")
         self.assertEqual(result.tool_choice_api_twitter, "twitter-tool")
         self.assertEqual(result.credit_balance, 123.45)
         self.assertTrue(result.is_on_waitlist)
@@ -238,6 +242,7 @@ class UserMapperTest(unittest.TestCase):
             replicate_key = SecretStr("replicate"),
             rapid_api_key = SecretStr("rapid"),
             coinmarketcap_key = SecretStr("coinmarketcap"),
+            twelve_data_api_key = SecretStr("twelve-data"),
             x_key = SecretStr("x"),
             x_ai_key = SecretStr("x-ai"),
             tool_choice_chat = "chat-tool",
@@ -251,6 +256,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_embedding = "embedding-tool",
             tool_choice_api_fiat_exchange = "fiat-tool",
             tool_choice_api_crypto_exchange = "crypto-tool",
+            tool_choice_api_stock_quote = "stock-tool",
             tool_choice_api_twitter = "twitter-tool",
             credit_balance = 123.45,
             is_on_waitlist = True,
@@ -279,6 +285,7 @@ class UserMapperTest(unittest.TestCase):
             replicate_key = "replicate",
             rapid_api_key = "rapid",
             coinmarketcap_key = "coinmarketcap",
+            twelve_data_api_key = "twelve-data",
             x_key = "x",
             x_ai_key = "x-ai",
             tool_choice_chat = "chat-tool",
@@ -292,6 +299,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_embedding = "embedding-tool",
             tool_choice_api_fiat_exchange = "fiat-tool",
             tool_choice_api_crypto_exchange = "crypto-tool",
+            tool_choice_api_stock_quote = "stock-tool",
             tool_choice_api_twitter = "twitter-tool",
             credit_balance = 123.45,
             is_on_waitlist = True,

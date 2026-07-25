@@ -13,7 +13,7 @@ from features.accounting.usage.usage_aggregates import AggregateStats, ProviderI
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_4O
+from features.external_tools.external_tool_library import GPT_5_5
 from features.users.user import User
 from util.error_codes import NOT_TARGET_USER
 from util.errors import AuthorizationError, ValidationError
@@ -72,7 +72,7 @@ class UsageControllerTest(unittest.TestCase):
             user_id = user_id,
             payer_id = user_id,
             chat_id = UUID(int = 1),
-            tool = GPT_4O,
+            tool = GPT_5_5,
             tool_purpose = ToolType.chat,
             timestamp = timestamp or datetime.now(timezone.utc),
             runtime_seconds = 1.5,

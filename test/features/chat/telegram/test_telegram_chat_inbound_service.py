@@ -307,6 +307,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
             replicate_key = SecretStr("sk-key"),
             rapid_api_key = SecretStr("sk-key"),
             coinmarketcap_key = SecretStr("sk-key"),
+            twelve_data_api_key = SecretStr("sk-key"),
             x_key = SecretStr("sk-key"),
             x_ai_key = SecretStr("sk-key"),
             about_me = SecretStr("Personal info about me"),
@@ -325,6 +326,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
             tool_choice_embedding = "openai",
             tool_choice_api_fiat_exchange = "rapidapi",
             tool_choice_api_crypto_exchange = "coinmarketcap",
+            tool_choice_api_stock_quote = "twelve-data",
             tool_choice_api_twitter = "rapidapi",
         )
         existing_user = self.sql.user_repo().save(existing_user_data)
@@ -353,6 +355,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.replicate_key, existing_user.replicate_key)
         self.assertEqual(result.rapid_api_key, existing_user.rapid_api_key)
         self.assertEqual(result.coinmarketcap_key, existing_user.coinmarketcap_key)
+        self.assertEqual(result.twelve_data_api_key, existing_user.twelve_data_api_key)
         self.assertEqual(result.x_key, existing_user.x_key)
         self.assertEqual(result.x_ai_key, existing_user.x_ai_key)
         self.assertEqual(result.about_me, existing_user.about_me)
@@ -373,6 +376,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_embedding, existing_user.tool_choice_embedding)
         self.assertEqual(result.tool_choice_api_fiat_exchange, existing_user.tool_choice_api_fiat_exchange)
         self.assertEqual(result.tool_choice_api_crypto_exchange, existing_user.tool_choice_api_crypto_exchange)
+        self.assertEqual(result.tool_choice_api_stock_quote, existing_user.tool_choice_api_stock_quote)
         self.assertEqual(result.tool_choice_api_twitter, existing_user.tool_choice_api_twitter)
 
     def test_store_author_preserves_name_when_empty(self):

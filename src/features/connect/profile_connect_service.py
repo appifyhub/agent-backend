@@ -158,6 +158,8 @@ class ProfileConnectService:
             merged.rapid_api_key = casualty.rapid_api_key
         if not merged.coinmarketcap_key and casualty.coinmarketcap_key:
             merged.coinmarketcap_key = casualty.coinmarketcap_key
+        if not merged.twelve_data_api_key and casualty.twelve_data_api_key:
+            merged.twelve_data_api_key = casualty.twelve_data_api_key
         if not merged.x_key and casualty.x_key:
             merged.x_key = casualty.x_key
         if not merged.x_ai_key and casualty.x_ai_key:
@@ -186,6 +188,8 @@ class ProfileConnectService:
             merged.tool_choice_api_fiat_exchange = casualty.tool_choice_api_fiat_exchange
         if not merged.tool_choice_api_crypto_exchange and casualty.tool_choice_api_crypto_exchange:
             merged.tool_choice_api_crypto_exchange = casualty.tool_choice_api_crypto_exchange
+        if not merged.tool_choice_api_stock_quote and casualty.tool_choice_api_stock_quote:
+            merged.tool_choice_api_stock_quote = casualty.tool_choice_api_stock_quote
         if not merged.tool_choice_api_twitter and casualty.tool_choice_api_twitter:
             merged.tool_choice_api_twitter = casualty.tool_choice_api_twitter
         merged.credit_balance = survivor.credit_balance + casualty.credit_balance

@@ -91,16 +91,35 @@ def respond_to_update(update: Update) -> bool:
             return True
         except Exception as e:
             log.e(f"Failed to ingest: {update}", e)
-            __notify_of_errors(di, resolved_domain_data, e)
+            __notify_of_errors(di, update, resolved_domain_data, e)
             return False
 
 
 @silent
 def __notify_of_errors(
     di: DI,
+    update: Update,
     resolved_domain_data: IngestedChatMessage | None,
     error: Exception,
 ):
+    if resolved_domain_data:
+        chat_id = resolved_domain_data.chat.external_id
+        message_id = resolved_domain_data.message.message_id
+    else:
+        update_messages = [
+            message
+            for entry in update.entry
+            for change in entry.changes
+            for message in change.value.messages or []
+        ]
+        if not update_messages:
+            return
+        triggering_message = max(update_messages, key = lambda message: int(message.timestamp))
+        chat_id = triggering_message.from_
+        message_id = triggering_message.id
+
+    silent(di.whatsapp_bot_sdk.set_reaction)(chat_id, message_id, "💔")
+
     if resolved_domain_data:
         emoji = error.emoji if isinstance(error, ServiceError) else "🤯"
         answer = AIMessage(prompt_resolvers.simple_chat_error(str(error), emoji = emoji))
