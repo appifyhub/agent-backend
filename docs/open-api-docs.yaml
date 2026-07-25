@@ -1040,6 +1040,10 @@ components:
           type: string
           nullable: true
           description: CoinMarketCap API key
+        twelve_data_api_key:
+          type: string
+          nullable: true
+          description: Twelve Data API key
         x_key:
           type: string
           nullable: true
@@ -1092,6 +1096,10 @@ components:
           type: string
           nullable: true
           description: Tool choice for cryptocurrency exchange
+        tool_choice_api_stock_quote:
+          type: string
+          nullable: true
+          description: Tool choice for stock quotes
         tool_choice_api_twitter:
           type: string
           nullable: true
@@ -1168,6 +1176,10 @@ components:
           type: string
           nullable: true
           description: CoinMarketCap API key (masked)
+        twelve_data_api_key:
+          type: string
+          nullable: true
+          description: Twelve Data API key (masked)
         x_key:
           type: string
           nullable: true
@@ -1207,6 +1219,9 @@ components:
           type: string
           nullable: true
         tool_choice_api_crypto_exchange:
+          type: string
+          nullable: true
+        tool_choice_api_stock_quote:
           type: string
           nullable: true
         tool_choice_api_twitter:
@@ -1733,7 +1748,7 @@ components:
         tool_purpose:
           type: string
           nullable: false
-          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, images_edit, search, embedding, api_fiat_exchange, api_crypto_exchange, api_twitter, credit_transfer, deprecated]
+          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, images_edit, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, credit_transfer, deprecated]
           description: The purpose/type of tool usage
         timestamp:
           type: string
