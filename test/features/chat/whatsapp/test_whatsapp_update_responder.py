@@ -1,4 +1,5 @@
 import unittest
+from collections import namedtuple
 from datetime import date, datetime
 from unittest.mock import Mock, patch
 from uuid import UUID
@@ -14,6 +15,8 @@ from features.chat.message.chat_message import ChatMessage
 from features.chat.whatsapp.model.update import Update
 from features.chat.whatsapp.whatsapp_update_responder import respond_to_update
 from features.users.user import User
+from util.error_codes import PLATFORM_MAPPING_FAILED
+from util.errors import ServiceError
 
 
 class WhatsAppUpdateResponderTest(unittest.TestCase):
@@ -199,8 +202,12 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.di.whatsapp_bot_sdk.send_text_message.assert_not_called()
         self.di.chat_message_repo.save.assert_not_called()
 
-    def test_mapping_error(self):
-        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = []
+    def test_ingestion_error(self):
+        raw_message = Mock(id = "raw-message-id", timestamp = "1")
+        raw_message.from_ = "123"
+        change = Mock(value = Mock(messages = [raw_message]))
+        self.update = Mock(spec = Update, entry = [Mock(changes = [change])])
+        self.di.whatsapp_chat_inbound_service.ingest_update.side_effect = Exception("Mapping error")
 
         with patch("features.integrations.prompt_resolvers.simple_chat_error", return_value = "Mapping error"):
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -212,6 +219,7 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.whatsapp_bot_sdk.send_text_message.assert_not_called()
+        self.di.whatsapp_bot_sdk.set_reaction.assert_called_once_with("123", "raw-message-id", "💔")
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_empty_update_no_messages(self):
@@ -225,24 +233,29 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_general_exception(self):
-        from collections import namedtuple
-        with patch("features.chat.whatsapp.whatsapp_update_responder.silent", lambda f: f):
-            resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
-            self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [resolved_domain_data_mock]
+        resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [resolved_domain_data_mock]
 
-            error_message = "Test error"
-            ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
-            error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
-            # Raise exception during agent creation, after resolved_domain_data is set
-            self.di.chat_agent.side_effect = Exception(error_message)
-            self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
-            self.di.whatsapp_bot_sdk.send_text_message = Mock()
+        error = ServiceError(
+            message = "Test error",
+            error_code = PLATFORM_MAPPING_FAILED,
+            http_status = 500,
+            emoji = "🧨",
+        )
+        ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
+        error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
+        self.di.chat_agent.side_effect = error
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
+        self.di.whatsapp_bot_sdk.set_reaction.side_effect = Exception("Reaction failed")
+        self.di.whatsapp_bot_sdk.send_text_message = Mock()
 
-            with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
-                mock_error.return_value = "Error response"
-                result = respond_to_update(self.update)
+        with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
+            mock_error.return_value = "Error response"
+            result = respond_to_update(self.update)
 
-            self.assertFalse(result)
-            self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(resolved_domain_data_mock.chat, "Error response")
-            self.mock_sleep.assert_called_once_with(0.1)
-            self.di.chat_message_repo.save.assert_not_called()
+        self.assertFalse(result)
+        self.di.whatsapp_bot_sdk.set_reaction.assert_called_once_with("123", "test-message-id", "💔")
+        mock_error.assert_called_once_with(str(error), emoji = "🧨")
+        self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(resolved_domain_data_mock.chat, "Error response")
+        self.mock_sleep.assert_called_once_with(0.1)
+        self.di.chat_message_repo.save.assert_not_called()

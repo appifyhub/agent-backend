@@ -1,9 +1,10 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from time import sleep
 from typing import Any, Dict
 
 from di.di import DI
+from features.currencies.asset_price import PRICE_CACHE_TTL
 from features.currencies.supported_currencies import SUPPORTED_CRYPTO, SUPPORTED_FIAT
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -15,7 +16,7 @@ from util.errors import NotFoundError, ValidationError
 
 DEFAULT_FIAT = "USD"
 CACHE_PREFIX = "exchange-rate-fetcher"
-CACHE_TTL = timedelta(minutes = 5)
+CACHE_TTL = PRICE_CACHE_TTL
 RATE_LIMIT_DELAY_S = 1
 
 
@@ -31,6 +32,7 @@ class ExchangeRateFetcher:
         base_currency_code: str,
         desired_currency_code: str,
         amount: float = 1.0,
+        force: bool = False,
     ) -> Dict[str, Any]:
         def as_result(rate: float) -> dict[str, Any]:
             return {
@@ -55,23 +57,23 @@ class ExchangeRateFetcher:
 
         if is_base_fiat and is_desired_fiat:
             log.t("Fetching fiat to fiat conversion rate")
-            rate_of_one = self.get_fiat_conversion_rate(base_currency_code, desired_currency_code)
+            rate_of_one = self.get_fiat_conversion_rate(base_currency_code, desired_currency_code, force = force)
             return as_result(rate_of_one)
         elif is_base_crypto and is_desired_crypto:
             log.t("Fetching crypto to crypto conversion rate")
-            rate_of_one = self.get_crypto_conversion_rate(base_currency_code, desired_currency_code)
+            rate_of_one = self.get_crypto_conversion_rate(base_currency_code, desired_currency_code, force = force)
             return as_result(rate_of_one)
         elif is_base_fiat and is_desired_crypto:
             # we traverse the exchange rate through the default fiat to get the final rate
             log.t("Fetching fiat to crypto conversion rate")
-            base_fiat_rate_against_default_fiat = self.get_fiat_conversion_rate(base_currency_code, DEFAULT_FIAT)
-            default_fiat_rate_against_crypto = self.get_crypto_conversion_rate(DEFAULT_FIAT, desired_currency_code)
+            base_fiat_rate_against_default_fiat = self.get_fiat_conversion_rate(base_currency_code, DEFAULT_FIAT, force = force)
+            default_fiat_rate_against_crypto = self.get_crypto_conversion_rate(DEFAULT_FIAT, desired_currency_code, force = force)
             return as_result(base_fiat_rate_against_default_fiat * default_fiat_rate_against_crypto)
         elif is_base_crypto and is_desired_fiat:
             # basically the same as above, just in reverse
             log.t("Fetching crypto to fiat conversion rate")
-            base_crypto_rate_against_default_fiat = self.get_crypto_conversion_rate(base_currency_code, DEFAULT_FIAT)
-            default_fiat_rate_against_fiat = self.get_fiat_conversion_rate(DEFAULT_FIAT, desired_currency_code)
+            base_crypto_rate_against_default_fiat = self.get_crypto_conversion_rate(base_currency_code, DEFAULT_FIAT, force = force)  # noqa: E501
+            default_fiat_rate_against_fiat = self.get_fiat_conversion_rate(DEFAULT_FIAT, desired_currency_code, force = force)
             return as_result(base_crypto_rate_against_default_fiat * default_fiat_rate_against_fiat)
         else:
             raise ValidationError(f"Unsupported currency conversion: {base_currency_code}/{desired_currency_code}", UNSUPPORTED_CURRENCY_PAIR)  # noqa: E501
@@ -112,7 +114,7 @@ class ExchangeRateFetcher:
         ))
         log.t(f"Cache updated for {a}/{b} and key '{key}'")
 
-    def get_crypto_conversion_rate(self, base_currency_code: str, desired_currency_code: str) -> float:
+    def get_crypto_conversion_rate(self, base_currency_code: str, desired_currency_code: str, force: bool = False) -> float:
         log.t(f"Fetching crypto conversion rate {base_currency_code}/{desired_currency_code}")
         if base_currency_code not in SUPPORTED_CRYPTO and base_currency_code != DEFAULT_FIAT:
             raise ValidationError(f"Unsupported currency: {base_currency_code}", INVALID_CURRENCY)
@@ -122,9 +124,10 @@ class ExchangeRateFetcher:
         if base_currency_code == desired_currency_code:
             return 1.0
 
-        cached_rate = self.__get_cached_rate_of_one(base_currency_code, desired_currency_code)
-        if cached_rate:
-            return cached_rate
+        if not force:
+            cached_rate = self.__get_cached_rate_of_one(base_currency_code, desired_currency_code)
+            if cached_rate is not None:
+                return cached_rate
 
         rate: float
         api_url = f"https://pro-api.coinmarketcap.com/{CRYPTO_CURRENCY_EXCHANGE.id.replace(".", "/")}"
@@ -142,14 +145,12 @@ class ExchangeRateFetcher:
             # due to API limitations, we must traverse both cryptos through USD
             params_base = {"symbol": base_currency_code, "convert": DEFAULT_FIAT}
             sleep(RATE_LIMIT_DELAY_S)
-            fetcher_base = self.__di.tracked_web_fetcher(crypto_tool, api_url, headers, params_base, cache_ttl_json = CACHE_TTL)
+            fetcher_base = self.__di.tracked_web_fetcher(crypto_tool, api_url, headers, params_base, cache_ttl_json = CACHE_TTL, force = force)  # noqa: E501
             response_base = fetcher_base.fetch_json() or {}
 
             params_desired = {"symbol": desired_currency_code, "convert": DEFAULT_FIAT}
             sleep(RATE_LIMIT_DELAY_S)
-            fetcher_desired = self.__di.tracked_web_fetcher(
-                crypto_tool, api_url, headers, params_desired, cache_ttl_json = CACHE_TTL,
-            )
+            fetcher_desired = self.__di.tracked_web_fetcher(crypto_tool, api_url, headers, params_desired, cache_ttl_json = CACHE_TTL, force = force)  # noqa: E501
             response_desired = fetcher_desired.fetch_json() or {}
 
             base_rate = float(response_base["data"][base_currency_code]["quote"][DEFAULT_FIAT]["price"])
@@ -160,7 +161,7 @@ class ExchangeRateFetcher:
             symbol = desired_currency_code if base_currency_code == DEFAULT_FIAT else base_currency_code
             params = {"symbol": symbol, "convert": DEFAULT_FIAT}
             sleep(RATE_LIMIT_DELAY_S)
-            fetcher = self.__di.tracked_web_fetcher(crypto_tool, api_url, headers, params, cache_ttl_json = CACHE_TTL)
+            fetcher = self.__di.tracked_web_fetcher(crypto_tool, api_url, headers, params, cache_ttl_json = CACHE_TTL, force = force)  # noqa: E501
             response = fetcher.fetch_json() or {}
 
             rate = float(response["data"][symbol]["quote"][DEFAULT_FIAT]["price"])
@@ -171,7 +172,7 @@ class ExchangeRateFetcher:
             return rate
         raise NotFoundError(f"No rate found for {base_currency_code}/{desired_currency_code}", EXCHANGE_RATE_NOT_FOUND)
 
-    def get_fiat_conversion_rate(self, base_currency_code: str, desired_currency_code: str) -> float:
+    def get_fiat_conversion_rate(self, base_currency_code: str, desired_currency_code: str, force: bool = False) -> float:
         log.t(f"Fetching fiat conversion rate {base_currency_code}/{desired_currency_code}")
         if base_currency_code not in SUPPORTED_FIAT:
             raise ValidationError(f"Unsupported currency: {base_currency_code}", INVALID_CURRENCY)
@@ -180,9 +181,11 @@ class ExchangeRateFetcher:
 
         if base_currency_code == desired_currency_code:
             return 1.0
-        cached_rate = self.__get_cached_rate_of_one(base_currency_code, desired_currency_code)
-        if cached_rate:
-            return cached_rate
+
+        if not force:
+            cached_rate = self.__get_cached_rate_of_one(base_currency_code, desired_currency_code)
+            if cached_rate is not None:
+                return cached_rate
 
         sleep(RATE_LIMIT_DELAY_S)
         api_url = f"https://{FIAT_CURRENCY_EXCHANGE.id}/currency/convert"
@@ -197,7 +200,7 @@ class ExchangeRateFetcher:
             uses_credits = resolved.uses_credits,
         )
 
-        fetcher = self.__di.tracked_web_fetcher(fiat_tool, api_url, headers, params, cache_ttl_json = CACHE_TTL)
+        fetcher = self.__di.tracked_web_fetcher(fiat_tool, api_url, headers, params, cache_ttl_json = CACHE_TTL, force = force)
         response = fetcher.fetch_json() or {}
 
         rate = float(response["rates"][desired_currency_code]["rate_for_amount"])

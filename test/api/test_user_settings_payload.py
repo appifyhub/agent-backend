@@ -14,6 +14,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
             replicate_key = "r8_jkl012",
             rapid_api_key = "mno345",
             coinmarketcap_key = "pqr678-stu-901",
+            twelve_data_api_key = "twelve-data-123",
             x_key = "x-vwx234",
             x_ai_key = "xai-yza567",
             tool_choice_chat = "gpt-4o",
@@ -27,6 +28,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_embedding = "text-embedding-3-large",
             tool_choice_api_fiat_exchange = "rapid-api-fiat",
             tool_choice_api_crypto_exchange = "coinmarketcap-api",
+            tool_choice_api_stock_quote = "quote",
             tool_choice_api_twitter = "rapid-api-twitter",
         )
 
@@ -36,6 +38,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.replicate_key, "r8_jkl012")
         self.assertEqual(payload.rapid_api_key, "mno345")
         self.assertEqual(payload.coinmarketcap_key, "pqr678-stu-901")
+        self.assertEqual(payload.twelve_data_api_key, "twelve-data-123")
         self.assertEqual(payload.x_key, "x-vwx234")
         self.assertEqual(payload.x_ai_key, "xai-yza567")
         self.assertEqual(payload.tool_choice_chat, "gpt-4o")
@@ -49,6 +52,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.tool_choice_embedding, "text-embedding-3-large")
         self.assertEqual(payload.tool_choice_api_fiat_exchange, "rapid-api-fiat")
         self.assertEqual(payload.tool_choice_api_crypto_exchange, "coinmarketcap-api")
+        self.assertEqual(payload.tool_choice_api_stock_quote, "quote")
         self.assertEqual(payload.tool_choice_api_twitter, "rapid-api-twitter")
 
     def test_partial_creation_with_some_fields(self):
@@ -68,6 +72,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.replicate_key)
         self.assertIsNone(payload.rapid_api_key)
         self.assertIsNone(payload.coinmarketcap_key)
+        self.assertIsNone(payload.twelve_data_api_key)
         self.assertIsNone(payload.x_key)
         self.assertIsNone(payload.x_ai_key)
         self.assertIsNone(payload.tool_choice_reasoning)
@@ -79,6 +84,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.tool_choice_embedding)
         self.assertIsNone(payload.tool_choice_api_fiat_exchange)
         self.assertIsNone(payload.tool_choice_api_crypto_exchange)
+        self.assertIsNone(payload.tool_choice_api_stock_quote)
         self.assertIsNone(payload.tool_choice_api_twitter)
 
     def test_string_trimming_validation(self):
@@ -160,6 +166,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.replicate_key)
         self.assertIsNone(payload.rapid_api_key)
         self.assertIsNone(payload.coinmarketcap_key)
+        self.assertIsNone(payload.twelve_data_api_key)
         self.assertIsNone(payload.x_key)
         self.assertIsNone(payload.x_ai_key)
         self.assertIsNone(payload.tool_choice_chat)
@@ -173,6 +180,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.tool_choice_embedding)
         self.assertIsNone(payload.tool_choice_api_fiat_exchange)
         self.assertIsNone(payload.tool_choice_api_crypto_exchange)
+        self.assertIsNone(payload.tool_choice_api_stock_quote)
         self.assertIsNone(payload.tool_choice_api_twitter)
 
     def test_tool_choice_only_payload(self):
@@ -192,6 +200,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.replicate_key)
         self.assertIsNone(payload.rapid_api_key)
         self.assertIsNone(payload.coinmarketcap_key)
+        self.assertIsNone(payload.twelve_data_api_key)
         self.assertIsNone(payload.x_key)
         self.assertIsNone(payload.x_ai_key)
 
@@ -209,4 +218,5 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.tool_choice_embedding)
         self.assertIsNone(payload.tool_choice_api_fiat_exchange)
         self.assertIsNone(payload.tool_choice_api_crypto_exchange)
+        self.assertIsNone(payload.tool_choice_api_stock_quote)
         self.assertIsNone(payload.tool_choice_api_twitter)

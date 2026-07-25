@@ -18,9 +18,11 @@ from features.external_tools.external_tool_provider_library import (
     PERPLEXITY,
     RAPID_API,
     REPLICATE,
+    TWELVE_DATA,
     XAI,
     X,
 )
+from features.integrations.integration_config import SYSTEM_AGENTS
 from features.sponsorships.sponsorship import Sponsorship
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
@@ -53,6 +55,7 @@ class AccessTokenResolverTest(unittest.TestCase):
             replicate_key = SecretStr("invoker_replicate_key"),
             rapid_api_key = SecretStr("invoker_rapid_api_key"),
             coinmarketcap_key = SecretStr("invoker_coinmarketcap_key"),
+            twelve_data_api_key = SecretStr("invoker_twelve_data_api_key"),
             x_key = SecretStr("invoker_x_key"),
             x_ai_key = SecretStr("invoker_x_ai_key"),
             group = UserDB.Group.standard,
@@ -71,6 +74,7 @@ class AccessTokenResolverTest(unittest.TestCase):
             replicate_key = SecretStr("sponsor_replicate_key"),
             rapid_api_key = SecretStr("sponsor_rapid_api_key"),
             coinmarketcap_key = SecretStr("sponsor_coinmarketcap_key"),
+            twelve_data_api_key = SecretStr("sponsor_twelve_data_api_key"),
             x_key = SecretStr("sponsor_x_key"),
             x_ai_key = SecretStr("sponsor_x_ai_key"),
             group = UserDB.Group.developer,
@@ -342,6 +346,34 @@ class AccessTokenResolverTest(unittest.TestCase):
         self.assertIsInstance(token, ResolvedToken)
         self.assertEqual(token.token.get_secret_value(), self.invoker_user.coinmarketcap_key.get_secret_value())
 
+    def test_get_access_token_twelve_data_success_user_has_direct_token(self):
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
+
+        resolver = AccessTokenResolver(self.mock_di)
+
+        token = resolver.get_access_token(TWELVE_DATA)
+
+        assert token is not None
+        self.assertIsInstance(token, ResolvedToken)
+        self.assertEqual(token.token.get_secret_value(), self.invoker_user.twelve_data_api_key.get_secret_value())
+        self.assertFalse(token.uses_credits)
+        self.mock_sponsorship_repo.get_all_by_receiver.assert_not_called()
+
+    def test_get_access_token_twelve_data_success_sponsor_has_token(self):
+        user_without_token = replace(self.invoker_user, twelve_data_api_key = None)
+        self.mock_di.invoker = user_without_token
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [self.sponsorship]
+        self.mock_user_repo.get.return_value = self.sponsor_user
+
+        resolver = AccessTokenResolver(self.mock_di)
+
+        token = resolver.get_access_token(TWELVE_DATA)
+
+        assert token is not None
+        self.assertEqual(token.token.get_secret_value(), self.sponsor_user.twelve_data_api_key.get_secret_value())
+        self.assertEqual(token.payer_id, self.sponsor_user.id)
+        self.assertFalse(token.uses_credits)
+
     def test_get_access_token_x_api_success_user_has_direct_token(self):
         self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
@@ -395,6 +427,30 @@ class AccessTokenResolverTest(unittest.TestCase):
         self.assertIsInstance(token, ResolvedToken)
         self.assertEqual(token.token.get_secret_value(), "platform-openai-key")
         self.assertTrue(token.uses_credits)
+
+    def test_get_access_token_system_agents_use_platform_key_without_credits(self):
+        resolver = AccessTokenResolver(self.mock_di)
+
+        for agent in SYSTEM_AGENTS:
+            with self.subTest(agent_id = agent.id):
+                system_agent = replace(
+                    self.invoker_user,
+                    id = agent.id,
+                    open_ai_key = SecretStr("stale-agent-key"),
+                    credit_balance = 0.0,
+                )
+                self.mock_di.invoker = system_agent
+                self.mock_sponsorship_repo.reset_mock()
+
+                with patch("features.external_tools.access_token_resolver.config") as mock_config:
+                    mock_config.platform_open_ai_key = SecretStr("platform-openai-key")
+                    token = resolver.get_access_token(self.openai_provider)
+
+                assert token is not None
+                self.assertEqual(token.token.get_secret_value(), "platform-openai-key")
+                self.assertEqual(token.payer_id, agent.id)
+                self.assertFalse(token.uses_credits)
+                self.mock_sponsorship_repo.get_all_by_receiver.assert_not_called()
 
     def test_get_access_token_returns_none_when_platform_key_is_invalid(self):
         user_with_credits = replace(
@@ -626,6 +682,26 @@ class AccessTokenResolverTest(unittest.TestCase):
 
         assert token is not None
         self.assertEqual(token.token.get_secret_value(), "platform-coinmarketcap-key")
+        self.assertTrue(token.uses_credits)
+        self.assertEqual(token.payer_id, user_with_credits.id)
+
+    def test_platform_key_twelve_data_with_credits(self):
+        user_with_credits = replace(
+            self.invoker_user,
+            twelve_data_api_key = None,
+            credit_balance = 50.0,
+        )
+        self.mock_di.invoker = user_with_credits
+        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
+
+        resolver = AccessTokenResolver(self.mock_di)
+
+        with patch("features.external_tools.access_token_resolver.config") as mock_config:
+            mock_config.platform_twelve_data_api_key = SecretStr("platform-twelve-data-key")
+            token = resolver.get_access_token(TWELVE_DATA)
+
+        assert token is not None
+        self.assertEqual(token.token.get_secret_value(), "platform-twelve-data-key")
         self.assertTrue(token.uses_credits)
         self.assertEqual(token.payer_id, user_with_credits.id)
 

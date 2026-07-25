@@ -7,7 +7,15 @@ from langchain_xai import ChatXAI
 
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ExternalTool, ToolType
-from features.external_tools.external_tool_library import CLAUDE_5_FABLE, CLAUDE_5_SONNET
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_8_OPUS,
+    CLAUDE_5_FABLE,
+    CLAUDE_5_OPUS,
+    CLAUDE_5_SONNET,
+    GPT_5_6_LUNA,
+    GPT_5_6_SOL,
+    GPT_5_6_TERRA,
+)
 from features.external_tools.external_tool_provider_library import (
     ANTHROPIC,
     GOOGLE_AI,
@@ -20,8 +28,16 @@ from util.error_codes import UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError
 
 NO_TEMPERATURE_MODELS = {
+    CLAUDE_4_8_OPUS.id,
+    CLAUDE_5_OPUS.id,
     CLAUDE_5_SONNET.id,
     CLAUDE_5_FABLE.id,
+}
+
+NO_REASONING_MODELS = {
+    GPT_5_6_SOL.id,
+    GPT_5_6_TERRA.id,
+    GPT_5_6_LUNA.id,
 }
 
 
@@ -39,6 +55,8 @@ def create(configured_tool: ConfiguredTool, max_tokens: int) -> BaseChatModel:
     }
     if temperature is not None:
         model_args["temperature"] = temperature
+    if definition.id in NO_REASONING_MODELS:
+        model_args["reasoning_effort"] = "none"
 
     match definition.provider.id:
         case OPEN_AI.id:

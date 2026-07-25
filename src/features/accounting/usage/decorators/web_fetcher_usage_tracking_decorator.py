@@ -1,4 +1,5 @@
 from time import time
+from typing import Any
 
 from features.accounting.spending.spending_service import SpendingService
 from features.accounting.usage.usage_tracking_service import UsageTrackingService
@@ -38,11 +39,25 @@ class WebFetcherUsageTrackingDecorator:
     def json(self) -> dict | None:
         return self.__wrapped_fetcher.json
 
+    @property
+    def made_request(self) -> bool:
+        return self.__wrapped_fetcher.made_request
+
+    @property
+    def status_code(self) -> int | None:
+        return self.__wrapped_fetcher.status_code
+
+    @property
+    def error_json(self) -> dict[str, Any] | None:
+        return self.__wrapped_fetcher.error_json
+
     def fetch_html(self) -> str | None:
         self.__spending_service.validate_pre_flight(self.__configured_tool)
         start_time = time()
         try:
             result = self.__wrapped_fetcher.fetch_html()
+            if not self.__wrapped_fetcher.made_request:
+                return result
             runtime_seconds = time() - start_time
             record = self.__tracking_service.track_api_call(
                 tool = self.__configured_tool.definition,
@@ -54,6 +69,8 @@ class WebFetcherUsageTrackingDecorator:
             self.__spending_service.deduct(self.__configured_tool, record.total_cost_credits)
             return result
         except Exception:
+            if not self.__wrapped_fetcher.made_request:
+                raise
             runtime_seconds = time() - start_time
             self.__track_failed_usage(runtime_seconds)
             raise
@@ -63,6 +80,8 @@ class WebFetcherUsageTrackingDecorator:
         start_time = time()
         try:
             result = self.__wrapped_fetcher.fetch_json()
+            if not self.__wrapped_fetcher.made_request:
+                return result
             runtime_seconds = time() - start_time
             record = self.__tracking_service.track_api_call(
                 tool = self.__configured_tool.definition,
@@ -74,6 +93,8 @@ class WebFetcherUsageTrackingDecorator:
             self.__spending_service.deduct(self.__configured_tool, record.total_cost_credits)
             return result
         except Exception:
+            if not self.__wrapped_fetcher.made_request:
+                raise
             runtime_seconds = time() - start_time
             self.__track_failed_usage(runtime_seconds)
             raise
@@ -88,6 +109,3 @@ class WebFetcherUsageTrackingDecorator:
             uses_credits = self.__configured_tool.uses_credits,
             is_failed = True,
         )
-
-    def __getattr__(self, name):
-        return getattr(self.__wrapped_fetcher, name)

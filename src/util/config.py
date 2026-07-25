@@ -84,6 +84,7 @@ class Config(metaclass = Singleton):
     platform_replicate_key: SecretStr
     platform_rapid_api_key: SecretStr
     platform_coinmarketcap_key: SecretStr
+    platform_twelve_data_api_key: SecretStr
     platform_x_key: SecretStr
     platform_x_ai_key: SecretStr
 
@@ -124,6 +125,7 @@ class Config(metaclass = Singleton):
             self.platform_replicate_key,
             self.platform_rapid_api_key,
             self.platform_coinmarketcap_key,
+            self.platform_twelve_data_api_key,
             self.platform_x_key,
             self.platform_x_ai_key,
             self.s3_access_key,
@@ -190,6 +192,7 @@ class Config(metaclass = Singleton):
         def_platform_replicate_key: SecretStr = SecretStr("invalid"),
         def_platform_rapid_api_key: SecretStr = SecretStr("invalid"),
         def_platform_coinmarketcap_key: SecretStr = SecretStr("invalid"),
+        def_platform_twelve_data_api_key: SecretStr = SecretStr("invalid"),
         def_platform_x_key: SecretStr = SecretStr("invalid"),
         def_platform_x_ai_key: SecretStr = SecretStr("invalid"),
         def_db_user: SecretStr = SecretStr("root"),
@@ -284,6 +287,7 @@ class Config(metaclass = Singleton):
         self.platform_replicate_key = self.__senv("PLATFORM_REPLICATE_KEY", lambda: def_platform_replicate_key)
         self.platform_rapid_api_key = self.__senv("PLATFORM_RAPID_API_KEY", lambda: def_platform_rapid_api_key)
         self.platform_coinmarketcap_key = self.__senv("PLATFORM_COINMARKETCAP_KEY", lambda: def_platform_coinmarketcap_key)
+        self.platform_twelve_data_api_key = self.__senv("TWELVE_DATA_API_KEY", lambda: def_platform_twelve_data_api_key)
         self.platform_x_key = self.__senv("PLATFORM_X_KEY", lambda: def_platform_x_key)
         self.platform_x_ai_key = self.__senv("PLATFORM_X_AI_KEY", lambda: def_platform_x_ai_key)
         self.s3_access_key = self.__senv("S3_ACCESS_KEY", lambda: def_s3_access_key)

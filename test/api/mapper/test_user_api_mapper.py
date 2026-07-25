@@ -34,6 +34,7 @@ class UserMapperTest(unittest.TestCase):
             replicate_key = SecretStr("r8_test012"),
             rapid_api_key = SecretStr("rapid-test345"),
             coinmarketcap_key = SecretStr("cmc-test678"),
+            twelve_data_api_key = SecretStr("twelve-data-test"),
             x_key = SecretStr("x-test901"),
             x_ai_key = SecretStr("xai-test234"),
             tool_choice_chat = "gpt-4o",
@@ -47,6 +48,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_embedding = "text-embedding-3-large",
             tool_choice_api_fiat_exchange = "rapid-api-fiat",
             tool_choice_api_crypto_exchange = "coinmarketcap-crypto",
+            tool_choice_api_stock_quote = "quote",
             tool_choice_api_twitter = "rapid-api-twitter",
             is_on_waitlist = False,
             is_invited_to_start = False,
@@ -64,6 +66,7 @@ class UserMapperTest(unittest.TestCase):
             replicate_key = "r8_new012",
             rapid_api_key = "rapid-new345",
             coinmarketcap_key = "cmc-new678",
+            twelve_data_api_key = "twelve-data-new",
             x_key = "x-new901",
             x_ai_key = "xai-new234",
             tool_choice_chat = "gpt-4o-mini",
@@ -77,6 +80,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_embedding = "text-embedding-3-small",
             tool_choice_api_fiat_exchange = "new-fiat-api",
             tool_choice_api_crypto_exchange = "new-crypto-api",
+            tool_choice_api_stock_quote = "new-stock-api",
             tool_choice_api_twitter = "new-twitter-api",
             are_policies_accepted = True,
         )
@@ -91,6 +95,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(user_save.replicate_key.get_secret_value() if user_save.replicate_key else None, "r8_new012")
         self.assertEqual(user_save.rapid_api_key.get_secret_value() if user_save.rapid_api_key else None, "rapid-new345")
         self.assertEqual(user_save.coinmarketcap_key.get_secret_value() if user_save.coinmarketcap_key else None, "cmc-new678")
+        self.assertEqual(user_save.twelve_data_api_key.get_secret_value() if user_save.twelve_data_api_key else None, "twelve-data-new")  # noqa: E501
         self.assertEqual(user_save.x_key.get_secret_value() if user_save.x_key else None, "x-new901")
         self.assertEqual(user_save.x_ai_key.get_secret_value() if user_save.x_ai_key else None, "xai-new234")
         self.assertEqual(user_save.tool_choice_chat, "gpt-4o-mini")
@@ -104,6 +109,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(user_save.tool_choice_embedding, "text-embedding-3-small")
         self.assertEqual(user_save.tool_choice_api_fiat_exchange, "new-fiat-api")
         self.assertEqual(user_save.tool_choice_api_crypto_exchange, "new-crypto-api")
+        self.assertEqual(user_save.tool_choice_api_stock_quote, "new-stock-api")
         self.assertEqual(user_save.tool_choice_api_twitter, "new-twitter-api")
         self.assertTrue(user_save.are_policies_accepted)
 
@@ -255,6 +261,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(masked_user.replicate_key, mask_secret(self.user.replicate_key))
         self.assertEqual(masked_user.rapid_api_key, mask_secret(self.user.rapid_api_key))
         self.assertEqual(masked_user.coinmarketcap_key, mask_secret(self.user.coinmarketcap_key))
+        self.assertEqual(masked_user.twelve_data_api_key, mask_secret(self.user.twelve_data_api_key))
         self.assertEqual(masked_user.x_key, mask_secret(self.user.x_key))
         self.assertEqual(masked_user.x_ai_key, mask_secret(self.user.x_ai_key))
 
@@ -270,6 +277,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(masked_user.tool_choice_embedding, self.user.tool_choice_embedding)
         self.assertEqual(masked_user.tool_choice_api_fiat_exchange, self.user.tool_choice_api_fiat_exchange)
         self.assertEqual(masked_user.tool_choice_api_crypto_exchange, self.user.tool_choice_api_crypto_exchange)
+        self.assertEqual(masked_user.tool_choice_api_stock_quote, self.user.tool_choice_api_stock_quote)
         self.assertEqual(masked_user.tool_choice_api_twitter, self.user.tool_choice_api_twitter)
 
     def test_domain_to_api_with_none_values(self):

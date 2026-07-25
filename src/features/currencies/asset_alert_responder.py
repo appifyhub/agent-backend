@@ -10,10 +10,10 @@ from util.errors import ExternalServiceError, NotFoundError
 from util.translations_cache import TranslationsCache
 
 
-def respond_with_currency_alerts(di: DI) -> dict:
+def respond_with_asset_alerts(di: DI) -> dict:
     chats_notified: int = 0
     announcements_created: int = 0
-    service = di.currency_alert_service(target_chat_id = None)
+    service = di.asset_alert_service(target_chat_id = None)
     triggered_alerts = service.get_triggered_alerts()
     translation_caches_all: dict[str, TranslationsCache] = {}
     for triggered_alert in triggered_alerts:
@@ -26,10 +26,11 @@ def respond_with_currency_alerts(di: DI) -> dict:
             scoped_di = di.clone(invoker_id = triggered_alert.owner_id.hex, invoker_chat_id = chat_config.chat_id.hex)
 
             # find the correct translations cache for this alert
-            base_currency = triggered_alert.base_currency
-            desired_currency = triggered_alert.desired_currency
+            asset_type = triggered_alert.asset_type.value
+            asset_id = triggered_alert.asset_id
+            currency = triggered_alert.currency
             alert_threshold = triggered_alert.threshold_percent
-            translations_cache_key = f"{base_currency}-{desired_currency}-{alert_threshold}"
+            translations_cache_key = f"{asset_type}-{asset_id}-{currency}-{alert_threshold}"
 
             # get or create cache instance for this alert type
             if translations_cache_key not in translation_caches_all:

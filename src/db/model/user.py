@@ -57,6 +57,7 @@ class UserDB(BaseModel):
     replicate_key = Column(EncryptedString, nullable = True)
     rapid_api_key = Column(EncryptedString, nullable = True)
     coinmarketcap_key = Column(EncryptedString, nullable = True)
+    twelve_data_api_key = Column(EncryptedString, nullable = True)
     x_key = Column(EncryptedString, nullable = True)
     x_ai_key = Column(EncryptedString, nullable = True)
 
@@ -72,6 +73,7 @@ class UserDB(BaseModel):
     tool_choice_embedding = Column(String, nullable = True)
     tool_choice_api_fiat_exchange = Column(String, nullable = True)
     tool_choice_api_crypto_exchange = Column(String, nullable = True)
+    tool_choice_api_stock_quote = Column(String, nullable = True)
     tool_choice_api_twitter = Column(String, nullable = True)
 
     credit_balance = Column(Float, nullable = False, default = 0.0, server_default = text("0"))

@@ -307,8 +307,10 @@ class ProfileConnectServiceTest(unittest.TestCase):
             connect_key = "KEY1-KEY1-KEY1",
             open_ai_key = SecretStr("survivor-key"),
             anthropic_key = None,
+            twelve_data_api_key = None,
             x_key = None,
             x_ai_key = None,
+            tool_choice_api_stock_quote = None,
             credit_balance = 100.0,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
@@ -324,8 +326,10 @@ class ProfileConnectServiceTest(unittest.TestCase):
             connect_key = "KEY2-KEY2-KEY2",
             open_ai_key = None,
             anthropic_key = SecretStr("deleted-key"),
+            twelve_data_api_key = SecretStr("deleted-twelve-data-key"),
             x_key = SecretStr("deleted-x-key"),
             x_ai_key = SecretStr("deleted-x-ai-key"),
+            tool_choice_api_stock_quote = "quote",
             credit_balance = 50.0,
             group = UserDB.Group.developer,
             created_at = datetime.now().date(),
@@ -338,8 +342,10 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertEqual(merged.whatsapp_user_id, "456")  # Deleted has value, survivor doesn't
         self.assertEqual(merged.open_ai_key, survivor.open_ai_key)  # Survivor has value
         self.assertEqual(merged.anthropic_key, deleted.anthropic_key)  # Deleted has value, survivor doesn't
+        self.assertEqual(merged.twelve_data_api_key, deleted.twelve_data_api_key)
         self.assertEqual(merged.x_key, deleted.x_key)  # Deleted has value, survivor doesn't
         self.assertEqual(merged.x_ai_key, deleted.x_ai_key)  # Deleted has value, survivor doesn't
+        self.assertEqual(merged.tool_choice_api_stock_quote, deleted.tool_choice_api_stock_quote)
         self.assertEqual(merged.credit_balance, 150.0)  # Credit balances are summed
         self.assertEqual(merged.group, UserDB.Group.developer)  # Developer group takes precedence
         self.assertTrue(merged.are_policies_accepted)

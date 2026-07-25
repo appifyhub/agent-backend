@@ -6,7 +6,7 @@ from db.model.user import UserDB
 from features.users.user import User
 from util.config import config
 
-# === The Agent User ===
+# === Core Agent (chat and core operations) ===
 
 THE_AGENT = User(
     id = uuid.uuid5(uuid.NAMESPACE_DNS, "the-agent"),
@@ -19,13 +19,17 @@ THE_AGENT = User(
     whatsapp_phone_number = SecretStr(config.whatsapp_bot_phone_number),
 )
 
-# === Background Tasks Agent (runs scheduled/background tasks) ===
+# === Background Agent (runs scheduled/background tasks) ===
 
 BACKGROUND_AGENT = User(
     id = uuid.uuid5(uuid.NAMESPACE_DNS, "the-agent-background"),
     full_name = config.background_bot_name,
     group = UserDB.Group.standard,
 )
+
+# === Publicly Known Agents ===
+
+SYSTEM_AGENTS: list[User] = [THE_AGENT, BACKGROUND_AGENT]
 
 # === Platform Reactions ===
 

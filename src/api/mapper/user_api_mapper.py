@@ -35,6 +35,8 @@ def apply_to_domain(payload: UserSettingsPayload, existing_user: User) -> User:
         user.rapid_api_key = SecretStr(payload.rapid_api_key) if payload.rapid_api_key else None
     if payload.coinmarketcap_key is not None:
         user.coinmarketcap_key = SecretStr(payload.coinmarketcap_key) if payload.coinmarketcap_key else None
+    if payload.twelve_data_api_key is not None:
+        user.twelve_data_api_key = SecretStr(payload.twelve_data_api_key) if payload.twelve_data_api_key else None
     if payload.x_key is not None:
         user.x_key = SecretStr(payload.x_key) if payload.x_key else None
     if payload.x_ai_key is not None:
@@ -62,6 +64,8 @@ def apply_to_domain(payload: UserSettingsPayload, existing_user: User) -> User:
         user.tool_choice_api_fiat_exchange = payload.tool_choice_api_fiat_exchange if payload.tool_choice_api_fiat_exchange else None  # noqa: E501
     if payload.tool_choice_api_crypto_exchange is not None:
         user.tool_choice_api_crypto_exchange = payload.tool_choice_api_crypto_exchange if payload.tool_choice_api_crypto_exchange else None  # noqa: E501
+    if payload.tool_choice_api_stock_quote is not None:
+        user.tool_choice_api_stock_quote = payload.tool_choice_api_stock_quote if payload.tool_choice_api_stock_quote else None  # noqa: E501
     if payload.tool_choice_api_twitter is not None:
         user.tool_choice_api_twitter = payload.tool_choice_api_twitter if payload.tool_choice_api_twitter else None
 
@@ -95,6 +99,7 @@ def domain_to_api(user: User, is_sponsored: bool) -> UserSettingsResponse:
         replicate_key = mask_secret(user.replicate_key.get_secret_value() if user.replicate_key else None),
         rapid_api_key = mask_secret(user.rapid_api_key.get_secret_value() if user.rapid_api_key else None),
         coinmarketcap_key = mask_secret(user.coinmarketcap_key.get_secret_value() if user.coinmarketcap_key else None),
+        twelve_data_api_key = mask_secret(user.twelve_data_api_key.get_secret_value() if user.twelve_data_api_key else None),
         x_key = mask_secret(user.x_key.get_secret_value() if user.x_key else None),
         x_ai_key = mask_secret(user.x_ai_key.get_secret_value() if user.x_ai_key else None),
 
@@ -109,6 +114,7 @@ def domain_to_api(user: User, is_sponsored: bool) -> UserSettingsResponse:
         tool_choice_embedding = user.tool_choice_embedding,
         tool_choice_api_fiat_exchange = user.tool_choice_api_fiat_exchange,
         tool_choice_api_crypto_exchange = user.tool_choice_api_crypto_exchange,
+        tool_choice_api_stock_quote = user.tool_choice_api_stock_quote,
         tool_choice_api_twitter = user.tool_choice_api_twitter,
 
         credit_balance = user.credit_balance,

@@ -10,7 +10,11 @@ from di.di import DI
 from features.external_tools.access_token_resolver import AccessTokenResolver, ResolvedToken
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET, GPT_4O_MINI
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_6_SONNET,
+    GPT_5_6_TERRA,
+    TWELVE_DATA_STOCK_QUOTE,
+)
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver, ToolResolutionError
 from features.users.user import User
 
@@ -31,7 +35,8 @@ class ToolChoiceResolverTest(unittest.TestCase):
             open_ai_key = SecretStr("test_openai_key"),
             anthropic_key = SecretStr("test_anthropic_key"),
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
-            tool_choice_vision = "gpt-4o-mini",
+            tool_choice_vision = "gpt-5.6-terra",
+            tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
         )
@@ -43,8 +48,8 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.mock_di.access_token_resolver = self.mock_access_token_resolver
 
     def test_find_tool_by_id_success_existing_tool(self):
-        tool = ToolChoiceResolver.find_tool_by_id(GPT_4O_MINI.id)
-        self.assertEqual(tool, GPT_4O_MINI)
+        tool = ToolChoiceResolver.find_tool_by_id(GPT_5_6_TERRA.id)
+        self.assertEqual(tool, GPT_5_6_TERRA)
 
     def test_find_tool_by_id_success_anthropic_tool(self):
         tool = ToolChoiceResolver.find_tool_by_id(CLAUDE_4_6_SONNET.id)
@@ -97,36 +102,36 @@ class ToolChoiceResolverTest(unittest.TestCase):
         tools = ToolChoiceResolver.get_prioritized_tools(
             ToolType.chat,
             user_choice_tool = CLAUDE_4_6_SONNET.id,
-            default_tool = GPT_4O_MINI.id,
+            default_tool = GPT_5_6_TERRA.id,
         )
 
         self.assertGreater(len(tools), 2)
         self.assertEqual(tools[0], CLAUDE_4_6_SONNET)
-        self.assertEqual(tools[1], GPT_4O_MINI)
+        self.assertEqual(tools[1], GPT_5_6_TERRA)
         for tool in tools:
             self.assertIn(ToolType.chat, tool.types)
 
     def test_get_prioritized_tools_user_choice_same_as_default_no_duplication(self):
         tools = ToolChoiceResolver.get_prioritized_tools(
             ToolType.chat,
-            user_choice_tool = GPT_4O_MINI,
-            default_tool = GPT_4O_MINI,
+            user_choice_tool = GPT_5_6_TERRA,
+            default_tool = GPT_5_6_TERRA,
         )
 
         self.assertGreater(len(tools), 1)
-        self.assertEqual(tools[0], GPT_4O_MINI)
+        self.assertEqual(tools[0], GPT_5_6_TERRA)
 
-        gpt_4o_mini_count = sum(1 for tool in tools if tool == GPT_4O_MINI)
-        self.assertEqual(gpt_4o_mini_count, 1)
+        gpt_5_6_terra_count = sum(1 for tool in tools if tool == GPT_5_6_TERRA)
+        self.assertEqual(gpt_5_6_terra_count, 1)
 
     def test_get_prioritized_tools_invalid_user_choice_tool_type(self):
         tools = ToolChoiceResolver.get_prioritized_tools(
             ToolType.hearing,
-            user_choice_tool = GPT_4O_MINI,
+            user_choice_tool = GPT_5_6_TERRA,
         )
 
         self.assertGreater(len(tools), 0)
-        self.assertNotEqual(tools[0], GPT_4O_MINI)
+        self.assertNotEqual(tools[0], GPT_5_6_TERRA)
         for tool in tools:
             self.assertIn(ToolType.hearing, tool.types)
 
@@ -183,19 +188,19 @@ class ToolChoiceResolverTest(unittest.TestCase):
         def mock_get_access_token_for_tool(test_tool):
             if test_tool == CLAUDE_4_6_SONNET:
                 return None
-            if test_tool == GPT_4O_MINI:
+            if test_tool == GPT_5_6_TERRA:
                 return resolved
             return None
 
         self.mock_access_token_resolver.get_access_token_for_tool.side_effect = mock_get_access_token_for_tool
 
         resolver = ToolChoiceResolver(self.mock_di)
-        result = resolver.get_tool(ToolType.chat, default_tool = GPT_4O_MINI.id)
+        result = resolver.get_tool(ToolType.chat, default_tool = GPT_5_6_TERRA.id)
 
         self.assertIsNotNone(result)
         assert result is not None
         self.assertIsInstance(result, ConfiguredTool)
-        self.assertEqual(result.definition, GPT_4O_MINI)
+        self.assertEqual(result.definition, GPT_5_6_TERRA)
         self.assertEqual(result.token.get_secret_value(), "test_token")
         self.assertEqual(result.purpose, ToolType.chat)
 
@@ -254,6 +259,12 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertIsNotNone(vision_result)
         assert vision_result is not None
         self.assertIsInstance(vision_result, ConfiguredTool)
-        self.assertEqual(vision_result.definition, GPT_4O_MINI)
+        self.assertEqual(vision_result.definition, GPT_5_6_TERRA)
         self.assertEqual(vision_result.token.get_secret_value(), "test_token_2")
         self.assertEqual(vision_result.purpose, ToolType.vision)
+
+        stock_result = resolver.get_tool(ToolType.api_stock_quote)
+        self.assertIsNotNone(stock_result)
+        assert stock_result is not None
+        self.assertEqual(stock_result.definition, TWELVE_DATA_STOCK_QUOTE)
+        self.assertEqual(stock_result.purpose, ToolType.api_stock_quote)

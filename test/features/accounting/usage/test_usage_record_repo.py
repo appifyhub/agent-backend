@@ -8,7 +8,7 @@ from db.model.usage_record import UsageRecordDB
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_5_HAIKU, GPT_4O, TRANSFER_TOOL
+from features.external_tools.external_tool_library import CLAUDE_4_5_HAIKU, GPT_5_5, TRANSFER_TOOL
 from features.users.user import User
 
 
@@ -30,7 +30,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self,
         user_id = None,
         payer_id = None,
-        tool = GPT_4O,
+        tool = GPT_5_5,
         tool_purpose = ToolType.chat,
         total_cost_credits = 1.0,
         timestamp = None,
@@ -56,7 +56,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         record = UsageRecord(
             user_id = self.user.id,
             payer_id = self.user.id,
-            tool = GPT_4O,
+            tool = GPT_5_5,
             tool_purpose = ToolType.vision,
             model_cost_credits = 0.5,
             remote_runtime_cost_credits = 0.1,
@@ -174,12 +174,12 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_aggregates_by_user(self):
         self.repo.create(self._create_record(
-            tool = GPT_4O,
+            tool = GPT_5_5,
             tool_purpose = ToolType.chat,
             total_cost_credits = 10,
         ))
         self.repo.create(self._create_record(
-            tool = GPT_4O,
+            tool = GPT_5_5,
             tool_purpose = ToolType.chat,
             total_cost_credits = 5,
         ))
@@ -197,8 +197,8 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
         # by_tool (keyed by tool_id)
         self.assertEqual(len(stats.by_tool), 2)
-        self.assertEqual(stats.by_tool[GPT_4O.id].record_count, 2)
-        self.assertEqual(stats.by_tool[GPT_4O.id].total_cost, 15.0)
+        self.assertEqual(stats.by_tool[GPT_5_5.id].record_count, 2)
+        self.assertEqual(stats.by_tool[GPT_5_5.id].total_cost, 15.0)
         self.assertEqual(stats.by_tool[CLAUDE_4_5_HAIKU.id].record_count, 1)
         self.assertEqual(stats.by_tool[CLAUDE_4_5_HAIKU.id].total_cost, 20.0)
 
@@ -211,14 +211,14 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
         # by_provider (keyed by provider_id)
         self.assertEqual(len(stats.by_provider), 2)
-        self.assertEqual(stats.by_provider[GPT_4O.provider.id].record_count, 2)
-        self.assertEqual(stats.by_provider[GPT_4O.provider.id].total_cost, 15.0)
+        self.assertEqual(stats.by_provider[GPT_5_5.provider.id].record_count, 2)
+        self.assertEqual(stats.by_provider[GPT_5_5.provider.id].total_cost, 15.0)
         self.assertEqual(stats.by_provider[CLAUDE_4_5_HAIKU.provider.id].record_count, 1)
         self.assertEqual(stats.by_provider[CLAUDE_4_5_HAIKU.provider.id].total_cost, 20.0)
 
         # all_tools_used (list of ToolInfo)
         tool_ids = [t.id for t in stats.all_tools_used]
-        self.assertIn(GPT_4O.id, tool_ids)
+        self.assertIn(GPT_5_5.id, tool_ids)
         self.assertIn(CLAUDE_4_5_HAIKU.id, tool_ids)
         self.assertIn(ToolType.chat.value, stats.all_purposes_used)
         self.assertIn(ToolType.images_gen.value, stats.all_purposes_used)
@@ -271,15 +271,15 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(stats.total_cost_credits, 30.0)
 
     def test_get_by_user_tool_filter(self):
-        self.repo.create(self._create_record(tool = GPT_4O))
-        self.repo.create(self._create_record(tool = GPT_4O))
+        self.repo.create(self._create_record(tool = GPT_5_5))
+        self.repo.create(self._create_record(tool = GPT_5_5))
         self.repo.create(self._create_record(tool = CLAUDE_4_5_HAIKU))
 
-        records = self.repo.get_by_user(self.user.id, tool_id = GPT_4O.id)
+        records = self.repo.get_by_user(self.user.id, tool_id = GPT_5_5.id)
 
         self.assertEqual(len(records), 2)
         for r in records:
-            self.assertEqual(r.tool.id, GPT_4O.id)
+            self.assertEqual(r.tool.id, GPT_5_5.id)
 
     def test_get_by_user_purpose_filter(self):
         self.repo.create(self._create_record(tool_purpose = ToolType.chat))
@@ -293,20 +293,20 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             self.assertEqual(r.tool_purpose, ToolType.chat)
 
     def test_get_by_user_provider_filter(self):
-        self.repo.create(self._create_record(tool = GPT_4O))
-        self.repo.create(self._create_record(tool = GPT_4O))
+        self.repo.create(self._create_record(tool = GPT_5_5))
+        self.repo.create(self._create_record(tool = GPT_5_5))
         self.repo.create(self._create_record(tool = CLAUDE_4_5_HAIKU))
 
-        records = self.repo.get_by_user(self.user.id, provider_id = GPT_4O.provider.id)
+        records = self.repo.get_by_user(self.user.id, provider_id = GPT_5_5.provider.id)
 
         self.assertEqual(len(records), 2)
         for r in records:
-            self.assertEqual(r.tool.provider.id, GPT_4O.provider.id)
+            self.assertEqual(r.tool.provider.id, GPT_5_5.provider.id)
 
     def test_get_aggregates_by_user_with_filter_keeps_all_lists_unfiltered(self):
         # Create records with different tools
         self.repo.create(self._create_record(
-            tool = GPT_4O,
+            tool = GPT_5_5,
             tool_purpose = ToolType.chat,
             total_cost_credits = 10,
         ))
@@ -316,19 +316,19 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             total_cost_credits = 20,
         ))
 
-        # Filter by GPT_4O only
-        stats = self.repo.get_aggregates_by_user(self.user.id, tool_id = GPT_4O.id)
+        # Filter by GPT_5_5 only
+        stats = self.repo.get_aggregates_by_user(self.user.id, tool_id = GPT_5_5.id)
 
-        # Totals should be filtered (only GPT_4O)
+        # Totals should be filtered (only GPT_5_5)
         self.assertEqual(stats.total_records, 1)
         self.assertEqual(stats.total_cost_credits, 10.0)
         self.assertEqual(len(stats.by_tool), 1)
-        self.assertIn(GPT_4O.id, stats.by_tool)
+        self.assertIn(GPT_5_5.id, stats.by_tool)
 
         # But all_*_used lists should include ALL tools in the date range (unfiltered)
         tool_ids = [t.id for t in stats.all_tools_used]
         self.assertEqual(len(tool_ids), 2)
-        self.assertIn(GPT_4O.id, tool_ids)
+        self.assertIn(GPT_5_5.id, tool_ids)
         self.assertIn(CLAUDE_4_5_HAIKU.id, tool_ids)
 
         # Same for purposes
@@ -339,11 +339,11 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         # Same for providers
         provider_ids = [p.id for p in stats.all_providers_used]
         self.assertEqual(len(provider_ids), 2)
-        self.assertIn(GPT_4O.provider.id, provider_ids)
+        self.assertIn(GPT_5_5.provider.id, provider_ids)
         self.assertIn(CLAUDE_4_5_HAIKU.provider.id, provider_ids)
 
     def test_get_by_user_includes_transfers_by_default(self):
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer))
 
         records = self.repo.get_by_user(self.user.id)
@@ -351,7 +351,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(len(records), 2)
 
     def test_get_by_user_exclude_transfers(self):
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer))
 
         records = self.repo.get_by_user(self.user.id, include_transfers = False)
@@ -360,7 +360,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(records[0].tool_purpose, ToolType.chat)
 
     def test_get_by_user_only_transfers(self):
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer))
         self.repo.create(self._create_record(tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer))
 
@@ -371,7 +371,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             self.assertEqual(r.tool_purpose, ToolType.credit_transfer)
 
     def test_get_aggregates_includes_transfers_by_default(self):
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat, total_cost_credits = 10))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat, total_cost_credits = 10))
         self.repo.create(self._create_record(
             tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer, total_cost_credits = 50,
         ))
@@ -383,7 +383,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertIn(ToolType.credit_transfer.value, stats.all_purposes_used)
 
     def test_get_aggregates_exclude_transfers(self):
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat, total_cost_credits = 10))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat, total_cost_credits = 10))
         self.repo.create(self._create_record(
             tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer, total_cost_credits = 50,
         ))
@@ -395,7 +395,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertNotIn(ToolType.credit_transfer.value, stats.all_purposes_used)
 
     def test_get_aggregates_only_transfers(self):
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat, total_cost_credits = 10))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat, total_cost_credits = 10))
         self.repo.create(self._create_record(
             tool = TRANSFER_TOOL, tool_purpose = ToolType.credit_transfer, total_cost_credits = 50,
         ))
@@ -408,7 +408,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_by_user_includes_incoming_transfer_as_counterpart(self):
         other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(
             user_id = other_user.id,
             payer_id = other_user.id,
@@ -427,7 +427,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_by_user_excludes_incoming_transfer_when_transfers_excluded(self):
         other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(
             user_id = other_user.id,
             payer_id = other_user.id,
@@ -444,7 +444,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_by_user_only_transfers_includes_counterpart(self):
         other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat))
         self.repo.create(self._create_record(
             user_id = other_user.id,
             payer_id = other_user.id,
@@ -462,7 +462,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_aggregates_includes_incoming_transfer_as_counterpart(self):
         other_user = self.sql.user_repo().save(User(connect_key = "OTHER-KEY"))
-        self.repo.create(self._create_record(tool = GPT_4O, tool_purpose = ToolType.chat, total_cost_credits = 10))
+        self.repo.create(self._create_record(tool = GPT_5_5, tool_purpose = ToolType.chat, total_cost_credits = 10))
         self.repo.create(self._create_record(
             user_id = other_user.id,
             payer_id = other_user.id,
