@@ -88,6 +88,28 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.attachments, [])
         self.assertEqual(result.raw_message_text, "This is a message")
 
+    def test_ingest_message_ignores_unsupported_anonymous_service_message(self):
+        message = Message(
+            chat = Chat(id = -1001474547339, type = "supergroup", title = "Hot Fintech Tips"),
+            message_id = 104648,
+            date = int(datetime.now().timestamp()),
+            **{
+                "from": TelegramUser(
+                    id = 1087968824,
+                    first_name = "Group",
+                    username = "GroupAnonymousBot",
+                    is_bot = True,
+                ),
+            },
+        )
+
+        result = self.resolver.ingest_message(message)
+
+        self.assertIsNone(result)
+        self.mock_di.telegram_domain_mapper.map_chat.assert_not_called()
+        self.mock_di.telegram_domain_mapper.map_author.assert_not_called()
+        self.mock_di.chat_membership_service.ensure_for_inbound.assert_not_called()
+
     def test_ingest_message_no_author_with_attachment_raises(self):
         message = Message(
             chat = Chat(id = 1, type = "private"),
@@ -126,7 +148,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.attachments, [])
         self.mock_di.telegram_domain_mapper.map_attachments.assert_not_called()
         self.mock_di.telegram_bot_api.download_file.assert_not_called()
-        self.mock_di.chat_membership_service.sync.assert_not_called()
+        self.mock_di.chat_membership_service.ensure_for_inbound.assert_not_called()
         self.mock_di.chat_message_repo.save.assert_called_once()
 
     def test_ingest_message_with_attachment_uses_local_attachment_id(self):
@@ -162,7 +184,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertIs(mapped_message, message)
         self.assertNotIn(attachment_id, result.raw_message_text)
         self.mock_di.chat_message_repo.save.assert_called_once()
-        self.mock_di.chat_membership_service.sync.assert_called_once()
+        self.mock_di.chat_membership_service.ensure_for_inbound.assert_called_once_with(result.author, result.chat)
 
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(

@@ -40,9 +40,12 @@ class TelegramChatInboundService:
             return None
         return self.ingest_message(message)
 
-    def ingest_message(self, message: TelegramMessage) -> IngestedChatMessage:
+    def ingest_message(self, message: TelegramMessage) -> IngestedChatMessage | None:
         log.t(f"Ingesting Telegram message: {message}")
         mapper = self.__di.telegram_domain_mapper
+        if not self.__has_supported_content(message):
+            log.d(f"Ignoring unsupported Telegram message '{message.message_id}'")
+            return None
 
         # let's store the chat first, it's the basis ('save' deduplicates)
         stored_chat = self.__di.chat_config_repo.save(mapper.map_chat(message))
@@ -52,7 +55,7 @@ class TelegramChatInboundService:
         is_author_the_agent = bool(mapped_author and is_the_agent(mapped_author, ChatConfigDB.ChatType.telegram))
         stored_author = self.store_author(mapped_author)
         if stored_author and not is_author_the_agent:
-            self.__di.chat_membership_service.sync(stored_author, stored_chat)
+            self.__di.chat_membership_service.ensure_for_inbound(stored_author, stored_chat)
 
         # then we store the message attachments
         stored_attachments: list[ChatAttachment] = []
@@ -90,6 +93,16 @@ class TelegramChatInboundService:
             message = stored_message,
             attachments = stored_attachments,
             raw_message_text = mapped_message.text,
+        )
+
+    def __has_supported_content(self, message: TelegramMessage) -> bool:
+        return bool(
+            message.text
+            or message.caption
+            or message.audio
+            or message.document
+            or message.photo
+            or message.voice,
         )
 
     def store_author(self, mapped_data: UserRemoteData | None) -> User | None:

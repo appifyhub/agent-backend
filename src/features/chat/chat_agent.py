@@ -1,6 +1,7 @@
 import random
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, TypeVar
 
 from langchain_core.language_models import LanguageModelInput
@@ -40,16 +41,18 @@ class ChatAgent:
     TOOL_TYPE: ToolType = ToolType.chat
 
     __messages: list[BaseMessage]
-    __raw_last_message: str  # excludes the resolver formatting
-    __last_message_id: str
+    __trigger_message_text: str  # excludes the resolver formatting
+    __trigger_message_id: str
+    __trigger_message_sent_at: datetime
     __configured_tool: ConfiguredTool | None
     __max_iterations: int
     __di: DI
 
     def __init__(
         self,
-        raw_last_message: str,
-        last_message_id: str,
+        trigger_message_text: str,
+        trigger_message_id: str,
+        trigger_message_sent_at: datetime,
         configured_tool: ConfiguredTool | None,
         di: DI,
     ):
@@ -60,8 +63,9 @@ class ChatAgent:
             raise AuthorizationError(f"User {di.invoker.id} is not a member of chat {target_chat.chat_id}", NOT_CHAT_MEMBER)
 
         # initialize the basic properties
-        self.__raw_last_message = raw_last_message
-        self.__last_message_id = last_message_id
+        self.__trigger_message_text = trigger_message_text
+        self.__trigger_message_id = trigger_message_id
+        self.__trigger_message_sent_at = trigger_message_sent_at
         self.__max_iterations = invoker_membership.max_iterations
         self.__configured_tool = configured_tool
         self.__di = di
@@ -98,21 +102,34 @@ class ChatAgent:
     def __last_message(self) -> BaseMessage:
         return self.__messages[-1]
 
-    def __has_newer_burst_message(self) -> bool:
+    def __is_superseded_by_newer_invoker_message(self) -> bool:
         if config.chat_debounce_delay_s <= 0.0:
             return False
+        self.__di.rollback_db_session()  # we release the DB before sleeping
         time.sleep(config.chat_debounce_delay_s)
         chat_id = self.__di.require_invoker_chat().chat_id
         # iterate newest-to-oldest, skipping messages from other authors, to find the
         # most recent message from this invoker - only the same author messages form a burst
-        recent_messages = self.__di.chat_message_repo.get_latest_by_chat(chat_id, limit = 10)
-        for message in recent_messages:
-            if message.author_id == self.__di.invoker.id:
-                if message.message_id != self.__last_message_id:
-                    log.d(f"Message burst detected: skipping message '{self.__last_message_id}'")
+        try:
+            recent_messages = self.__di.chat_message_repo.get_latest_by_chat(chat_id, limit = 10)
+            for message in recent_messages:
+                if message.author_id == self.__di.invoker.id and self.__is_newer_message(message):
+                    log.d(f"Message burst detected: skipping message '{self.__trigger_message_id}'")
                     return True
-                return False
-        return False
+            return False
+        finally:
+            self.__di.rollback_db_session()
+
+    def __is_newer_message(self, message: ChatMessage) -> bool:
+        if message.sent_at > self.__trigger_message_sent_at:
+            return True
+        if message.sent_at < self.__trigger_message_sent_at:
+            return False
+        if message.message_id == self.__trigger_message_id:
+            return False
+        if message.message_id.isdigit() and self.__trigger_message_id.isdigit():
+            return int(message.message_id) > int(self.__trigger_message_id)
+        return True
 
     def execute(self) -> AIMessage | None:
         log.t(f"Starting chat completion for '{self.__last_message.content}'")
@@ -129,7 +146,7 @@ class ChatAgent:
                 return command_handling.reply
 
         # burst gate: only the latest message in a burst reaches LLM processing
-        if self.__has_newer_burst_message():
+        if self.__is_superseded_by_newer_invoker_message():
             return None
 
         # full reply decision runs on the burst winner with burst-aware mention
@@ -141,6 +158,8 @@ class ChatAgent:
             self.__di.authorization_service.require_user_is_chat_ready(self.__di.invoker)
         except ServiceError as e:
             return AIMessage(prompt_resolvers.simple_chat_error(str(e), emoji = e.emoji))
+        finally:
+            self.__di.rollback_db_session()
 
         # handle access control before doing any LLM processing
         if not self.__configured_tool:
@@ -150,7 +169,7 @@ class ChatAgent:
             return answer
 
         # prepare the LLM model and connected tools
-        progress_notifier = self.__di.chat_progress_notifier(self.__last_message_id)
+        progress_notifier = self.__di.chat_progress_notifier(self.__trigger_message_id)
         base_model = self.__di.chat_langchain_model(self.__configured_tool)
         tools_model: None | TooledChatModel = None
         try:
@@ -212,7 +231,7 @@ class ChatAgent:
 
     def process_commands(self) -> CommandHandlingResult:
         try:
-            result = self.__di.command_processor.execute(self.__raw_last_message)
+            result = self.__di.command_processor.execute(self.__trigger_message_text)
         except ServiceError as e:
             log.e("Command processing failed (recognized error)", e)
             message = prompt_resolvers.simple_chat_error(str(e), emoji = e.emoji)
@@ -270,7 +289,7 @@ class ChatAgent:
         return "\n\n".join(paragraphs)
 
     def __is_dispatchable(self) -> bool:
-        has_content = bool(self.__raw_last_message.strip())
+        has_content = bool(self.__trigger_message_text.strip())
         chat_type = self.__di.require_invoker_chat_type()
         agent_user = resolve_agent_user(chat_type)
         invoker_handle = resolve_external_handle(self.__di.invoker, chat_type)
@@ -282,14 +301,14 @@ class ChatAgent:
         chat_type = self.__di.require_invoker_chat_type()
         agent_user = resolve_agent_user(chat_type)
         agent_handle = resolve_external_handle(agent_user, chat_type)
-        is_bot_mentioned = bool(agent_handle) and f"@{agent_handle}" in self.__raw_last_message
+        is_bot_mentioned = bool(agent_handle) and f"@{agent_handle}" in self.__trigger_message_text
         return self.__di.require_invoker_chat().is_private or is_bot_mentioned
 
     def __has_unanswered_bot_mention(self, agent_handle: str | None) -> bool:
         if not agent_handle:
             return False
         mention_token = f"@{agent_handle}"
-        if mention_token in self.__raw_last_message:
+        if mention_token in self.__trigger_message_text:
             return True
         if config.chat_debounce_delay_s <= 0.0:
             return False
@@ -309,7 +328,7 @@ class ChatAgent:
         # known commands are self-contained — their @-tag is syntax, not conversation —
         # so we skip them rather than treating their tag as a pending mention.
         for message in recent_messages:
-            if message.message_id == self.__last_message_id:
+            if message.message_id == self.__trigger_message_id:
                 continue
             if message.author_id == agent_user_id:
                 return False
