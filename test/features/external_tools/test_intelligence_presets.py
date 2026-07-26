@@ -2,6 +2,7 @@ import unittest
 from dataclasses import fields
 
 from features.external_tools.external_tool import ExternalTool, ToolType
+from features.external_tools.external_tool_library import VIDEO_GEN_P_VIDEO
 from features.external_tools.intelligence_presets import (
     INTELLIGENCE_PRESETS,
     IntelligencePreset,
@@ -35,6 +36,7 @@ class IntelligencePresetsTest(unittest.TestCase):
         self.assertEqual(result["search"], choices.search.id)
         self.assertEqual(result["embedding"], choices.embedding.id)
         self.assertEqual(result["api_stock_quote"], choices.api_stock_quote.id)
+        self.assertEqual(result["videos_gen"], VIDEO_GEN_P_VIDEO.id)
 
     def test_get_all_presets_returns_dict_with_all_presets(self):
         result = get_all_presets()
@@ -52,7 +54,7 @@ class IntelligencePresetsTest(unittest.TestCase):
                 self.assertIsInstance(tool_id, str)
 
     def test_all_presets_have_required_tool_types(self):
-        required_types = ["chat", "reasoning", "vision", "hearing", "search", "embedding"]
+        required_types = ["chat", "reasoning", "vision", "hearing", "videos_gen", "search", "embedding"]
         result = get_all_presets()
         for preset_name, choices in result.items():
             for tool_type in required_types:
@@ -82,6 +84,9 @@ class IntelligencePresetsTest(unittest.TestCase):
                 continue
             tool = default_tool_for(tool_type)
             self.assertIsInstance(tool, ExternalTool)
+
+    def test_video_generation_defaults_to_p_video(self):
+        self.assertEqual(default_tool_for(ToolType.videos_gen), VIDEO_GEN_P_VIDEO)
 
     def test_default_tool_for_deprecated_raises(self):
         with self.assertRaises(InternalError) as context:

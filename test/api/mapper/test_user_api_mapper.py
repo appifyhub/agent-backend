@@ -43,6 +43,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_vision = "gpt-4o",
             tool_choice_hearing = "whisper-1",
             tool_choice_images_gen = "dall-e-3",
+            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_images_edit = "dall-e-2",
             tool_choice_search = "perplexity-online",
             tool_choice_embedding = "text-embedding-3-large",
@@ -75,6 +76,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_vision = "gpt-4o-mini",
             tool_choice_hearing = "whisper-1-turbo",
             tool_choice_images_gen = "dall-e-3-hd",
+            tool_choice_videos_gen = "google/veo-3.1",
             tool_choice_images_edit = "dall-e-3",
             tool_choice_search = "perplexity-pro",
             tool_choice_embedding = "text-embedding-3-small",
@@ -104,6 +106,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(user_save.tool_choice_vision, "gpt-4o-mini")
         self.assertEqual(user_save.tool_choice_hearing, "whisper-1-turbo")
         self.assertEqual(user_save.tool_choice_images_gen, "dall-e-3-hd")
+        self.assertEqual(user_save.tool_choice_videos_gen, "google/veo-3.1")
         self.assertEqual(user_save.tool_choice_images_edit, "dall-e-3")
         self.assertEqual(user_save.tool_choice_search, "perplexity-pro")
         self.assertEqual(user_save.tool_choice_embedding, "text-embedding-3-small")
@@ -272,6 +275,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(masked_user.tool_choice_vision, self.user.tool_choice_vision)
         self.assertEqual(masked_user.tool_choice_hearing, self.user.tool_choice_hearing)
         self.assertEqual(masked_user.tool_choice_images_gen, self.user.tool_choice_images_gen)
+        self.assertEqual(masked_user.tool_choice_videos_gen, self.user.tool_choice_videos_gen)
         self.assertEqual(masked_user.tool_choice_images_edit, self.user.tool_choice_images_edit)
         self.assertEqual(masked_user.tool_choice_search, self.user.tool_choice_search)
         self.assertEqual(masked_user.tool_choice_embedding, self.user.tool_choice_embedding)

@@ -47,7 +47,7 @@ REPLICATE = ExternalToolProvider(
     name = "Replicate",
     token_management_url = "https://replicate.com/account/api-tokens",
     token_format = "r8_...abc123",
-    tools = ["Image-Gen", "Image-Edit"],
+    tools = ["Image-Gen", "Image-Edit", "Video-Gen"],
 )
 
 RAPID_API = ExternalToolProvider(

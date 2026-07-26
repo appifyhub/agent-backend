@@ -7,7 +7,14 @@ from features.external_tools.external_tool_library import (
     GPT_5_6_LUNA,
     GPT_5_6_SOL,
     GPT_5_6_TERRA,
+    VIDEO_GEN_P_VIDEO,
+    VIDEO_GEN_RAY_3_2,
+    VIDEO_GEN_SEEDANCE_2_0,
+    VIDEO_GEN_SEEDANCE_2_0_FAST,
+    VIDEO_GEN_VEO_3_1,
+    VIDEO_GEN_VEO_3_1_FAST,
 )
+from features.external_tools.external_tool_provider_library import REPLICATE
 
 
 class ExternalToolTest(unittest.TestCase):
@@ -121,6 +128,44 @@ class ExternalToolTest(unittest.TestCase):
 
         self.assertEqual(result, 18.0)
 
+    def test_adds_output_video_cost_by_size_and_duration(self):
+        estimate = CostEstimate(
+            output_video_1k_second = 2,
+            output_video_2k_second = 4,
+            output_video_4k_second = 8,
+        )
+
+        result = estimate.get_minimum_for(
+            input_text = "",
+            max_output_tokens = 0,
+            output_video_size = "2k",
+            output_video_duration_seconds = 5,
+        )
+
+        self.assertEqual(result, 20.0)
+
+    def test_video_catalog_models_have_expected_costs_and_reference_limits(self):
+        expected_models = (
+            (VIDEO_GEN_P_VIDEO, "prunaai/p-video", (2, 4, 4), 1),
+            (VIDEO_GEN_SEEDANCE_2_0, "bytedance/seedance-2.0", (18, 45, 100), 9),
+            (VIDEO_GEN_SEEDANCE_2_0_FAST, "bytedance/seedance-2.0-fast", (15, 15, 15), 9),
+            (VIDEO_GEN_VEO_3_1, "google/veo-3.1", (40, 40, 40), 3),
+            (VIDEO_GEN_VEO_3_1_FAST, "google/veo-3.1-fast", (15, 15, 15), 1),
+            (VIDEO_GEN_RAY_3_2, "luma/ray-3.2", (15, 50, 50), 1),
+        )
+
+        for model, model_id, costs, max_input_images in expected_models:
+            with self.subTest(model_id = model_id):
+                self.assertEqual(model.id, model_id)
+                self.assertEqual(model.types, [ToolType.videos_gen])
+                self.assertEqual(model.max_input_images, max_input_images)
+                self.assertEqual(model.cost_estimate.output_video_1k_second, costs[0])
+                self.assertEqual(model.cost_estimate.output_video_2k_second, costs[1])
+                self.assertEqual(model.cost_estimate.output_video_4k_second, costs[2])
+                self.assertIn(model, ALL_EXTERNAL_TOOLS)
+
+        self.assertIn("Video-Gen", REPLICATE.tools)
+
     def test_normalizes_image_size_strings(self):
         estimate = CostEstimate(input_image_1k = 1, input_image_2k = 2, output_image_2k = 6)
 
@@ -182,6 +227,7 @@ class ExternalToolTest(unittest.TestCase):
         non_llm = [
             ToolType.hearing,
             ToolType.images_gen,
+            ToolType.videos_gen,
             ToolType.images_edit,
             ToolType.embedding,
             ToolType.api_fiat_exchange,

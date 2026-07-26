@@ -14,6 +14,7 @@ from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     GPT_5_6_TERRA,
     TWELVE_DATA_STOCK_QUOTE,
+    VIDEO_GEN_P_VIDEO,
 )
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver, ToolResolutionError
 from features.users.user import User
@@ -36,6 +37,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
             anthropic_key = SecretStr("test_anthropic_key"),
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_vision = "gpt-5.6-terra",
+            tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.standard,
             created_at = datetime.now().date(),
@@ -268,3 +270,9 @@ class ToolChoiceResolverTest(unittest.TestCase):
         assert stock_result is not None
         self.assertEqual(stock_result.definition, TWELVE_DATA_STOCK_QUOTE)
         self.assertEqual(stock_result.purpose, ToolType.api_stock_quote)
+
+        video_result = resolver.get_tool(ToolType.videos_gen)
+        self.assertIsNotNone(video_result)
+        assert video_result is not None
+        self.assertEqual(video_result.definition, VIDEO_GEN_P_VIDEO)
+        self.assertEqual(video_result.purpose, ToolType.videos_gen)

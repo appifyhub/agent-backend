@@ -18,6 +18,9 @@ class CostEstimate:
     output_image_1k: float | None = None
     output_image_2k: float | None = None
     output_image_4k: float | None = None
+    output_video_1k_second: float | None = None
+    output_video_2k_second: float | None = None
+    output_video_4k_second: float | None = None
     api_call: float | None = None
     second_of_runtime: float | None = None
     web_search_query: float | None = None
@@ -30,6 +33,8 @@ class CostEstimate:
         runtime_seconds: float = 1.0,
         input_image_sizes: list[str] | None = None,
         output_image_sizes: list[str] | None = None,
+        output_video_size: str | None = None,
+        output_video_duration_seconds: float | None = None,
     ) -> float:
         input_tokens = max(1, len(input_text) // 4) if input_text else 0
         result = (input_tokens / 1_000_000) * (self.input_1m_tokens or 0)
@@ -58,6 +63,15 @@ class CostEstimate:
         for size in (output_image_sizes or []):
             normalized = normalize_image_size_category(size)
             result += output_image_costs.get(normalized, fallback_output)
+        if output_video_duration_seconds is not None:
+            output_video_costs = {
+                "1k": float(self.output_video_1k_second or 0),
+                "2k": float(self.output_video_2k_second or 0),
+                "4k": float(self.output_video_4k_second or 0),
+            }
+            normalized = normalize_image_size_category(output_video_size or "1k")
+            fallback_output_video = float(self.output_video_1k_second or 0)
+            result += output_video_duration_seconds * output_video_costs.get(normalized, fallback_output_video)
         return result
 
 
@@ -81,6 +95,7 @@ class ToolType(str, Enum):
     vision = "vision"  # vision features
     hearing = "hearing"  # hearing features
     images_gen = "images_gen"  # image generation
+    videos_gen = "videos_gen"  # video generation
     images_edit = "images_edit"  # image editing
     search = "search"  # web search features
     embedding = "embedding"  # embedding models

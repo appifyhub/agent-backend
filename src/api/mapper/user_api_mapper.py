@@ -54,6 +54,8 @@ def apply_to_domain(payload: UserSettingsPayload, existing_user: User) -> User:
         user.tool_choice_hearing = payload.tool_choice_hearing if payload.tool_choice_hearing else None
     if payload.tool_choice_images_gen is not None:
         user.tool_choice_images_gen = payload.tool_choice_images_gen if payload.tool_choice_images_gen else None
+    if payload.tool_choice_videos_gen is not None:
+        user.tool_choice_videos_gen = payload.tool_choice_videos_gen if payload.tool_choice_videos_gen else None
     if payload.tool_choice_images_edit is not None:
         user.tool_choice_images_edit = payload.tool_choice_images_edit if payload.tool_choice_images_edit else None
     if payload.tool_choice_search is not None:
@@ -109,6 +111,7 @@ def domain_to_api(user: User, is_sponsored: bool) -> UserSettingsResponse:
         tool_choice_vision = user.tool_choice_vision,
         tool_choice_hearing = user.tool_choice_hearing,
         tool_choice_images_gen = user.tool_choice_images_gen,
+        tool_choice_videos_gen = user.tool_choice_videos_gen,
         tool_choice_images_edit = user.tool_choice_images_edit,
         tool_choice_search = user.tool_choice_search,
         tool_choice_embedding = user.tool_choice_embedding,

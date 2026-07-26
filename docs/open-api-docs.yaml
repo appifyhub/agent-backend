@@ -1076,6 +1076,10 @@ components:
           type: string
           nullable: true
           description: Tool choice for image generation
+        tool_choice_videos_gen:
+          type: string
+          nullable: true
+          description: Tool choice for video generation
         tool_choice_images_edit:
           type: string
           nullable: true
@@ -1204,6 +1208,9 @@ components:
           type: string
           nullable: true
         tool_choice_images_gen:
+          type: string
+          nullable: true
+        tool_choice_videos_gen:
           type: string
           nullable: true
         tool_choice_images_edit:
@@ -1703,6 +1710,18 @@ components:
           type: number
           nullable: true
           description: Cost per 4k resolution output image in credits
+        output_video_1k_second:
+          type: number
+          nullable: true
+          description: Cost per generated second at 1k video resolution in credits
+        output_video_2k_second:
+          type: number
+          nullable: true
+          description: Cost per generated second at 2k video resolution in credits
+        output_video_4k_second:
+          type: number
+          nullable: true
+          description: Cost per generated second at 4k video resolution in credits
         api_call:
           type: number
           nullable: true
@@ -1748,7 +1767,7 @@ components:
         tool_purpose:
           type: string
           nullable: false
-          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, images_edit, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, credit_transfer, deprecated]
+          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, videos_gen, images_edit, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, credit_transfer, deprecated]
           description: The purpose/type of tool usage
         timestamp:
           type: string
@@ -1818,6 +1837,15 @@ components:
           items:
             type: string
           description: Sizes of input images processed
+        output_video_size:
+          type: string
+          nullable: true
+          description: Normalized output video size
+        output_video_duration_seconds:
+          type: number
+          format: float
+          nullable: true
+          description: Generated output video duration in seconds
         counterpart_id:
           type: string
           nullable: true

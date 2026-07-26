@@ -25,6 +25,7 @@ class UserSettingsPayload(BaseModel):
     tool_choice_vision: str | None = None
     tool_choice_hearing: str | None = None
     tool_choice_images_gen: str | None = None
+    tool_choice_videos_gen: str | None = None
     tool_choice_images_edit: str | None = None
     tool_choice_search: str | None = None
     tool_choice_embedding: str | None = None
@@ -56,6 +57,7 @@ class UserSettingsPayload(BaseModel):
         "tool_choice_vision",
         "tool_choice_hearing",
         "tool_choice_images_gen",
+        "tool_choice_videos_gen",
         "tool_choice_images_edit",
         "tool_choice_search",
         "tool_choice_embedding",

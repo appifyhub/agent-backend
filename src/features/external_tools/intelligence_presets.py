@@ -22,6 +22,7 @@ from features.external_tools.external_tool_library import (
     TEXT_EMBEDDING_5_LARGE,
     TRANSFER_TOOL,
     TWELVE_DATA_STOCK_QUOTE,
+    VIDEO_GEN_P_VIDEO,
     WHISPER_1,
     X_READ_POST,
 )
@@ -43,6 +44,7 @@ class PresetChoices:
     vision: ExternalTool
     hearing: ExternalTool
     images_gen: ExternalTool
+    videos_gen: ExternalTool
     images_edit: ExternalTool
     search: ExternalTool
     embedding: ExternalTool
@@ -60,6 +62,7 @@ class PresetChoices:
             ToolType.vision.value: self.vision.id,
             ToolType.hearing.value: self.hearing.id,
             ToolType.images_gen.value: self.images_gen.id,
+            ToolType.videos_gen.value: self.videos_gen.id,
             ToolType.images_edit.value: self.images_edit.id,
             ToolType.search.value: self.search.id,
             ToolType.embedding.value: self.embedding.id,
@@ -79,6 +82,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         vision = GPT_5_NANO,
         hearing = WHISPER_1,
         images_gen = IMAGE_GEN_EDIT_SEEDREAM_4,
+        videos_gen = VIDEO_GEN_P_VIDEO,
         images_edit = IMAGE_GEN_EDIT_SEEDREAM_4,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_3_SMALL,
@@ -96,6 +100,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         vision = GPT_5_5,
         hearing = GPT_4O_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
+        videos_gen = VIDEO_GEN_P_VIDEO,
         images_edit = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_5_LARGE,
@@ -113,6 +118,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         vision = GPT_5_5,
         hearing = GPT_4O_MINI_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO,
+        videos_gen = VIDEO_GEN_P_VIDEO,
         images_edit = IMAGE_GEN_EDIT_FLUX_2_PRO,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_3_SMALL,

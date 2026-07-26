@@ -343,6 +343,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
             tool_choice_vision = "openai",
             tool_choice_hearing = "openai",
             tool_choice_images_gen = "replicate",
+            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_images_edit = "replicate",
             tool_choice_search = "perplexity",
             tool_choice_embedding = "openai",
@@ -393,6 +394,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_vision, existing_user.tool_choice_vision)
         self.assertEqual(result.tool_choice_hearing, existing_user.tool_choice_hearing)
         self.assertEqual(result.tool_choice_images_gen, existing_user.tool_choice_images_gen)
+        self.assertEqual(result.tool_choice_videos_gen, existing_user.tool_choice_videos_gen)
         self.assertEqual(result.tool_choice_images_edit, existing_user.tool_choice_images_edit)
         self.assertEqual(result.tool_choice_search, existing_user.tool_choice_search)
         self.assertEqual(result.tool_choice_embedding, existing_user.tool_choice_embedding)

@@ -44,6 +44,8 @@ class UsageRecordMapperTest(unittest.TestCase):
             total_tokens = 350,
             output_image_sizes = ["1024x1024"],
             input_image_sizes = ["512x512"],
+            output_video_size = "2k",
+            output_video_duration_seconds = 5,
         )
 
         self.domain_record = UsageRecord(
@@ -67,6 +69,8 @@ class UsageRecordMapperTest(unittest.TestCase):
             total_tokens = 350,
             output_image_sizes = ["1024x1024"],
             input_image_sizes = ["512x512"],
+            output_video_size = "2k",
+            output_video_duration_seconds = 5,
         )
 
     def test_domain_to_db_none(self):
@@ -87,6 +91,8 @@ class UsageRecordMapperTest(unittest.TestCase):
         self.assertEqual(db_obj.tool_id, self.tool.id)
         self.assertEqual(db_obj.timestamp, self.domain_record.timestamp)
         self.assertEqual(db_obj.output_image_sizes, ["1024x1024"])
+        self.assertEqual(db_obj.output_video_size, "2k")
+        self.assertEqual(db_obj.output_video_duration_seconds, 5)
         self.assertEqual(db_obj.total_cost_credits, 1.0)
         self.assertEqual(db_obj.purpose, "chat")
 
@@ -103,6 +109,8 @@ class UsageRecordMapperTest(unittest.TestCase):
         self.assertEqual(domain_obj.tool.id, self.tool.id)
         self.assertEqual(domain_obj.tool.name, self.tool.name)
         self.assertEqual(domain_obj.output_image_sizes, ["1024x1024"])
+        self.assertEqual(domain_obj.output_video_size, "2k")
+        self.assertEqual(domain_obj.output_video_duration_seconds, 5)
         self.assertEqual(domain_obj.total_cost_credits, 1.0)
 
         # Verify tool_purpose conversion string -> Enum
