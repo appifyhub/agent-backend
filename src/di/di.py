@@ -814,12 +814,13 @@ class DI:
 
     def chat_agent(
         self,
-        raw_last_message: str,
-        last_message_id: str,
+        trigger_message_text: str,
+        trigger_message_id: str,
+        trigger_message_sent_at: datetime,
         configured_tool: ConfiguredTool | None,
     ) -> "ChatAgent":
         from features.chat.chat_agent import ChatAgent
-        return ChatAgent(raw_last_message, last_message_id, configured_tool, self)
+        return ChatAgent(trigger_message_text, trigger_message_id, trigger_message_sent_at, configured_tool, self)
 
     def web_fetcher(
         self,

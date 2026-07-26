@@ -16,7 +16,7 @@ class TelegramDomainMapper:
         text = "\n\n".join(part for part in [message.caption, message.text] if part)
         return ChatMessageRemoteData(
             message_id = str(message.message_id),
-            sent_at = datetime.fromtimestamp(message.date),
+            sent_at = datetime.fromtimestamp(message.edit_date or message.date),
             text = text,
             replied_to_message_id = (
                 str(message.reply_to_message.message_id)

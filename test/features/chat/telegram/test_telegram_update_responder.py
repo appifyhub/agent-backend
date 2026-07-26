@@ -1,6 +1,6 @@
 import unittest
 from collections import namedtuple
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import Mock, patch
 from uuid import UUID
 
@@ -74,7 +74,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
                 chat_type = ChatConfigDB.ChatType.telegram,
             ),
             author = author,
-            message = message or Mock(spec = ChatMessage, message_id = "test-message-id"),
+            message = message or Mock(spec = ChatMessage, message_id = "test-message-id", sent_at = datetime.now()),
             raw_message_text = raw_message_text,
         )
 
@@ -122,8 +122,9 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.assertTrue(result)
         self.di.telegram_chat_inbound_service.ingest_update.assert_called_once_with(self.update)
         self.di.chat_agent.assert_called_once_with(
-            raw_last_message = "Test message text",
-            last_message_id = "test-message-id",
+            trigger_message_text = "Test message text",
+            trigger_message_id = "test-message-id",
+            trigger_message_sent_at = resolved.message.sent_at,
             configured_tool = self.di.tool_choice_resolver.get_tool.return_value,
         )
         self.di.chat_agent.return_value.execute.assert_called_once()
@@ -138,7 +139,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         ])
         self.di.telegram_chat_inbound_service.ingest_update.return_value = self.__resolved_result(
             author = Mock(spec = User, id = UUID(int = 1)),
-            message = Mock(spec = ChatMessage, message_id = "test-message-id"),
+            message = Mock(spec = ChatMessage, message_id = "test-message-id", sent_at = datetime.now()),
         )
 
         result = respond_to_update(self.update)
@@ -158,7 +159,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.platform_bot_sdk.return_value.set_reaction.side_effect = Exception("Reaction failed")
         self.di.telegram_chat_inbound_service.ingest_update.return_value = self.__resolved_result(
             author = Mock(spec = User, id = UUID(int = 1)),
-            message = Mock(spec = ChatMessage, message_id = "test-message-id"),
+            message = Mock(spec = ChatMessage, message_id = "test-message-id", sent_at = datetime.now()),
         )
 
         result = respond_to_update(self.update)

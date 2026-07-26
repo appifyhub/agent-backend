@@ -97,10 +97,11 @@ class ChatAgentTest(unittest.TestCase):
         self.configured_tool = Mock()
 
         # Mock message/attachment fetching used in ChatAgent.__init__
+        self.trigger_message_sent_at = datetime.now()
         mock_latest_message = ChatMessage(
             message_id = "msg_123",
             author_id = self.user.id,
-            sent_at = datetime.now(),
+            sent_at = self.trigger_message_sent_at,
             text = "Test message",
             chat_id = self.chat_config.chat_id,
         )
@@ -113,8 +114,9 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_sleep = self.sleep_patcher.start()
 
         self.agent = ChatAgent(
-            raw_last_message = "Test message",
-            last_message_id = "msg_123",
+            trigger_message_text = "Test message",
+            trigger_message_id = "msg_123",
+            trigger_message_sent_at = self.trigger_message_sent_at,
             configured_tool = self.configured_tool,
             di = self.mock_di,
         )
@@ -133,8 +135,9 @@ class ChatAgentTest(unittest.TestCase):
     def test_process_commands_no_api_key(self):
         # Create bot without configured_tool
         bot_no_key = ChatAgent(
-            raw_last_message = "Test message",
-            last_message_id = "msg_123",
+            trigger_message_text = "Test message",
+            trigger_message_id = "msg_123",
+            trigger_message_sent_at = self.trigger_message_sent_at,
             configured_tool = None,
             di = self.mock_di,
         )
@@ -172,14 +175,14 @@ class ChatAgentTest(unittest.TestCase):
     def test_should_reply_private_chat(self):
         self.chat_config.is_private = True
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
 
         self.assertTrue(self.agent.should_reply())
 
     def test_should_reply_bot_mentioned(self):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = f"Hello @{self.agent_user.telegram_username}"
+        self.agent._ChatAgent__trigger_message_text = f"Hello @{self.agent_user.telegram_username}"
 
         self.assertTrue(self.agent.should_reply())
 
@@ -187,7 +190,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_should_reply_random_chance(self, mock_randint):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 50
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
 
         mock_randint.return_value = 25
         self.assertTrue(self.agent.should_reply())
@@ -198,21 +201,21 @@ class ChatAgentTest(unittest.TestCase):
     def test_is_dispatchable_rejects_empty_message(self):
         self.chat_config.is_private = True
         self.chat_config.reply_chance_percent = 100
-        self.agent._ChatAgent__raw_last_message = " "
+        self.agent._ChatAgent__trigger_message_text = " "
 
         self.assertFalse(self.agent._ChatAgent__is_dispatchable())
 
     def test_should_not_reply_zero_chance(self):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
 
         self.assertFalse(self.agent.should_reply())
 
     def test_should_not_reply_100_chance(self):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 100
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
 
         self.assertTrue(self.agent.should_reply())
 
@@ -220,7 +223,7 @@ class ChatAgentTest(unittest.TestCase):
         self.chat_config.is_private = False
         self.chat_config.title = "Group Chat"
         self.chat_config.reply_chance_percent = 100
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
 
         self.assertTrue(self.agent.should_reply())
 
@@ -228,7 +231,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_is_dispatchable_rejects_self_authored(self):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 100
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
         self.mock_di.invoker.telegram_username = self.agent_user.telegram_username
 
         self.assertFalse(self.agent._ChatAgent__is_dispatchable())
@@ -237,7 +240,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_is_dispatchable_accepts_other_user(self):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 100
-        self.agent._ChatAgent__raw_last_message = "Hello"
+        self.agent._ChatAgent__trigger_message_text = "Hello"
         self.mock_di.invoker.telegram_username = "other_user"
 
         self.assertTrue(self.agent._ChatAgent__is_dispatchable())
@@ -283,8 +286,9 @@ class ChatAgentTest(unittest.TestCase):
 
         # Create a new bot instance without configured_tool (simulating no API key)
         bot_no_key = ChatAgent(
-            raw_last_message = "Test message",
-            last_message_id = "msg_123",
+            trigger_message_text = "Test message",
+            trigger_message_id = "msg_123",
+            trigger_message_sent_at = self.trigger_message_sent_at,
             configured_tool = None,
             di = self.mock_di,
         )
@@ -513,6 +517,7 @@ class ChatAgentTest(unittest.TestCase):
         newer_message = Mock()
         newer_message.message_id = "msg_999"
         newer_message.author_id = self.user.id
+        newer_message.sent_at = self.trigger_message_sent_at + timedelta(seconds = 1)
         self.mock_di.chat_message_repo.get_latest_by_chat.side_effect = get_latest_by_chat
 
         result = self.agent.execute()
@@ -524,20 +529,26 @@ class ChatAgentTest(unittest.TestCase):
         self.sleep_patcher.stop()
 
     @patch("features.chat.chat_agent.config")
-    def test_has_newer_burst_message_disabled_when_delay_is_zero(self, mock_config):
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_execute_skips_debounce_when_delay_is_zero(self, mock_should_reply, mock_process_commands, mock_config):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 0.0
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("LLM response")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
 
-        result = self.agent._ChatAgent__has_newer_burst_message()
+        result = self.agent.execute()
 
-        self.assertFalse(result)
+        self.assertEqual(result.content, "LLM response")
         self.mock_sleep.assert_not_called()
         self.mock_di.chat_message_repo.get_latest_by_chat.assert_not_called()
-        self.mock_di.rollback_db_session.assert_not_called()
 
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_has_newer_burst_message_proceeds_when_message_is_latest(
+    def test_is_superseded_by_newer_invoker_message_proceeds_when_message_is_latest(
         self, mock_should_reply, mock_process_commands, mock_config,
     ):
         mock_should_reply.return_value = True
@@ -555,7 +566,7 @@ class ChatAgentTest(unittest.TestCase):
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_has_newer_burst_message_skips_llm_when_newer_message_exists(
+    def test_is_superseded_by_newer_invoker_message_skips_llm_when_newer_message_exists(
         self, mock_should_reply, mock_process_commands, mock_config,
     ):
         mock_should_reply.return_value = True
@@ -564,6 +575,7 @@ class ChatAgentTest(unittest.TestCase):
         newer_message = Mock()
         newer_message.message_id = "msg_999"
         newer_message.author_id = self.user.id
+        newer_message.sent_at = self.trigger_message_sent_at + timedelta(seconds = 1)
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [newer_message]
 
         result = self.agent.execute()
@@ -572,21 +584,101 @@ class ChatAgentTest(unittest.TestCase):
         self.assertIsNone(result)
         self.mock_di.llm_tool_library.bind_tools.assert_not_called()
 
+    @patch("features.chat.chat_agent.config")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_is_superseded_by_newer_invoker_message_keeps_edited_message_newer_than_higher_numeric_id(
+        self, mock_should_reply, mock_config,
+    ):
+        mock_should_reply.return_value = True
+        mock_config.chat_debounce_delay_s = 1.0
+        edited_at = datetime(2026, 1, 1, 12, 0)
+        older_sent_at = edited_at - timedelta(seconds = 1)
+        current_edited_message = ChatMessage(
+            message_id = "100",
+            author_id = self.user.id,
+            sent_at = edited_at,
+            text = "edited older Telegram message",
+            chat_id = self.chat_config.chat_id,
+        )
+        higher_numeric_prior_message = ChatMessage(
+            message_id = "101",
+            author_id = self.user.id,
+            sent_at = older_sent_at,
+            text = "prior Telegram message",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.side_effect = [
+            [current_edited_message, higher_numeric_prior_message],
+            [higher_numeric_prior_message],
+        ]
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("LLM response")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+        agent = ChatAgent(
+            trigger_message_text = "edited older Telegram message",
+            trigger_message_id = "100",
+            trigger_message_sent_at = edited_at,
+            configured_tool = self.configured_tool,
+            di = self.mock_di,
+        )
+
+        result = agent.execute()
+
+        self.mock_sleep.assert_called_once_with(1.0)
+        self.assertEqual(result.content, "LLM response")
+
+    @patch("features.chat.chat_agent.config")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_is_superseded_by_newer_invoker_message_skips_older_edit_with_same_message_id(
+        self, mock_should_reply, mock_config,
+    ):
+        mock_should_reply.return_value = True
+        mock_config.chat_debounce_delay_s = 1.0
+        older_edit_at = datetime(2026, 1, 1, 12, 0)
+        newer_edit_at = older_edit_at + timedelta(seconds = 1)
+        newer_same_message = ChatMessage(
+            message_id = "100",
+            author_id = self.user.id,
+            sent_at = newer_edit_at,
+            text = "newer Telegram edit",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.side_effect = [
+            [newer_same_message],
+            [newer_same_message],
+        ]
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("LLM response")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+        agent = ChatAgent(
+            trigger_message_text = "older Telegram edit",
+            trigger_message_id = "100",
+            trigger_message_sent_at = older_edit_at,
+            configured_tool = self.configured_tool,
+            di = self.mock_di,
+        )
+
+        result = agent.execute()
+
+        self.mock_sleep.assert_called_once_with(1.0)
+        self.assertIsNone(result)
+        self.mock_di.llm_tool_library.bind_tools.assert_not_called()
+
     def test_is_addressable_private_chat(self):
         self.chat_config.is_private = True
-        self.agent._ChatAgent__raw_last_message = "anything"
+        self.agent._ChatAgent__trigger_message_text = "anything"
 
         self.assertTrue(self.agent._ChatAgent__is_addressable())
 
     def test_is_addressable_group_chat_with_mention(self):
         self.chat_config.is_private = False
-        self.agent._ChatAgent__raw_last_message = f"hello @{self.agent_user.telegram_username}"
+        self.agent._ChatAgent__trigger_message_text = f"hello @{self.agent_user.telegram_username}"
 
         self.assertTrue(self.agent._ChatAgent__is_addressable())
 
     def test_is_addressable_group_chat_without_mention(self):
         self.chat_config.is_private = False
-        self.agent._ChatAgent__raw_last_message = "hello"
+        self.agent._ChatAgent__trigger_message_text = "hello"
 
         self.assertFalse(self.agent._ChatAgent__is_addressable())
 
@@ -594,7 +686,7 @@ class ChatAgentTest(unittest.TestCase):
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
     def test_execute_skips_commands_when_not_addressable(self, mock_should_reply, mock_process_commands):
         self.chat_config.is_private = False
-        self.agent._ChatAgent__raw_last_message = "hello"
+        self.agent._ChatAgent__trigger_message_text = "hello"
         mock_should_reply.return_value = False
 
         result = self.agent.execute()
@@ -606,7 +698,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_should_reply_carries_mention_from_recent_burst_message(self, mock_config):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "follow up"
+        self.agent._ChatAgent__trigger_message_text = "follow up"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
         recent_tagged = ChatMessage(
@@ -631,7 +723,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_should_reply_ignores_mention_from_different_invoker(self, mock_config):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "follow up"
+        self.agent._ChatAgent__trigger_message_text = "follow up"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
         other_tagged = ChatMessage(
@@ -656,7 +748,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_should_reply_ignores_mention_after_bot_response(self, mock_config):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "follow up"
+        self.agent._ChatAgent__trigger_message_text = "follow up"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
         bot_reply = ChatMessage(
@@ -691,7 +783,7 @@ class ChatAgentTest(unittest.TestCase):
         # message's instance (no chain-break in DB yet).
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "follow up with no tag"
+        self.agent._ChatAgent__trigger_message_text = "follow up with no tag"
         mock_config.chat_debounce_delay_s = 0.0
         mock_config.chat_history_depth = 30
         recent_tagged = Mock()
@@ -713,7 +805,7 @@ class ChatAgentTest(unittest.TestCase):
         # the chain walk disabled by debounce=0
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = f"hey @{self.agent_user.telegram_username}"
+        self.agent._ChatAgent__trigger_message_text = f"hey @{self.agent_user.telegram_username}"
         mock_config.chat_debounce_delay_s = 0.0
         mock_config.chat_history_depth = 30
 
@@ -727,7 +819,7 @@ class ChatAgentTest(unittest.TestCase):
         # even when the command's bot reply is racing to land in the DB.
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "hey guys what's up"
+        self.agent._ChatAgent__trigger_message_text = "hey guys what's up"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
         command_message = ChatMessage(
@@ -757,7 +849,7 @@ class ChatAgentTest(unittest.TestCase):
         # carry the mention from.
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "follow up with no tag"
+        self.agent._ChatAgent__trigger_message_text = "follow up with no tag"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
         tagged_older = ChatMessage(
@@ -790,7 +882,7 @@ class ChatAgentTest(unittest.TestCase):
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_has_newer_burst_message_ignores_newer_message_from_different_author(
+    def test_is_superseded_by_newer_invoker_message_ignores_newer_message_from_different_author(
         self, mock_should_reply, mock_process_commands, mock_config,
     ):
         mock_should_reply.return_value = True
@@ -803,6 +895,7 @@ class ChatAgentTest(unittest.TestCase):
         our_message = Mock()
         our_message.message_id = "msg_123"
         our_message.author_id = self.user.id
+        our_message.sent_at = self.trigger_message_sent_at
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             newer_message_other_user, our_message,
         ]
@@ -818,7 +911,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_should_reply_carries_mention_past_other_user_messages(self, mock_config):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = "follow up with no tag"
+        self.agent._ChatAgent__trigger_message_text = "follow up with no tag"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
         other_user_msg = ChatMessage(
@@ -854,7 +947,7 @@ class ChatAgentTest(unittest.TestCase):
     def test_group_burst_same_user_all_tagged_carries_mention(self, mock_config):
         self.chat_config.is_private = False
         self.chat_config.reply_chance_percent = 0
-        self.agent._ChatAgent__raw_last_message = f"@{self.agent_user.telegram_username} second thought"
+        self.agent._ChatAgent__trigger_message_text = f"@{self.agent_user.telegram_username} second thought"
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
 
@@ -871,10 +964,11 @@ class ChatAgentTest(unittest.TestCase):
         mock_config.chat_debounce_delay_s = 1.0
 
         mock_config.chat_history_depth = 30
-        self.agent._ChatAgent__raw_last_message = f"@{self.agent_user.telegram_username} actually this"
+        self.agent._ChatAgent__trigger_message_text = f"@{self.agent_user.telegram_username} actually this"
         our_message = Mock()
         our_message.message_id = "msg_123"
         our_message.author_id = self.user.id
+        our_message.sent_at = self.trigger_message_sent_at
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [our_message]
         mock_tools_model = Mock()
         mock_tools_model.invoke.return_value = AIMessage("response")
@@ -895,13 +989,14 @@ class ChatAgentTest(unittest.TestCase):
         mock_config.chat_debounce_delay_s = 1.0
 
         mock_config.chat_history_depth = 30
-        self.agent._ChatAgent__raw_last_message = f"@{self.agent_user.telegram_username} hey bot"
+        self.agent._ChatAgent__trigger_message_text = f"@{self.agent_user.telegram_username} hey bot"
         newer_from_other = Mock()
         newer_from_other.message_id = "msg_200"
         newer_from_other.author_id = UUID(int = 888)
         our_tagged = Mock()
         our_tagged.message_id = "msg_123"
         our_tagged.author_id = self.user.id
+        our_tagged.sent_at = self.trigger_message_sent_at
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
             newer_from_other, our_tagged,
         ]
@@ -923,7 +1018,7 @@ class ChatAgentTest(unittest.TestCase):
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
         mock_config.chat_history_depth = 30
-        self.agent._ChatAgent__raw_last_message = "just chatting"
+        self.agent._ChatAgent__trigger_message_text = "just chatting"
         newer_from_other = ChatMessage(
             message_id = "msg_200",
             author_id = UUID(int = 888),
@@ -957,11 +1052,11 @@ class ChatAgentTest(unittest.TestCase):
         mock_config.chat_debounce_delay_s = 1.0
 
         mock_config.chat_history_depth = 30
-        self.agent._ChatAgent__raw_last_message = "last message in burst"
+        self.agent._ChatAgent__trigger_message_text = "last message in burst"
         our_message = ChatMessage(
             message_id = "msg_123",
             author_id = self.user.id,
-            sent_at = datetime.now(),
+            sent_at = self.trigger_message_sent_at,
             text = "last message in burst",
             chat_id = self.chat_config.chat_id,
         )
@@ -976,14 +1071,155 @@ class ChatAgentTest(unittest.TestCase):
 
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    def test_private_burst_same_second_older_numeric_message_does_not_suppress_current(
+        self, mock_process_commands, mock_config,
+    ):
+        self.chat_config.is_private = True
+        self.chat_config.reply_chance_percent = 0
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
+        mock_config.chat_debounce_delay_s = 1.0
+        sent_at = datetime(2026, 1, 1, 12, 0, 0)
+        older_message = ChatMessage(
+            message_id = "6738",
+            author_id = self.user.id,
+            sent_at = sent_at,
+            text = "older private message",
+            chat_id = self.chat_config.chat_id,
+        )
+        current_message = ChatMessage(
+            message_id = "6739",
+            author_id = self.user.id,
+            sent_at = sent_at,
+            text = "current private message",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
+            older_message, current_message,
+        ]
+        agent = ChatAgent(
+            trigger_message_text = "current private message",
+            trigger_message_id = "6739",
+            trigger_message_sent_at = current_message.sent_at,
+            configured_tool = self.configured_tool,
+            di = self.mock_di,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.reset_mock()
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
+            older_message, current_message,
+        ]
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("private reply")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+
+        result = agent.execute()
+
+        self.assertEqual(result.content, "private reply")
+
+    @patch("features.chat.chat_agent.config")
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    def test_private_burst_current_numeric_message_replies_when_missing_from_recent_query(
+        self, mock_process_commands, mock_config,
+    ):
+        self.chat_config.is_private = True
+        self.chat_config.reply_chance_percent = 0
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
+        mock_config.chat_debounce_delay_s = 1.0
+        mock_config.chat_history_depth = 30
+        older_sent_at = datetime(2026, 1, 1, 12, 0, 0)
+        current_message = ChatMessage(
+            message_id = "6739",
+            author_id = self.user.id,
+            sent_at = older_sent_at + timedelta(seconds = 1),
+            text = "current private message",
+            chat_id = self.chat_config.chat_id,
+        )
+        older_same_author = ChatMessage(
+            message_id = "6738",
+            author_id = self.user.id,
+            sent_at = older_sent_at,
+            text = "older private message",
+            chat_id = self.chat_config.chat_id,
+        )
+        bot_context = ChatMessage(
+            message_id = "6737",
+            author_id = self.agent_user.id,
+            sent_at = older_sent_at - timedelta(seconds = 1),
+            text = "previous bot response",
+            chat_id = self.chat_config.chat_id,
+        )
+        other_author_context = ChatMessage(
+            message_id = "6736",
+            author_id = UUID(int = 2),
+            sent_at = older_sent_at - timedelta(seconds = 2),
+            text = "other author context",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
+            older_same_author, bot_context, other_author_context,
+        ]
+        agent = ChatAgent(
+            trigger_message_text = current_message.text,
+            trigger_message_id = current_message.message_id,
+            trigger_message_sent_at = current_message.sent_at,
+            configured_tool = self.configured_tool,
+            di = self.mock_di,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.reset_mock()
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [
+            older_same_author, bot_context, other_author_context,
+        ]
+        mock_tools_model = Mock()
+        mock_tools_model.invoke.return_value = AIMessage("private reply")
+        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+
+        result = agent.execute()
+
+        self.assertEqual(result.content, "private reply")
+        mock_tools_model.invoke.assert_called_once()
+
+    @patch("features.chat.chat_agent.config")
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    def test_private_burst_older_numeric_message_suppressed_when_current_missing_from_history(
+        self, mock_process_commands, mock_config,
+    ):
+        self.chat_config.is_private = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
+        mock_config.chat_debounce_delay_s = 1.0
+        mock_config.chat_history_depth = 30
+        newer_message = ChatMessage(
+            message_id = "6740",
+            author_id = self.user.id,
+            sent_at = datetime(2026, 1, 1, 12, 0, 1),
+            text = "newer private message",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [newer_message]
+        agent = ChatAgent(
+            trigger_message_text = "older private message",
+            trigger_message_id = "6739",
+            trigger_message_sent_at = datetime(2026, 1, 1, 12, 0, 0),
+            configured_tool = self.configured_tool,
+            di = self.mock_di,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.reset_mock()
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [newer_message]
+
+        result = agent.execute()
+
+        self.assertIsNone(result)
+        self.mock_di.llm_tool_library.bind_tools.assert_not_called()
+
+    @patch("features.chat.chat_agent.config")
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
     def test_private_burst_older_message_suppressed(self, mock_process_commands, mock_config):
         self.chat_config.is_private = True
         mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
         mock_config.chat_debounce_delay_s = 1.0
-        self.agent._ChatAgent__raw_last_message = "first message"
+        self.agent._ChatAgent__trigger_message_text = "first message"
         newer_message = Mock()
         newer_message.message_id = "msg_999"
         newer_message.author_id = self.user.id
+        newer_message.sent_at = self.trigger_message_sent_at + timedelta(seconds = 1)
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [newer_message]
 
         result = self.agent.execute()

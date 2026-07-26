@@ -48,8 +48,9 @@ def respond_to_update(update: Update) -> bool:
             # process the update using LLM; get instead of require to allow the first message to be sent
             tool = di.tool_choice_resolver.get_tool(ChatAgent.TOOL_TYPE, default_tool_for(ChatAgent.TOOL_TYPE))
             chat_agent = di.chat_agent(
-                raw_last_message = resolved_domain_data.raw_message_text,
-                last_message_id = resolved_domain_data.message.message_id,
+                trigger_message_text = resolved_domain_data.raw_message_text,
+                trigger_message_id = resolved_domain_data.message.message_id,
+                trigger_message_sent_at = resolved_domain_data.message.sent_at,
                 configured_tool = tool,
             )
             answer = chat_agent.execute()

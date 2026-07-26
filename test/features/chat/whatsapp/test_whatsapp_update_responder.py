@@ -137,8 +137,9 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         self.assertTrue(result)
         self.di.whatsapp_chat_inbound_service.ingest_update.assert_called_once_with(self.update)
         self.di.chat_agent.assert_called_once_with(
-            raw_last_message = "Test message text",
-            last_message_id = "test-message-id",
+            trigger_message_text = "Test message text",
+            trigger_message_id = "test-message-id",
+            trigger_message_sent_at = resolved.message.sent_at,
             configured_tool = self.di.tool_choice_resolver.get_tool.return_value,
         )
         self.di.chat_agent.return_value.execute.assert_called_once()
