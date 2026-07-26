@@ -18,8 +18,8 @@ class ChatMembershipService:
         self.__di = di
 
     def sync(self, user: User, chat: ChatConfig) -> ChatMembership:
-        existing = self.__di.chat_membership_repo.get(user.id, chat.chat_id)
         access = self.__di.platform_bot_sdk().resolve_chat_access(chat, user)
+        existing = self.__di.chat_membership_repo.get(user.id, chat.chat_id)
         if existing is None and access is None:
             raise AuthorizationError(
                 f"User '{user.id.hex}' is not a participant of chat '{chat.chat_id.hex}'",
@@ -51,6 +51,16 @@ class ChatMembershipService:
                 ),
             )
         return existing
+
+    def ensure_for_inbound(self, user: User, chat: ChatConfig) -> ChatMembership:
+        existing = self.__di.chat_membership_repo.get(user.id, chat.chat_id)
+        self.__di.rollback_db_session()
+        if existing is not None:
+            return existing
+        try:
+            return self.sync(user, chat)
+        finally:
+            self.__di.rollback_db_session()
 
     def get(self, user_id: UUID, chat_id: UUID) -> ChatMembership | None:
         return self.__di.chat_membership_repo.get(user_id, chat_id)

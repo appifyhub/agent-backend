@@ -27,6 +27,7 @@ def respond_to_update(update: Update) -> bool:
 
         resolved_domain_data_all: list[IngestedChatMessage] = []
         resolved_domain_data: IngestedChatMessage | None = None
+        should_notify_of_errors = False
         try:
             # store and map to domain models (throws in case of error)
             resolved_domain_data_all = di.whatsapp_chat_inbound_service.ingest_update(update)
@@ -55,6 +56,7 @@ def respond_to_update(update: Update) -> bool:
             if not answer or not answer.content:
                 log.d("No LLM response needed (command handled or no reply required)")
                 return False
+            di.rollback_db_session()
 
             # send and store the response[s]
             sent_messages: int = 0
@@ -70,6 +72,7 @@ def respond_to_update(update: Update) -> bool:
                         text = format_reaction_response(as_reaction),
                     ),
                 )
+                di.rollback_db_session()
                 silent(di.platform_bot_sdk().set_reaction)(
                     str(resolved_domain_data.chat.external_id),
                     resolved_domain_data.message.message_id,
@@ -79,7 +82,9 @@ def respond_to_update(update: Update) -> bool:
             else:
                 domain_messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
                 for message in domain_messages:
+                    should_notify_of_errors = True
                     di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
+                    di.rollback_db_session()
                     sleep(0.1)
                     sent_messages += 1
 
@@ -91,40 +96,23 @@ def respond_to_update(update: Update) -> bool:
             return True
         except Exception as e:
             log.e(f"Failed to ingest: {update}", e)
-            __notify_of_errors(di, update, resolved_domain_data, e)
+            if should_notify_of_errors and resolved_domain_data:
+                di.rollback_db_session()
+                __notify_of_errors(di, resolved_domain_data, e)
             return False
 
 
 @silent
 def __notify_of_errors(
     di: DI,
-    update: Update,
-    resolved_domain_data: IngestedChatMessage | None,
+    resolved_domain_data: IngestedChatMessage,
     error: Exception,
 ):
-    if resolved_domain_data:
-        chat_id = resolved_domain_data.chat.external_id
-        message_id = resolved_domain_data.message.message_id
-    else:
-        update_messages = [
-            message
-            for entry in update.entry
-            for change in entry.changes
-            for message in change.value.messages or []
-        ]
-        if not update_messages:
-            return
-        triggering_message = max(update_messages, key = lambda message: int(message.timestamp))
-        chat_id = triggering_message.from_
-        message_id = triggering_message.id
-
-    silent(di.whatsapp_bot_sdk.set_reaction)(chat_id, message_id, "💔")
-
-    if resolved_domain_data:
-        emoji = error.emoji if isinstance(error, ServiceError) else "🤯"
-        answer = AIMessage(prompt_resolvers.simple_chat_error(str(error), emoji = emoji))
-        messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
-        for message in messages:
-            di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
-            sleep(0.1)
-        log.t("Replied with the error")
+    emoji = error.emoji if isinstance(error, ServiceError) else "🤯"
+    answer = AIMessage(prompt_resolvers.simple_chat_error(str(error), emoji = emoji))
+    messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
+    for message in messages:
+        di.whatsapp_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
+        di.rollback_db_session()
+        sleep(0.1)
+    log.t("Replied with the error")

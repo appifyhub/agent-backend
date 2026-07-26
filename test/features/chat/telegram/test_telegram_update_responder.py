@@ -98,6 +98,20 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         resolved = self.__resolved_result(author = author)
         self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved
         self.di.chat_message_repo.get_latest_by_chat.return_value = []
+        events = []
+
+        def send_text_message(chat, text):
+            events.append(f"send:{text}")
+
+        def rollback_session():
+            events.append("rollback")
+
+        def sleep(delay):
+            events.append("sleep")
+
+        self.di.telegram_bot_sdk.send_text_message.side_effect = send_text_message
+        self.di.rollback_db_session.side_effect = rollback_session
+        self.mock_sleep.side_effect = sleep
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
             Mock(chat_id = "123", text = "Test response"),
@@ -115,6 +129,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.chat_agent.return_value.execute.assert_called_once()
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(resolved.chat, "Test response")
         self.mock_sleep.assert_called_once_with(0.1)
+        self.assertEqual(events, ["rollback", "send:Test response", "rollback", "sleep"])
 
     def test_reaction_response(self):
         self.di.chat_agent.return_value.execute.return_value = AIMessage(content = [
@@ -186,7 +201,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
-        self.di.telegram_bot_sdk.set_reaction.assert_called_once_with(123, 42, "💔")
+        self.di.telegram_bot_sdk.set_reaction.assert_not_called()
         self.di.chat_message_repo.save.assert_not_called()
 
     def test_no_author_returns_false(self):
@@ -198,9 +213,39 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.di.chat_agent.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()
 
-    def test_general_exception(self):
-        resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
-        self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved_domain_data_mock
+    def test_mapping_failure_before_text_delivery_sends_no_error_message_or_reaction(self):
+        resolved = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved
+        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
+        self.di.chat_message_repo.get_latest_by_chat.return_value = []
+
+        error = ServiceError(
+            message = "Mapping failed",
+            error_code = PLATFORM_MAPPING_FAILED,
+            http_status = 500,
+            emoji = "🧨",
+        )
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.side_effect = error
+
+        with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
+            result = respond_to_update(self.update)
+
+        self.assertFalse(result)
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_called_once_with(
+            resolved.chat,
+            self.di.chat_agent.return_value.execute.return_value,
+        )
+        mock_error.assert_not_called()
+        self.di.telegram_bot_sdk.send_text_message.assert_not_called()
+        self.di.platform_bot_sdk.return_value.set_reaction.assert_not_called()
+        self.di.telegram_bot_sdk.set_reaction.assert_not_called()
+        self.mock_sleep.assert_not_called()
+        self.di.chat_message_repo.save.assert_not_called()
+
+    def test_first_response_send_failure_sends_one_error_text_without_reaction_or_pre_failure_sleep(self):
+        resolved = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved
+        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
 
         error = ServiceError(
             message = "Test error",
@@ -209,19 +254,105 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             emoji = "🧨",
         )
         ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
+        response = [ErrorMsg(chat_id = "123", text = "First response")]
         error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
-        self.di.chat_agent.side_effect = error
-        self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = error_response
-        self.di.telegram_bot_sdk.set_reaction.side_effect = Exception("Reaction failed")
-        self.di.telegram_bot_sdk.send_text_message = Mock()
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.side_effect = [response, error_response]
+        events = []
+
+        def send_text_message(chat, text):
+            events.append(f"send:{text}")
+            if text == "First response":
+                raise error
+
+        def rollback_session():
+            events.append("rollback")
+
+        def sleep(delay):
+            events.append("sleep")
+
+        self.di.telegram_bot_sdk.send_text_message.side_effect = send_text_message
+        self.di.rollback_db_session.side_effect = rollback_session
+        self.mock_sleep.side_effect = sleep
 
         with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
             mock_error.return_value = "Error response"
             result = respond_to_update(self.update)
 
         self.assertFalse(result)
-        self.di.telegram_bot_sdk.set_reaction.assert_called_once_with("123", "test-message-id", "💔")
+        self.di.telegram_bot_sdk.set_reaction.assert_not_called()
+        self.di.platform_bot_sdk.return_value.set_reaction.assert_not_called()
         mock_error.assert_called_once_with(str(error), emoji = "🧨")
-        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(resolved_domain_data_mock.chat, "Error response")
-        self.mock_sleep.assert_called_once_with(0.1)
+        self.assertEqual(
+            [call.args[1] for call in self.di.telegram_bot_sdk.send_text_message.call_args_list],
+            ["First response", "Error response"],
+        )
+        self.assertEqual(
+            events,
+            ["rollback", "send:First response", "rollback", "send:Error response", "rollback", "sleep"],
+        )
+        self.assertEqual([call.args for call in self.mock_sleep.call_args_list], [(0.1,)])
+        self.di.chat_message_repo.save.assert_not_called()
+
+    def test_general_exception_after_response_delivery_started_sends_error_without_reaction(self):
+        resolved_domain_data_mock = self.__resolved_result(author = Mock(spec = User, id = UUID(int = 1)))
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = resolved_domain_data_mock
+        self.di.chat_agent.return_value.execute.return_value = Mock(spec = AIMessage, content = "Test response")
+
+        error = ServiceError(
+            message = "Test error",
+            error_code = PLATFORM_MAPPING_FAILED,
+            http_status = 500,
+            emoji = "🧨",
+        )
+        ErrorMsg = namedtuple("ErrorMsg", ["chat_id", "text"])
+        response = [
+            ErrorMsg(chat_id = "123", text = "First response"),
+            ErrorMsg(chat_id = "123", text = "Second response"),
+        ]
+        error_response = [ErrorMsg(chat_id = "123", text = "Error response")]
+        self.di.domain_langchain_mapper.map_bot_message_to_storage.side_effect = [response, error_response]
+        events = []
+
+        def send_text_message(chat, text):
+            events.append(f"send:{text}")
+            if text == "Second response":
+                raise error
+
+        def rollback_session():
+            events.append("rollback")
+
+        def sleep(delay):
+            events.append("sleep")
+
+        self.di.telegram_bot_sdk.send_text_message.side_effect = send_text_message
+        self.di.rollback_db_session.side_effect = rollback_session
+        self.mock_sleep.side_effect = sleep
+
+        with patch("features.integrations.prompt_resolvers.simple_chat_error") as mock_error:
+            mock_error.return_value = "Error response"
+            result = respond_to_update(self.update)
+
+        self.assertFalse(result)
+        self.di.telegram_bot_sdk.set_reaction.assert_not_called()
+        self.di.platform_bot_sdk.return_value.set_reaction.assert_not_called()
+        mock_error.assert_called_once_with(str(error), emoji = "🧨")
+        self.assertEqual(
+            [call.args[1] for call in self.di.telegram_bot_sdk.send_text_message.call_args_list],
+            ["First response", "Second response", "Error response"],
+        )
+        self.assertEqual([call.args for call in self.mock_sleep.call_args_list], [(0.1,), (0.1,)])
+        self.assertEqual(
+            events,
+            [
+                "rollback",
+                "send:First response",
+                "rollback",
+                "sleep",
+                "send:Second response",
+                "rollback",
+                "send:Error response",
+                "rollback",
+                "sleep",
+            ],
+        )
         self.di.chat_message_repo.save.assert_not_called()
