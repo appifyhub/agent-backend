@@ -191,13 +191,18 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         self.update = Mock(spec = Update, edited_message = None, message = raw_message)
         self.di.telegram_chat_inbound_service.ingest_update.return_value = None
 
-        with patch("features.integrations.prompt_resolvers.simple_chat_error", return_value = "Mapping error"):
+        with (
+            patch("features.chat.telegram.telegram_update_responder.log.d") as mock_log_debug,
+            patch("features.chat.telegram.telegram_update_responder.log.e") as mock_log_error,
+            patch("features.integrations.prompt_resolvers.simple_chat_error", return_value = "Mapping error"),
+        ):
             self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
                 Mock(chat_id = "123", text = "Mapping error"),
             ]
             result = respond_to_update(self.update)
-
         self.assertFalse(result)
+        mock_log_debug.assert_called_once_with("No Telegram response needed (update ignored)")
+        mock_log_error.assert_not_called()
 
         self.di.domain_langchain_mapper.map_bot_message_to_storage.assert_not_called()
         self.di.telegram_bot_sdk.send_text_message.assert_not_called()

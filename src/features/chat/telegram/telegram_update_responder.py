@@ -1,7 +1,6 @@
 from datetime import datetime
 from time import sleep
 
-from fastapi import HTTPException
 from langchain_core.messages import AIMessage
 
 from db.sql import get_detached_session
@@ -32,7 +31,8 @@ def respond_to_update(update: Update) -> bool:
             # store and map to domain models (throws in case of error)
             resolved_domain_data = di.telegram_chat_inbound_service.ingest_update(update)
             if not resolved_domain_data:
-                raise HTTPException(status_code = 422, detail = "Unable to map the Telegram update")
+                log.d("No Telegram response needed (update ignored)")
+                return False
             if not resolved_domain_data.author:
                 log.d("Not responding to messages without author")
                 return False
