@@ -492,24 +492,47 @@ class ChatAgentTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIn("policies", result.content.lower())
 
+    @patch("features.chat.chat_agent.config")
+    def test_execute_rolls_back_before_debounce_sleep_and_after_query(self, mock_config):
+        events = []
+
+        def rollback_session():
+            events.append("rollback")
+
+        def sleep(delay):
+            events.append("sleep")
+
+        def get_latest_by_chat(chat_id, limit):
+            events.append("query")
+            return [newer_message]
+
+        self.mock_di.rollback_db_session.reset_mock()
+        self.mock_di.rollback_db_session.side_effect = rollback_session
+        self.mock_sleep.side_effect = sleep
+        mock_config.chat_debounce_delay_s = 1.0
+        newer_message = Mock()
+        newer_message.message_id = "msg_999"
+        newer_message.author_id = self.user.id
+        self.mock_di.chat_message_repo.get_latest_by_chat.side_effect = get_latest_by_chat
+
+        result = self.agent.execute()
+
+        self.assertIsNone(result)
+        self.assertEqual(events, ["rollback", "sleep", "query", "rollback"])
+
     def tearDown(self):
         self.sleep_patcher.stop()
 
     @patch("features.chat.chat_agent.config")
-    @patch("features.chat.chat_agent.ChatAgent.process_commands")
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_has_newer_burst_message_disabled_when_delay_is_zero(self, mock_should_reply, mock_process_commands, mock_config):
-        mock_should_reply.return_value = True
-        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
+    def test_has_newer_burst_message_disabled_when_delay_is_zero(self, mock_config):
         mock_config.chat_debounce_delay_s = 0.0
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = AIMessage("response")
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
 
-        self.agent.execute()
+        result = self.agent._ChatAgent__has_newer_burst_message()
 
+        self.assertFalse(result)
         self.mock_sleep.assert_not_called()
         self.mock_di.chat_message_repo.get_latest_by_chat.assert_not_called()
+        self.mock_di.rollback_db_session.assert_not_called()
 
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")

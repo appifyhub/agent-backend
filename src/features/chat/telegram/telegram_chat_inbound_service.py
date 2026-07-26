@@ -52,7 +52,7 @@ class TelegramChatInboundService:
         is_author_the_agent = bool(mapped_author and is_the_agent(mapped_author, ChatConfigDB.ChatType.telegram))
         stored_author = self.store_author(mapped_author)
         if stored_author and not is_author_the_agent:
-            self.__di.chat_membership_service.sync(stored_author, stored_chat)
+            self.__di.chat_membership_service.ensure_for_inbound(stored_author, stored_chat)
 
         # then we store the message attachments
         stored_attachments: list[ChatAttachment] = []

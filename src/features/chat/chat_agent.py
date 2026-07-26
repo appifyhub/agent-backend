@@ -101,18 +101,21 @@ class ChatAgent:
     def __has_newer_burst_message(self) -> bool:
         if config.chat_debounce_delay_s <= 0.0:
             return False
+        self.__di.rollback_db_session()  # we release the DB before sleeping
         time.sleep(config.chat_debounce_delay_s)
         chat_id = self.__di.require_invoker_chat().chat_id
         # iterate newest-to-oldest, skipping messages from other authors, to find the
         # most recent message from this invoker - only the same author messages form a burst
-        recent_messages = self.__di.chat_message_repo.get_latest_by_chat(chat_id, limit = 10)
-        for message in recent_messages:
-            if message.author_id == self.__di.invoker.id:
-                if message.message_id != self.__last_message_id:
-                    log.d(f"Message burst detected: skipping message '{self.__last_message_id}'")
-                    return True
-                return False
-        return False
+        try:
+            recent_messages = self.__di.chat_message_repo.get_latest_by_chat(chat_id, limit = 10)
+            for message in recent_messages:
+                if message.author_id == self.__di.invoker.id:
+                    if message.message_id != self.__last_message_id:
+                        log.d(f"Message burst detected: skipping message '{self.__last_message_id}'")
+                        return True
+            return False
+        finally:
+            self.__di.rollback_db_session()
 
     def execute(self) -> AIMessage | None:
         log.t(f"Starting chat completion for '{self.__last_message.content}'")
@@ -141,6 +144,8 @@ class ChatAgent:
             self.__di.authorization_service.require_user_is_chat_ready(self.__di.invoker)
         except ServiceError as e:
             return AIMessage(prompt_resolvers.simple_chat_error(str(e), emoji = e.emoji))
+        finally:
+            self.__di.rollback_db_session()
 
         # handle access control before doing any LLM processing
         if not self.__configured_tool:

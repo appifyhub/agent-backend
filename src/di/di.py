@@ -246,6 +246,10 @@ class DI:
             raise InternalError("Database session not provided", DI_DEPENDENCY_NOT_MET)
         return self._db
 
+    def rollback_db_session(self) -> None:
+        if self.db.in_transaction():
+            self.db.rollback()
+
     @property
     def invoker_id(self) -> str:
         if self._invoker_id is None:

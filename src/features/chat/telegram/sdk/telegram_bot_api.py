@@ -95,7 +95,7 @@ class TelegramBotAPI:
     def download_file(self, file_id: str) -> bytes | None:
         log.t(f"Getting file info for file_id: {file_id}")
         info_url = f"{self.__bot_api_url}/getFile"
-        info_response = requests.get(info_url, params = {"file_id": file_id})
+        info_response = requests.get(info_url, params = {"file_id": file_id}, timeout = config.web_timeout_s)
         self.__raise_for_status(info_response)
         file_info = File(**info_response.json()["result"])
         if not file_info.file_path:
@@ -167,14 +167,14 @@ class TelegramBotAPI:
 
     def get_chat_member(self, chat_id: int | str, user_id: int | str) -> ChatMember:
         url = f"{self.__bot_api_url}/getChatMember"
-        response = requests.get(url, params = {"chat_id": chat_id, "user_id": user_id})
+        response = requests.get(url, params = {"chat_id": chat_id, "user_id": user_id}, timeout = config.web_timeout_s)
         self.__raise_for_status(response)
         member_info = response.json()["result"]
         return TypeAdapter(ChatMember).validate_python(member_info)
 
     def get_chat_administrators(self, chat_id: int | str) -> list[ChatMember]:
         url = f"{self.__bot_api_url}/getChatAdministrators"
-        response = requests.get(url, params = {"chat_id": chat_id})
+        response = requests.get(url, params = {"chat_id": chat_id}, timeout = config.web_timeout_s)
         self.__raise_for_status(response)
         admins_info = response.json()["result"]
         return TypeAdapter(list[ChatMember]).validate_python(admins_info)
