@@ -30,7 +30,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
             message_id = 100,
             text = "This is a test message",
             date = int(datetime.now().timestamp()),
-            edit_date = int(datetime.now().timestamp()) + 10,
             reply_to_message = Message(
                 chat = Chat(id = 10, type = "private"),
                 message_id = 99,
@@ -47,6 +46,21 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.text, "This is a test message")
         self.assertEqual(result.replied_to_message_id, "99")
         self.assertEqual(result.quote_text, "This is a quote")
+
+    def test_map_message_uses_edit_date_as_sent_at(self):
+        sent_timestamp = int(datetime(2026, 1, 1, 12, 0).timestamp())
+        edit_timestamp = sent_timestamp + 30
+        message = Message(
+            chat = Chat(id = 10, type = "private"),
+            message_id = 100,
+            text = "edited text",
+            date = sent_timestamp,
+            edit_date = edit_timestamp,
+        )
+
+        result = self.mapper.map_message(message)
+
+        self.assertEqual(result.sent_at, datetime.fromtimestamp(edit_timestamp))
 
     def test_map_message_empty(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it

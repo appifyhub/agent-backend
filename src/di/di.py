@@ -246,6 +246,10 @@ class DI:
             raise InternalError("Database session not provided", DI_DEPENDENCY_NOT_MET)
         return self._db
 
+    def rollback_db_session(self) -> None:
+        if self.db.in_transaction():
+            self.db.rollback()
+
     @property
     def invoker_id(self) -> str:
         if self._invoker_id is None:
@@ -810,12 +814,13 @@ class DI:
 
     def chat_agent(
         self,
-        raw_last_message: str,
-        last_message_id: str,
+        trigger_message_text: str,
+        trigger_message_id: str,
+        trigger_message_sent_at: datetime,
         configured_tool: ConfiguredTool | None,
     ) -> "ChatAgent":
         from features.chat.chat_agent import ChatAgent
-        return ChatAgent(raw_last_message, last_message_id, configured_tool, self)
+        return ChatAgent(trigger_message_text, trigger_message_id, trigger_message_sent_at, configured_tool, self)
 
     def web_fetcher(
         self,

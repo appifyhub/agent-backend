@@ -1,0 +1,183 @@
+#!/usr/bin/env sh
+
+. "$(dirname "$0")/messages"
+
+if [ ! -f "Pipfile" ]; then
+    echowarn "No 'Pipfile' found. This script must be run from the project root!" >&2
+    echoerr "Exiting..." -n >&2
+    exit 1
+fi
+
+PYPROJECT_FILE="pyproject.toml"
+
+if [ ! -f "$PYPROJECT_FILE" ]; then
+    echoerr "Missing '$PYPROJECT_FILE'." >&2
+    exit 1
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+    echoerr "Missing 'git'." >&2
+    exit 1
+fi
+
+extract_repository() {
+    remote_url=$1
+    remote_url=${remote_url%.git}
+
+    case "$remote_url" in
+        git@*:*)
+            repo_path=${remote_url#*:}
+            ;;
+        https://github.com/*)
+            repo_path=${remote_url#https://github.com/}
+            ;;
+        http://github.com/*)
+            repo_path=${remote_url#http://github.com/}
+            ;;
+        *)
+            repo_path=""
+            ;;
+    esac
+
+    case "$repo_path" in
+        */*)
+            printf "%s\n" "$repo_path"
+            ;;
+        *)
+            printf "\n"
+            ;;
+    esac
+}
+
+release_ref() {
+    if git rev-parse --verify --quiet refs/remotes/origin/release >/dev/null; then
+        printf "origin/release\n"
+        return 0
+    fi
+
+    if git rev-parse --verify --quiet refs/heads/release >/dev/null; then
+        printf "release\n"
+        return 0
+    fi
+
+    return 1
+}
+
+last_release_merge() {
+    git log "$1" --merges --first-parent --format=%H | while read -r commit; do
+        git show -s --format=%P "$commit" | tr " " "\n" | tail -n +2 | while read -r parent; do
+            if git merge-base --is-ancestor "$parent" HEAD 2>/dev/null; then
+                printf "%s\n" "$commit"
+                exit 0
+            fi
+        done
+    done | head -n 1
+}
+
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
+    echoerr "Could not determine the current branch." >&2
+    exit 1
+fi
+
+if [ "$CURRENT_BRANCH" = "release" ]; then
+    echoerr "The release branch can only be a pull request destination." >&2
+    exit 1
+fi
+
+CURRENT_VERSION=$(awk -F '"' '$0 ~ /^version = "[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"$/ { print $2; exit }' "$PYPROJECT_FILE")
+
+if [ -z "$CURRENT_VERSION" ]; then
+    echoerr "Could not find a semantic version in '$PYPROJECT_FILE'." >&2
+    exit 1
+fi
+
+REMOTE_REPO_URL=$(git config --get remote.origin.url 2>/dev/null)
+DEFAULT_FULL_REPO_NAME=$(extract_repository "$REMOTE_REPO_URL")
+FULL_REPO_NAME=${GITHUB_REPOSITORY:-$DEFAULT_FULL_REPO_NAME}
+
+if [ -z "$FULL_REPO_NAME" ]; then
+    echoerr "Could not determine the GitHub repository." >&2
+    exit 1
+fi
+
+case "$FULL_REPO_NAME" in
+    */*)
+        ;;
+    *)
+        echoerr "Invalid GitHub repository: $FULL_REPO_NAME" >&2
+        exit 1
+        ;;
+esac
+
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    echoinfo "Open a pull request in GitHub:"
+    printf "https://github.com/%s/compare/main...%s?quick_pull=1\n" "$FULL_REPO_NAME" "$CURRENT_BRANCH"
+    exit 0
+fi
+
+if ! command -v gh >/dev/null 2>&1; then
+    echoerr "Missing 'gh'. Install GitHub CLI to create the release candidate pull request." >&2
+    exit 1
+fi
+
+git fetch origin release:refs/remotes/origin/release >/dev/null 2>&1 || true
+
+RELEASE_REF=$(release_ref)
+
+if [ -z "$RELEASE_REF" ]; then
+    echoerr "Could not find a local 'release' or 'origin/release' ref." >&2
+    exit 1
+fi
+
+LAST_RELEASE_MERGE=$(last_release_merge "$RELEASE_REF")
+
+if [ -z "$LAST_RELEASE_MERGE" ]; then
+    echoerr "Could not find the last main-to-release merge." >&2
+    exit 1
+fi
+
+LAST_RELEASE_MERGE_DATE=$(git show -s --format=%cI "$LAST_RELEASE_MERGE" 2>/dev/null)
+
+if [ -z "$LAST_RELEASE_MERGE_DATE" ]; then
+    echoerr "Could not determine the last main-to-release merge date." >&2
+    exit 1
+fi
+
+COMMIT_COUNT=$(git rev-list --count HEAD --since="$LAST_RELEASE_MERGE_DATE" 2>/dev/null)
+
+case "$COMMIT_COUNT" in
+    ''|*[!0-9]*)
+        echoerr "Could not count commits since the last main-to-release merge." >&2
+        exit 1
+        ;;
+esac
+
+TITLE="Release Candidate v$CURRENT_VERSION"
+BODY=$(printf "Coming soon…\n\n__(%s commits since last release)__" "$COMMIT_COUNT")
+ASSIGNEE=${GITHUB_ACTOR:-}
+
+if [ -z "$ASSIGNEE" ]; then
+    ASSIGNEE=$(gh api user --jq .login 2>/dev/null || true)
+fi
+
+if [ -n "$ASSIGNEE" ]; then
+    gh pr create \
+        --repo "$FULL_REPO_NAME" \
+        --base release \
+        --head main \
+        --title "$TITLE" \
+        --body "$BODY" \
+        --label Release \
+        --assignee "$ASSIGNEE"
+else
+    echowarn "Could not determine GitHub actor; creating the pull request without auto-assigning."
+    gh pr create \
+        --repo "$FULL_REPO_NAME" \
+        --base release \
+        --head main \
+        --title "$TITLE" \
+        --body "$BODY" \
+        --label Release
+fi
