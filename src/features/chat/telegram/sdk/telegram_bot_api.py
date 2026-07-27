@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import requests
 from pydantic import TypeAdapter
 from requests import RequestException, Response
@@ -7,6 +9,8 @@ from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.telegram_markdown_utils import escape_markdown
 from util import log
 from util.config import config
+from util.error_codes import EXTERNAL_EMPTY_RESPONSE
+from util.errors import ExternalServiceError
 
 
 class TelegramBotAPI:
@@ -70,7 +74,8 @@ class TelegramBotAPI:
     def send_document(
         self,
         chat_id: int | str,
-        document_url: str,
+        document_url: str | None = None,
+        document_path: str | None = None,
         parse_mode: str = "markdown",
         thumbnail: str | None = None,
         caption: str | None = None,
@@ -78,19 +83,55 @@ class TelegramBotAPI:
     ) -> dict:
         log.t(f"Sending document to chat #{chat_id}")
         url = f"{self.__bot_api_url}/sendDocument"
-        payload = {
-            "chat_id": chat_id,
-            "document": document_url,
-            "disable_notification": disable_notification,
-        }
-        if thumbnail:
+        payload = {"chat_id": chat_id, "disable_notification": disable_notification}
+
+        if thumbnail and not document_path:
             payload["thumbnail"] = thumbnail
         if caption:
             payload["caption"] = escape_markdown(caption)
             payload["parse_mode"] = parse_mode
-        response = requests.post(url, json = payload, timeout = config.web_timeout_s)
+        if document_path:
+            payload["disable_content_type_detection"] = True
+            with open(document_path, "rb") as document_file:
+                response = requests.post(
+                    url = url,
+                    data = payload,
+                    files = {"document": (Path(document_path).name, document_file, "application/octet-stream")},
+                    timeout = config.web_timeout_s,
+                )
+        else:
+            payload["document"] = document_url
+            response = requests.post(url = url, json = payload, timeout = config.web_timeout_s)
         self.__raise_for_status(response)
-        return response.json()
+        return self.__validate_message_response(response)
+
+    def send_video(
+        self,
+        chat_id: int | str,
+        video_path: str,
+        caption: str | None = None,
+        parse_mode: str = "markdown",
+        disable_notification: bool = False,
+    ) -> dict:
+        log.t(f"Sending video to chat #{chat_id}")
+        url = f"{self.__bot_api_url}/sendVideo"
+        payload = {
+            "chat_id": chat_id,
+            "disable_notification": disable_notification,
+            "supports_streaming": True,
+        }
+        if caption:
+            payload["caption"] = escape_markdown(caption)
+            payload["parse_mode"] = parse_mode
+        with open(video_path, "rb") as video_file:
+            response = requests.post(
+                url,
+                data = payload,
+                files = {"video": (Path(video_path).name, video_file, "video/mp4")},
+                timeout = config.web_timeout_s,
+            )
+        self.__raise_for_status(response)
+        return self.__validate_message_response(response)
 
     def download_file(self, file_id: str) -> bytes | None:
         log.t(f"Getting file info for file_id: {file_id}")
@@ -185,3 +226,10 @@ class TelegramBotAPI:
         if response.status_code < 200 or response.status_code > 299:
             log.e(f"  Status is not '200': HTTP_{response.status_code}!", response.json())
             response.raise_for_status()
+
+    # noinspection PyMethodMayBeStatic
+    def __validate_message_response(self, response: Response) -> dict:
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("ok") is not True or not isinstance(payload.get("result"), dict):
+            raise ExternalServiceError("Telegram returned an invalid message response", EXTERNAL_EMPTY_RESPONSE)
+        return payload

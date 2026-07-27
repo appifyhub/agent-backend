@@ -200,6 +200,27 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_message_repo.save.assert_called_once()
         self.mock_di.chat_membership_service.ensure_for_inbound.assert_called_once_with(result.author, result.chat)
 
+    def test_ingest_message_with_video_uses_authenticated_download_path(self):
+        message = Message(
+            id = "video-message",
+            **{"from": "1"},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "video",
+            video = MediaAttachment(
+                id = "video1",
+                mime_type = "video/mp4",
+                caption = "Video caption",
+            ),
+        )
+
+        result = self.resolver.ingest_message(message, self.__value([message]))
+
+        self.assertEqual(result.raw_message_text, "Video caption")
+        self.assertEqual(len(result.attachments), 1)
+        self.assertEqual(result.attachments[0].external_id, "video1")
+        self.assertEqual(result.attachments[0].mime_type, "video/mp4")
+        self.mock_di.whatsapp_bot_api.download_media.assert_called_once_with("video1")
+
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
