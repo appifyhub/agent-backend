@@ -26,7 +26,13 @@ def _make_user(user_id: int = 1, credit_balance: float = 100.0) -> User:
     )
 
 
-def _make_configured_tool(payer_id: UUID, uses_credits: bool = True) -> ConfiguredTool:
+def _make_configured_tool(
+    payer_id: UUID,
+    uses_credits: bool = True,
+    output_video_1k_second: float | None = None,
+    output_video_2k_second: float | None = None,
+    output_video_4k_second: float | None = None,
+) -> ConfiguredTool:
     provider = ExternalToolProvider(
         id = "test-provider",
         name = "Test Provider",
@@ -42,6 +48,9 @@ def _make_configured_tool(payer_id: UUID, uses_credits: bool = True) -> Configur
         cost_estimate = CostEstimate(
             input_1m_tokens = 100,
             output_1m_tokens = 200,
+            output_video_1k_second = output_video_1k_second,
+            output_video_2k_second = output_video_2k_second,
+            output_video_4k_second = output_video_4k_second,
         ),
     )
     return ConfiguredTool(
@@ -110,6 +119,28 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
                 self.service.validate_pre_flight(tool)
 
         self.assertIn("Insufficient credits", str(ctx.exception))
+
+    def test_uses_video_size_and_duration_in_cost_estimate(self):
+        self.mock_di.user_repo.get.return_value = _make_user(credit_balance = 15.5)
+        tool = _make_configured_tool(
+            self.payer_id,
+            output_video_1k_second = 1,
+            output_video_2k_second = 3,
+            output_video_4k_second = 6,
+        )
+
+        with patch("features.accounting.spending.spending_service.config") as mock_config:
+            mock_config.usage_maintenance_fee_credits = 1.0
+            with self.assertRaises(ValidationError) as ctx:
+                self.service.validate_pre_flight(
+                    tool,
+                    input_text = "",
+                    max_output_tokens = 0,
+                    output_video_size = "2K",
+                    output_video_duration_seconds = 5,
+                )
+
+        self.assertIn("minimum required 16.0", str(ctx.exception))
 
 
 class SpendingServiceDeductTest(unittest.TestCase):

@@ -159,6 +159,24 @@ class _ContextLibrary:
         ).strip(),
     )
 
+    copywriting_video_screenwriter = PromptFragment(
+        id = "copywriting_video_screenwriter",
+        section = PromptSection.context,
+        content = (
+            "You will now be writing a production-ready prompt for an AI video generator, requested by one of your "
+            "human partners. Preserve the partner's intent while making the requested action, subject, setting, "
+            "shot composition, camera movement, pacing, continuity, lighting, and desired audio clear. "
+            f"The user has supplied `{{{PromptVar.reference_image_count.value}}}` reference image(s) for the video "
+            "generator. You cannot inspect these images yourself. If this count is not zero, use that fact only when "
+            "it helps make the final prompt clearly image-conditioned, including the intended relationship between "
+            "the request and the references, plus the action, motion, camera work, and continuity to create. Do not "
+            "claim to see or describe image details that are not in the user's text. "
+            "If needed, expand upon the original request to create a detailed video prompt. "
+            "Keep quoted dialogue exactly as requested. Do not invent story elements that change the request. "
+            "Your output must contain only the refined video prompt, with no commentary or explanation. "
+        ).strip(),
+    )
+
     copywriting_computer_hearing = PromptFragment(
         id = "copywriting_computer_hearing",
         section = PromptSection.context,
@@ -333,6 +351,16 @@ class _StyleLibrary:
             "If the prompt is going to be long, craft multiple sentences instead of one super long sentence with commas. "
             "Unless otherwise specified, default to prompts generating photorealistic, 4K, HDR images. "
             "All prompts *must* be in English, regardless of the input language of the raw request. "
+        ).strip(),
+    )
+
+    copywriting_video_screenwriter = PromptFragment(
+        id = "copywriting_video_screenwriter",
+        section = PromptSection.style,
+        content = (
+            "Write in clear, vivid English. Prefer a few natural sentences over an unstructured keyword list. "
+            "Describe motion and visual continuity precisely without adding technical parameters or unnecessary "
+            "model-specific instructions. "
         ).strip(),
     )
 

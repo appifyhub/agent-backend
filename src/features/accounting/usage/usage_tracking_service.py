@@ -122,6 +122,47 @@ class UsageTrackingService:
         )
         return self.__di.usage_record_repo.create(record)
 
+    def track_video_model(
+        self,
+        tool: ExternalTool,
+        tool_purpose: ToolType,
+        runtime_seconds: float,
+        payer_id: UUID,
+        uses_credits: bool,
+        output_video_size: str,
+        output_video_duration_seconds: float,
+        remote_runtime_seconds: float | None = None,
+        is_failed: bool = False,
+    ) -> UsageRecord:
+        normalized_video_size = normalize_image_size_category(output_video_size)
+        model_cost_credits = self.__calculate_video_cost(tool.cost_estimate, normalized_video_size, output_video_duration_seconds)
+        api_cost_credits: float = float(tool.cost_estimate.api_call or 0)
+        remote_runtime_cost_credits: float = (tool.cost_estimate.second_of_runtime or 0) * (remote_runtime_seconds or runtime_seconds)  # noqa: E501
+        maintenance_fee_credits: float = config.usage_maintenance_fee_credits
+        total_cost_credits: float = model_cost_credits + api_cost_credits + remote_runtime_cost_credits + maintenance_fee_credits
+
+        record = UsageRecord(
+            user_id = self.__di.invoker.id,
+            payer_id = payer_id,
+            uses_credits = uses_credits,
+            is_failed = is_failed,
+            chat_id = self.__di.invoker_chat.chat_id if self.__di.invoker_chat else None,
+            tool = tool,
+            tool_purpose = tool_purpose,
+            timestamp = datetime.now(timezone.utc),
+            model_cost_credits = model_cost_credits,
+            remote_runtime_cost_credits = remote_runtime_cost_credits,
+            api_call_cost_credits = api_cost_credits,
+            maintenance_fee_credits = maintenance_fee_credits,
+            total_cost_credits = total_cost_credits,
+            runtime_seconds = runtime_seconds,
+            remote_runtime_seconds = remote_runtime_seconds,
+            output_video_size = normalized_video_size,
+            output_video_duration_seconds = output_video_duration_seconds,
+            participant_details = self.__build_participant_details(payer_id),
+        )
+        return self.__di.usage_record_repo.create(record)
+
     def track_web_search_query(
         self,
         tool: ExternalTool,
@@ -313,3 +354,17 @@ class UsageTrackingService:
             f"(output: {output_image_sizes}, input: {input_image_sizes})",
         )
         return 0.0
+
+    @staticmethod
+    def __calculate_video_cost(
+        cost: CostEstimate,
+        output_video_size: str,
+        output_video_duration_seconds: float,
+    ) -> float:
+        output_video_costs = {
+            "1k": float(cost.output_video_1k_second or 0),
+            "2k": float(cost.output_video_2k_second or 0),
+            "4k": float(cost.output_video_4k_second or 0),
+        }
+        per_second_cost = output_video_costs.get(output_video_size, output_video_costs["1k"])
+        return output_video_duration_seconds * per_second_cost

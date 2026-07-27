@@ -8,8 +8,11 @@ from PIL import Image
 
 from features.images.image_size_utils import (
     calculate_image_size_category,
+    convert_size_to_k,
+    convert_size_to_mp,
     normalize_image_size_category,
     resize_file,
+    resolve_closest_aspect_ratio,
 )
 from util.error_codes import INVALID_IMAGE_SIZE
 from util.errors import ValidationError
@@ -136,6 +139,72 @@ class ImageSizeUtilsTest(unittest.TestCase):
 
     def test_normalize_mixed_case(self):
         self.assertEqual(normalize_image_size_category("4Mp"), "4k")
+
+    # convert_size_to_mp
+
+    def test_convert_size_to_mp_from_k(self):
+        self.assertEqual(convert_size_to_mp("1K"), "1 MP")
+        self.assertEqual(convert_size_to_mp("2K"), "2 MP")
+        self.assertEqual(convert_size_to_mp("4K"), "4 MP")
+
+    def test_convert_size_to_mp_already_mp(self):
+        self.assertEqual(convert_size_to_mp("2 MP"), "2 MP")
+
+    def test_convert_size_to_mp_case_insensitive(self):
+        self.assertEqual(convert_size_to_mp("2k"), "2 MP")
+        self.assertEqual(convert_size_to_mp("4K"), "4 MP")
+
+    def test_convert_size_to_mp_invalid_defaults_to_2mp(self):
+        self.assertEqual(convert_size_to_mp("invalid"), "2 MP")
+
+    # convert_size_to_k
+
+    def test_convert_size_to_k_from_mp(self):
+        self.assertEqual(convert_size_to_k("1 MP"), "1K")
+        self.assertEqual(convert_size_to_k("2 MP"), "2K")
+        self.assertEqual(convert_size_to_k("4 MP"), "4K")
+
+    def test_convert_size_to_k_already_k(self):
+        self.assertEqual(convert_size_to_k("2K"), "2K")
+
+    def test_convert_size_to_k_case_insensitive(self):
+        self.assertEqual(convert_size_to_k("2 mp"), "2K")
+        self.assertEqual(convert_size_to_k("4k"), "4K")
+
+    def test_convert_size_to_k_invalid_defaults_to_2k(self):
+        self.assertEqual(convert_size_to_k("invalid"), "2K")
+
+    def test_convert_size_to_k_uses_custom_fallback(self):
+        self.assertEqual(convert_size_to_k("invalid", fallback = "1K"), "1K")
+
+    # resolve_closest_aspect_ratio
+
+    def test_resolve_closest_aspect_ratio_keeps_supported_ratio(self):
+        result = resolve_closest_aspect_ratio(
+            aspect_ratio = "2:3",
+            supported_aspect_ratios = ("9:16", "2:3", "16:9"),
+            default_aspect_ratio = "16:9",
+        )
+
+        self.assertEqual(result, "2:3")
+
+    def test_resolve_closest_aspect_ratio_falls_back_to_closest_supported_ratio(self):
+        result = resolve_closest_aspect_ratio(
+            aspect_ratio = "8:5",
+            supported_aspect_ratios = ("9:16", "16:9"),
+            default_aspect_ratio = "16:9",
+        )
+
+        self.assertEqual(result, "16:9")
+
+    def test_resolve_closest_aspect_ratio_falls_back_for_invalid_ratio(self):
+        result = resolve_closest_aspect_ratio(
+            aspect_ratio = "invalid",
+            supported_aspect_ratios = ("9:16", "16:9"),
+            default_aspect_ratio = "16:9",
+        )
+
+        self.assertEqual(result, "16:9")
 
     # calculate_image_size_category
 
