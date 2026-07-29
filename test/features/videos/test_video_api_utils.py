@@ -47,6 +47,14 @@ class VideoApiUtilsTest(unittest.TestCase):
             with self.subTest(tool = tool.id, requested = requested):
                 self.assertEqual(video_api_utils.resolve_aspect_ratio(tool, requested), expected)
 
+    def test_resolve_aspect_ratio_preserves_every_p_video_ratio(self):
+        for aspect_ratio in video_api_utils.P_VIDEO_ASPECT_RATIOS:
+            with self.subTest(aspect_ratio = aspect_ratio):
+                self.assertEqual(
+                    video_api_utils.resolve_aspect_ratio(VIDEO_GEN_P_VIDEO, aspect_ratio),
+                    aspect_ratio,
+                )
+
     def test_resolve_aspect_ratio_invalid_format_defaults(self):
         self.assertEqual(video_api_utils.resolve_aspect_ratio(VIDEO_GEN_P_VIDEO, "invalid"), "16:9")
 

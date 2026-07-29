@@ -76,6 +76,29 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
 
         self.mock_spending_service.validate_pre_flight.assert_called_once()
 
+    def test_video_create_preflights_mapped_size_and_duration_and_returns_wrapped_prediction(self):
+        mock_prediction = Mock()
+        self.mock_client.predictions.create = Mock(return_value = mock_prediction)
+        decorator = ReplicateUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = self.mock_configured_tool,
+            output_video_size = "2K",
+            output_video_duration_seconds = 10,
+        )
+
+        prediction = decorator.predictions.create(input = {"prompt": "test"})
+
+        self.assertIsInstance(prediction, PredictionUsageTrackingDecorator)
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
+            self.mock_configured_tool,
+            input_image_sizes = None,
+            output_image_sizes = None,
+            output_video_size = "2K",
+            output_video_duration_seconds = 10,
+        )
+
 
 class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
 
@@ -146,11 +169,12 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_wait_tracks_only_once(self):
         self.mock_prediction.metrics = None
-        self.mock_prediction.wait = Mock(return_value = "result")
+        self.mock_prediction.wait = Mock(return_value = None)
 
         self.decorator.wait()
         self.decorator.wait()
 
+        self.mock_prediction.wait.assert_called_once_with()
         self.assertEqual(self.mock_tracking_service.track_image_model.call_count, 1)
 
     def test_wait_with_non_numeric_gpu_time(self):
@@ -170,12 +194,18 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
 
         self.assertEqual(result, "succeeded")
 
-    def test_wait_failure_tracks_without_deduction(self):
-        self.mock_prediction.wait = Mock(side_effect = RuntimeError("Prediction failed"))
+    def test_wait_failure_is_cached_and_tracks_without_deduction(self):
+        error = RuntimeError("Prediction failed")
+        self.mock_prediction.wait = Mock(side_effect = error)
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(RuntimeError) as first_context:
+            self.decorator.wait()
+        with self.assertRaises(RuntimeError) as second_context:
             self.decorator.wait()
 
+        self.assertIs(first_context.exception, error)
+        self.assertIs(second_context.exception, error)
+        self.mock_prediction.wait.assert_called_once_with()
         self.mock_tracking_service.track_image_model.assert_called_once()
         call_args = self.mock_tracking_service.track_image_model.call_args
         self.assertTrue(call_args.kwargs["is_failed"])

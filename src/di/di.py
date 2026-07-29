@@ -657,6 +657,8 @@ class DI:
         timeout_s: float | None = None,
         output_image_sizes: list[str] | None = None,
         input_image_sizes: list[str] | None = None,
+        output_video_size: str | None = None,
+        output_video_duration_seconds: float | None = None,
     ) -> "ReplicateUsageTrackingDecorator":
         from features.accounting.usage.decorators.replicate_usage_tracking_decorator import ReplicateUsageTrackingDecorator
 
@@ -668,6 +670,8 @@ class DI:
             configured_tool,
             output_image_sizes,
             input_image_sizes,
+            output_video_size,
+            output_video_duration_seconds,
         )
 
     # noinspection PyMethodMayBeStatic
