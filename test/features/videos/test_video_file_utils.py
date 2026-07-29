@@ -204,23 +204,23 @@ class VideoFileUtilsTest(unittest.TestCase):
                     output_path = outputs[0],
                     width = 160,
                     height = 90,
-                    video_bitrate = 592_000,
+                    video_bitrate = None,
                     has_audio = True,
                 ),
                 call(
                     input_path = "source.webm",
                     output_path = outputs[1],
-                    width = 120,
-                    height = 66,
-                    video_bitrate = 473_600,
+                    width = 160,
+                    height = 90,
+                    video_bitrate = 592_000,
                     has_audio = True,
                 ),
                 call(
                     input_path = "source.webm",
                     output_path = outputs[2],
-                    width = 80,
-                    height = 44,
-                    video_bitrate = 384_800,
+                    width = 120,
+                    height = 66,
+                    video_bitrate = 473_600,
                     has_audio = True,
                 ),
             ],
@@ -299,23 +299,33 @@ class VideoFileUtilsTest(unittest.TestCase):
 
         self.assertFalse(Path(output_path).exists())
 
-    def test_prepared_remote_video_removes_files_after_consumer_failure(self):
+    def test_prepare_remote_video_files_removes_files_after_consumer_failure(self):
         original_path = self._temp_path(".video")
         prepared_path = self._temp_path(".mp4")
         Path(original_path).write_bytes(b"original")
         Path(prepared_path).write_bytes(b"prepared")
         metadata = video_file_utils.inspect_video(str(self.compliant_path))
 
-        with patch("features.videos.video_file_utils.download_video", return_value = original_path), patch(
+        with patch(
+            "features.videos.video_file_utils.download_video",
+            return_value = original_path,
+        ) as mock_download, patch(
             "features.videos.video_file_utils.prepare_video",
             return_value = prepared_path,
-        ), patch("features.videos.video_file_utils.inspect_video", return_value = metadata):
+        ) as mock_prepare, patch("features.videos.video_file_utils.inspect_video", return_value = metadata):
             with self.assertRaises(ExternalServiceError):
-                with video_file_utils.prepared_remote_video("https://example.com/video.mp4") as paths:
+                with video_file_utils.prepare_remote_video_files("https://example.com/video.mp4") as paths:
                     self.assertTrue(Path(paths[0]).exists())
                     self.assertTrue(Path(paths[1]).exists())
                     raise ExternalServiceError("Delivery failed", VIDEO_PREPARATION_FAILED)
 
+        mock_download.assert_called_once_with("https://example.com/video.mp4")
+        mock_prepare.assert_called_once_with(
+            original_path,
+            max_size_bytes = None,
+            max_width = None,
+            max_height = None,
+        )
         self.assertFalse(Path(original_path).exists())
         self.assertFalse(Path(prepared_path).exists())
 
@@ -329,11 +339,11 @@ class VideoFileUtilsTest(unittest.TestCase):
             video_file_utils.inspect_video(str(self.compliant_path)),
             size_bytes = 1_200_000,
         )
-        outputs = [self._temp_path() for _ in video_file_utils.TRANSCODE_ATTEMPTS]
+        outputs = [self._temp_path() for _ in range(len(video_file_utils.TRANSCODE_ATTEMPTS) + 1)]
 
         with patch(
             "features.videos.video_file_utils.inspect_video",
-            side_effect = [source, oversized, oversized, oversized],
+            side_effect = [source, *[oversized] * len(outputs)],
         ), patch(
             "features.videos.video_file_utils._create_temp_path",
             side_effect = outputs,

@@ -12,9 +12,11 @@ from features.chat.message.formatted_chat_message import (
     FormattedChatMessagePart,
     FormattedTextPart,
 )
+from features.chat.supported_files import KNOWN_VIDEO_FORMATS
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.model.message import Message
 from features.integrations.integration_config import THE_AGENT
+from features.videos.video_file_utils import inspect_video
 from util import log
 from util.functions import obfuscate_url
 
@@ -78,20 +80,56 @@ class TelegramBotSDK:
         caption: str | None = None,
         disable_notification: bool = False,
     ) -> ChatMessage:
-        # the attachment is already archived; expose it via a public URL for delivery
-        public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
-        # sending will generate a real message ID
-        sent_message = self.__di.telegram_bot_api.send_document(
-            chat_id = chat_config.external_id,
-            document_url = public_url,
-            caption = caption,
-            parse_mode = parse_mode,
-            thumbnail = thumbnail,
-            disable_notification = disable_notification,
-        )
+        if attachment.mime_type in KNOWN_VIDEO_FORMATS.values():
+            # video must go in a special way, so temporary path is yielded as a context for the file upload
+            with self.__di.attachment_storage.temporary_path(attachment) as document_path:
+                # sending will generate a real message ID
+                sent_message = self.__di.telegram_bot_api.send_document(
+                    chat_id = chat_config.external_id,
+                    document_path = document_path,
+                    filename = f"{attachment.id}.{attachment.extension}" if attachment.extension else None,
+                    caption = caption,
+                    parse_mode = parse_mode,
+                    thumbnail = thumbnail,
+                    disable_notification = disable_notification,
+                )
+        else:
+            # sending will generate a real message ID
+            public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
+            sent_message = self.__di.telegram_bot_api.send_document(
+                chat_id = chat_config.external_id,
+                document_url = public_url,
+                caption = caption,
+                parse_mode = parse_mode,
+                thumbnail = thumbnail,
+                disable_notification = disable_notification,
+            )
         content = self.__format_media_message(attachment, caption)
         message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         # we should now quickly update the attachment record with the new ID
+        self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
+        return message
+
+    def send_video(
+        self,
+        chat_config: ChatConfig,
+        attachment: ChatAttachment,
+        caption: str | None = None,
+        parse_mode: str = "markdown",
+        disable_notification: bool = False,
+    ) -> ChatMessage:
+        # temporary path is yielded as a context for the file upload
+        with self.__di.attachment_storage.temporary_path(attachment) as video_path:
+            sent_message = self.__di.telegram_bot_api.send_video(
+                chat_id = chat_config.external_id,
+                video_path = video_path,
+                metadata = inspect_video(video_path),
+                caption = caption,
+                parse_mode = parse_mode,
+                disable_notification = disable_notification,
+            )
+        content = self.__format_media_message(attachment, caption)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 

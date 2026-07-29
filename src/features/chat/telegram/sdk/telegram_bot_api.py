@@ -7,6 +7,7 @@ from requests import RequestException, Response
 from features.chat.telegram.model.attachment.file import File
 from features.chat.telegram.model.chat_member import ChatMember
 from features.chat.telegram.telegram_markdown_utils import escape_markdown
+from features.videos.video_file_utils import VideoMetadata
 from util import log
 from util.config import config
 from util.error_codes import EXTERNAL_EMPTY_RESPONSE
@@ -76,6 +77,7 @@ class TelegramBotAPI:
         chat_id: int | str,
         document_url: str | None = None,
         document_path: str | None = None,
+        filename: str | None = None,
         parse_mode: str = "markdown",
         thumbnail: str | None = None,
         caption: str | None = None,
@@ -96,7 +98,13 @@ class TelegramBotAPI:
                 response = requests.post(
                     url = url,
                     data = payload,
-                    files = {"document": (Path(document_path).name, document_file, "application/octet-stream")},
+                    files = {
+                        "document": (
+                            filename or Path(document_path).name,
+                            document_file,
+                            "application/octet-stream",
+                        ),
+                    },
                     timeout = config.web_timeout_s,
                 )
         else:
@@ -109,6 +117,7 @@ class TelegramBotAPI:
         self,
         chat_id: int | str,
         video_path: str,
+        metadata: VideoMetadata,
         caption: str | None = None,
         parse_mode: str = "markdown",
         disable_notification: bool = False,
@@ -119,6 +128,9 @@ class TelegramBotAPI:
             "chat_id": chat_id,
             "disable_notification": disable_notification,
             "supports_streaming": True,
+            "width": metadata.width,
+            "height": metadata.height,
+            "duration": round(metadata.duration_seconds),
         }
         if caption:
             payload["caption"] = escape_markdown(caption)

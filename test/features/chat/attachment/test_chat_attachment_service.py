@@ -159,6 +159,22 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(result.mime_type, "application/pdf")
         self.assertEqual(result.extension, "pdf")
 
+    @patch("features.chat.attachment.chat_attachment_service.config")
+    def test_save_with_content_uses_remote_url_for_video_type_fallback(self, mock_config):
+        mock_config.s3_bucket = "the-agent"
+
+        result = self.service.save(
+            ChatAttachment(
+                chat_id = UUID(int = 2),
+                uploader_user_id = UUID(int = 1),
+            ),
+            content = b"video data",
+            remote_url = "https://example.com/video.webm?token=abc",
+        )
+
+        self.assertEqual(result.mime_type, "video/webm")
+        self.assertEqual(result.extension, "webm")
+
     def test_save_with_content_rejects_empty_content(self):
         with self.assertRaises(ValidationError):
             self.service.save(self.attachment, b"")

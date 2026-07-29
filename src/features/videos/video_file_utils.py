@@ -198,13 +198,18 @@ def prepare_video(
     prepared_successfully = False
 
     try:
-        attempts = TRANSCODE_ATTEMPTS if max_size_bytes is not None else TRANSCODE_ATTEMPTS[:1]
-        for resolution_scale, bitrate_scale in attempts:
+        attempts: list[tuple[float, int | None]] = [(1.00, None)]
+        if target_bitrate is not None:
+            attempts.extend(
+                (resolution_scale, math.floor(target_bitrate * bitrate_scale))
+                for resolution_scale, bitrate_scale in TRANSCODE_ATTEMPTS
+            )
+
+        for resolution_scale, bitrate in attempts:
             delete_file_safe(output_path)
             output_path = _create_temp_path(".mp4")
             width = _even_dimension(target_width * resolution_scale)
             height = _even_dimension(target_height * resolution_scale)
-            bitrate = math.floor(target_bitrate * bitrate_scale) if target_bitrate else None
 
             _transcode_video(
                 input_path = input_path,
@@ -252,7 +257,7 @@ def download_video(public_url: str) -> str:
 
 
 @contextmanager
-def prepared_remote_video(
+def prepare_remote_video_files(
     public_url: str,
     max_size_bytes: int | None = None,
     max_width: int | None = None,
@@ -289,13 +294,7 @@ def _run_process(command: list[str], executable: str) -> subprocess.CompletedPro
         raise ConfigurationError(f"Required video runtime '{executable}' is unavailable", VIDEO_RUNTIME_MISSING)
 
     try:
-        result = subprocess.run(
-            command,
-            capture_output = True,
-            check = False,
-            text = True,
-            timeout = PROCESS_TIMEOUT_SECONDS,
-        )
+        result = subprocess.run(command, capture_output = True, check = False, text = True, timeout = PROCESS_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as e:
         raise ExternalServiceError(f"Video runtime '{executable}' timed out", VIDEO_PREPARATION_FAILED) from e
     except OSError as e:
@@ -308,14 +307,7 @@ def _run_process(command: list[str], executable: str) -> subprocess.CompletedPro
     return result
 
 
-def _transcode_video(
-    input_path: str,
-    output_path: str,
-    width: int,
-    height: int,
-    video_bitrate: int | None,
-    has_audio: bool,
-) -> None:
+def _transcode_video(input_path: str, output_path: str, width: int, height: int, video_bitrate: int | None, has_audio: bool):
     command = [
         "ffmpeg",
         "-y",
@@ -354,11 +346,7 @@ def _resolve_duration(format_data: dict, streams: list[dict]) -> float:
     return max(durations, default = 0.0)
 
 
-def _resolve_target_dimensions(
-    metadata: VideoMetadata,
-    max_width: int | None,
-    max_height: int | None,
-) -> tuple[int, int]:
+def _resolve_target_dimensions(metadata: VideoMetadata, max_width: int | None, max_height: int | None) -> tuple[int, int]:
     scale = min(
         1.0,
         max_width / metadata.width if max_width and metadata.width else 1.0,
