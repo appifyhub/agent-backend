@@ -394,6 +394,27 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(result[1].extension, "png")
         self.di.attachment_storage.put.assert_called_once()
 
+    def test_resolve_image_attachments_accepts_supported_mime_type_or_extension(self):
+        attachments = [
+            replace(self.attachment, mime_type = "image/png"),
+            replace(self.attachment, id = "extension-only", extension = "webp"),
+        ]
+
+        with patch.object(self.service, "resolve_attachments", return_value = attachments) as resolve_attachments:
+            result = self.service.resolve_image_attachments(["attachment-id"], ["https://example.com/image.webp"])
+
+        self.assertEqual(result, attachments)
+        resolve_attachments.assert_called_once_with(["attachment-id"], ["https://example.com/image.webp"])
+
+    def test_resolve_image_attachments_rejects_non_image(self):
+        attachment = replace(self.attachment, mime_type = "video/mp4", extension = "mp4")
+
+        with patch.object(self.service, "resolve_attachments", return_value = [attachment]):
+            with self.assertRaises(ValidationError) as context:
+                self.service.resolve_image_attachments(["attachment-id"], None)
+
+        self.assertIn("Attachment 'attachment-id' is not a supported image", str(context.exception))
+
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_is_own_public_url_matches_public_api_base(self, mock_config):
         mock_config.public_api_base_url = "http://api.example"

@@ -12,21 +12,13 @@ from features.external_tools.external_tool_library import (
 from features.images.image_size_utils import convert_size_to_k, resolve_closest_aspect_ratio
 from util import log
 
-VALID_ASPECT_RATIOS = [
-    "9:16",
-    "2:3",
-    "3:4",
-    "1:1",
-    "4:3",
-    "3:2",
-    "16:9",
-    "21:9",
-]
+DEFAULT_ASPECT_RATIO = "16:9"
 
 P_VIDEO_ASPECT_RATIOS = ["9:16", "2:3", "3:4", "1:1", "4:3", "3:2", "16:9"]
 SEEDANCE_ASPECT_RATIOS = ["9:16", "3:4", "1:1", "4:3", "16:9", "21:9"]
 VEO_ASPECT_RATIOS = ["9:16", "16:9"]
 RAY_ASPECT_RATIOS = ["9:16", "3:4", "1:1", "4:3", "16:9", "21:9"]
+VALID_ASPECT_RATIOS = list(dict.fromkeys(P_VIDEO_ASPECT_RATIOS + SEEDANCE_ASPECT_RATIOS + VEO_ASPECT_RATIOS + RAY_ASPECT_RATIOS))
 
 VALID_DURATIONS = {"short", "medium", "long"}
 
@@ -57,7 +49,7 @@ ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
 class UnifiedVideoParameters:
     prompt: str
     duration: int = 5
-    aspect_ratio: str | None = "16:9"
+    aspect_ratio: str | None = None
     size: str = "1K"
     resolution: str = "720p"
     image: str | None = None
@@ -81,7 +73,6 @@ def map_to_model_parameters(
     aspect_ratio: str | None = None,
     output_size: str | None = None,
     reference_image_urls: list[str] | None = None,
-    input_image_aspect_ratio: str | None = None,
 ) -> UnifiedVideoParameters:
     log.d(f"Mapping video parameters for model '{tool.id}'")
 
@@ -92,16 +83,12 @@ def map_to_model_parameters(
     unified_params = UnifiedVideoParameters(
         prompt = prompt,
         duration = resolve_duration(
-            tool,
-            duration,
+            tool = tool,
+            duration = duration,
             has_input_image = single_image is not None,
             has_reference_images = multi_images is not None,
         ),
-        aspect_ratio = resolve_aspect_ratio(
-            tool,
-            aspect_ratio,
-            input_image_aspect_ratio if single_image else None,
-        ),
+        aspect_ratio = resolve_aspect_ratio(tool, aspect_ratio, references),
         size = normalized_size,
         resolution = {"1K": "720p", "2K": "1080p", "4K": "4k"}[normalized_size],
         image = single_image,
@@ -113,7 +100,6 @@ def map_to_model_parameters(
         resolution = "1080p" if size == "2K" else "720p"
         return replace(
             unified_params,
-            aspect_ratio = None if single_image else unified_params.aspect_ratio,
             size = size,
             resolution = resolution,
             fps = 24,
@@ -129,19 +115,12 @@ def map_to_model_parameters(
     elif tool in (VIDEO_GEN_VEO_3_1, VIDEO_GEN_VEO_3_1_FAST):
         size = "2K" if normalized_size == "4K" else normalized_size
         resolution = "1080p" if size == "2K" else "720p"
-        return replace(
-            unified_params,
-            aspect_ratio = "16:9" if multi_images else unified_params.aspect_ratio,
-            size = size,
-            resolution = resolution,
-            generate_audio = True,
-        )
+        return replace(unified_params, size = size, resolution = resolution, generate_audio = True)
     elif tool == VIDEO_GEN_RAY_3_2:
         size = "2K" if normalized_size == "4K" else normalized_size
         resolution = "1080p" if size == "2K" else "720p"
         return replace(
             unified_params,
-            aspect_ratio = None if single_image else unified_params.aspect_ratio,
             size = size,
             resolution = resolution,
             image = None,
@@ -150,7 +129,6 @@ def map_to_model_parameters(
             exr_export = False,
             loop = False,
         )
-
     log.w(f"Unknown video model '{tool.id}', using default mapping")
     return unified_params
 
@@ -190,11 +168,32 @@ def resolve_duration(
 def resolve_aspect_ratio(
     tool: ExternalTool,
     aspect_ratio: str | None,
-    input_image_aspect_ratio: str | None = None,
-) -> str:
-    cleaned = "".join(aspect_ratio.split()) if aspect_ratio else None
-    if cleaned == "match_input_image" or not cleaned:
-        cleaned = input_image_aspect_ratio
+    reference_image_urls: list[str] | None = None,
+) -> str | None:
+    references = reference_image_urls or []
+    has_single_user_image = bool(references) and (len(references) == 1 or tool.max_input_images == 1)
+    has_user_images = len(references) > 1 and tool.max_input_images > 1
+
+    if has_single_user_image and tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_RAY_3_2):
+        return None
+    if has_user_images and tool == VIDEO_GEN_VEO_3_1:
+        return "16:9"
+
+    if not aspect_ratio:
+        if not references:
+            return DEFAULT_ASPECT_RATIO
+        if tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+            return "adaptive"
+        return None
+
+    cleaned = "".join(aspect_ratio.split())
+    if cleaned == "match_input_image":
+        if not references:
+            log.w(f"'match_input_image' not supported for '{tool.id}' without reference images, using '{DEFAULT_ASPECT_RATIO}'")
+            return DEFAULT_ASPECT_RATIO
+        if tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+            return "adaptive"
+        return None
 
     if tool == VIDEO_GEN_P_VIDEO:
         supported_aspect_ratios = P_VIDEO_ASPECT_RATIOS
@@ -210,5 +209,5 @@ def resolve_aspect_ratio(
     return resolve_closest_aspect_ratio(
         aspect_ratio = cleaned,
         supported_aspect_ratios = supported_aspect_ratios,
-        default_aspect_ratio = "16:9",
+        default_aspect_ratio = DEFAULT_ASPECT_RATIO,
     )

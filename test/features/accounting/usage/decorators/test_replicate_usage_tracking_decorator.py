@@ -1,9 +1,10 @@
 import unittest
 from time import sleep
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from uuid import UUID
 
 from features.accounting.spending.spending_service import SpendingService
+from features.accounting.usage.decorators import replicate_usage_tracking_decorator
 from features.accounting.usage.decorators.replicate_usage_tracking_decorator import (
     PredictionUsageTrackingDecorator,
     ReplicateUsageTrackingDecorator,
@@ -12,6 +13,7 @@ from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_tracking_service import UsageTrackingService
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ExternalTool, ToolType
+from util.errors import ExternalServiceError
 
 
 class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
@@ -106,6 +108,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_prediction = Mock()
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
+        self.mock_tracking_service.track_video_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 20.0))
         self.mock_spending_service = Mock(spec = SpendingService)
         self.tool_purpose = ToolType.images_edit
         self.external_tool = Mock(spec = ExternalTool)
@@ -124,6 +127,16 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
             output_image_sizes = [self.image_size],
+        )
+
+    def _video_decorator(self) -> PredictionUsageTrackingDecorator:
+        return PredictionUsageTrackingDecorator(
+            wrapped_prediction = self.mock_prediction,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = self.mock_configured_tool,
+            output_video_size = "2K",
+            output_video_duration_seconds = 10,
         )
 
     def test_wait_tracks_usage(self):
@@ -209,4 +222,55 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service.track_image_model.assert_called_once()
         call_args = self.mock_tracking_service.track_image_model.call_args
         self.assertTrue(call_args.kwargs["is_failed"])
+        self.mock_spending_service.deduct.assert_not_called()
+
+    def test_video_wait_polls_to_success_and_tracks_mapped_output(self):
+        self.mock_prediction.status = "processing"
+        self.mock_prediction.metrics = None
+        self.mock_prediction.reload.side_effect = lambda: setattr(self.mock_prediction, "status", "succeeded")
+
+        with patch.object(replicate_usage_tracking_decorator, "sleep"):
+            result = self._video_decorator().wait()
+
+        self.assertIsNone(result)
+        self.mock_prediction.wait.assert_not_called()
+        self.mock_prediction.reload.assert_called_once_with()
+        self.mock_tracking_service.track_video_model.assert_called_once()
+        tracking_args = self.mock_tracking_service.track_video_model.call_args.kwargs
+        self.assertEqual(tracking_args["output_video_size"], "2K")
+        self.assertEqual(tracking_args["output_video_duration_seconds"], 10)
+        self.assertNotIn("is_failed", tracking_args)
+        self.mock_spending_service.deduct.assert_called_once_with(self.mock_configured_tool, 20.0)
+
+    def test_video_wait_tracks_terminal_failure_without_deduction(self):
+        self.mock_prediction.status = "failed"
+        self.mock_prediction.error = "provider failure"
+        self.mock_prediction.logs = None
+        self.mock_prediction.metrics = None
+
+        with self.assertRaises(ExternalServiceError) as context:
+            self._video_decorator().wait()
+
+        self.assertIn("status 'failed': provider failure", str(context.exception))
+        self.mock_prediction.reload.assert_not_called()
+        self.assertTrue(self.mock_tracking_service.track_video_model.call_args.kwargs["is_failed"])
+        self.mock_spending_service.deduct.assert_not_called()
+
+    def test_video_wait_cancels_and_tracks_timeout_without_deduction(self):
+        self.mock_prediction.status = "processing"
+        self.mock_prediction.id = "prediction-id"
+        self.mock_prediction.metrics = None
+
+        with patch.object(
+            replicate_usage_tracking_decorator,
+            "monotonic",
+            side_effect = [0, 600],
+        ):
+            with self.assertRaises(ExternalServiceError) as context:
+                self._video_decorator().wait()
+
+        self.assertIn("timed out", str(context.exception))
+        self.mock_prediction.cancel.assert_called_once_with()
+        self.mock_prediction.reload.assert_not_called()
+        self.assertTrue(self.mock_tracking_service.track_video_model.call_args.kwargs["is_failed"])
         self.mock_spending_service.deduct.assert_not_called()
