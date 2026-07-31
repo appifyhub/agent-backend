@@ -59,6 +59,7 @@ def domain(db_model: UserDB | None) -> User | None:
         tool_choice_vision = db_model.tool_choice_vision,
         tool_choice_hearing = db_model.tool_choice_hearing,
         tool_choice_images_gen = db_model.tool_choice_images_gen,
+        tool_choice_videos_gen = db_model.tool_choice_videos_gen,
         tool_choice_images_edit = db_model.tool_choice_images_edit,
         tool_choice_search = db_model.tool_choice_search,
         tool_choice_embedding = db_model.tool_choice_embedding,
@@ -114,6 +115,7 @@ def db(domain_model: User | None) -> UserDB | None:
         tool_choice_vision = domain_model.tool_choice_vision,
         tool_choice_hearing = domain_model.tool_choice_hearing,
         tool_choice_images_gen = domain_model.tool_choice_images_gen,
+        tool_choice_videos_gen = domain_model.tool_choice_videos_gen,
         tool_choice_images_edit = domain_model.tool_choice_images_edit,
         tool_choice_search = domain_model.tool_choice_search,
         tool_choice_embedding = domain_model.tool_choice_embedding,
@@ -165,6 +167,7 @@ def apply_to_db_model(
     db_model.tool_choice_vision = domain_model.tool_choice_vision
     db_model.tool_choice_hearing = domain_model.tool_choice_hearing
     db_model.tool_choice_images_gen = domain_model.tool_choice_images_gen
+    db_model.tool_choice_videos_gen = domain_model.tool_choice_videos_gen
     db_model.tool_choice_images_edit = domain_model.tool_choice_images_edit
     db_model.tool_choice_search = domain_model.tool_choice_search
     db_model.tool_choice_embedding = domain_model.tool_choice_embedding

@@ -63,10 +63,28 @@ class WhatsAppBotSDK:
             recipient_id = chat_config.external_id,
             document_url = public_url,
             caption = caption,
+            filename = f"{attachment.id}.{attachment.extension}" if attachment.extension else None,
         )
         content = self.__format_media_message(attachment, caption)
         message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
         # we should now quickly update the attachment record with the new ID
+        self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
+        return message
+
+    def send_video(
+        self,
+        chat_config: ChatConfig,
+        attachment: ChatAttachment,
+        caption: str | None = None,
+    ) -> ChatMessage:
+        public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
+        sent_message = self.__di.whatsapp_bot_api.send_video(
+            recipient_id = chat_config.external_id,
+            video_url = public_url,
+            caption = caption,
+        )
+        content = self.__format_media_message(attachment, caption)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 

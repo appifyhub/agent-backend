@@ -18,7 +18,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_platform_sdk = MagicMock()
         self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
         self.mock_di.chat_attachment_service = MagicMock()
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = []
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = []
         self.mock_di.chat_attachment_service.create_public_url.side_effect = (
             lambda att: MagicMock(url = att.last_url)
         )
@@ -77,7 +77,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         )
 
     def test_init_success(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment]
 
         service = ChatImageEditService(
             attachment_ids = self.attachment_ids,
@@ -91,7 +91,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.assertIsInstance(service, ChatImageEditService)
 
     def test_execute_edit_image_success_single(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = "http://test.com/edited_image.png"
         mock_editor.error = None
@@ -125,7 +125,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         )
 
     def test_execute_edit_image_success_multi(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment, self.attachment2]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment, self.attachment2]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = "http://test.com/edited_image.png"
         mock_editor.error = None
@@ -153,7 +153,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         )
 
     def test_execute_edit_image_partial_some_urls_missing(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment, self.attachment_no_url]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment, self.attachment_no_url]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = "http://test.com/edited_image.png"
         mock_editor.error = None
@@ -182,7 +182,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         )
 
     def test_execute_edit_image_all_urls_missing(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment_no_url]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment_no_url]
 
         service = ChatImageEditService(
             attachment_ids = self.attachment_ids,
@@ -199,7 +199,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_di.image_editor.assert_not_called()
 
     def test_execute_edit_image_failed_editor_error(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = None
         mock_editor.error = "Image editing failed"
@@ -221,7 +221,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_platform_sdk.smart_send_photo.assert_not_called()
 
     def test_execute_edit_image_failed_no_result(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = None
         mock_editor.error = None
@@ -242,7 +242,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.mock_platform_sdk.smart_send_photo.assert_not_called()
 
     def test_execute_edit_image_exception(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment]
         mock_editor = MagicMock()
         mock_editor.execute.side_effect = Exception("Test exception")
         mock_editor.error = None
@@ -264,7 +264,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
 
     def test_url_attachment_from_attachment_service_is_edited(self):
         virtual_url = "https://example.com/image.png"
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.url_attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.url_attachment]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = "http://test.com/edited.png"
         mock_editor.error = None
@@ -295,7 +295,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
             extension = "png",
             mime_type = "image/png",
         )
-        self.mock_di.chat_attachment_service.resolve_attachments.return_value = [self.attachment, url_attachment]
+        self.mock_di.chat_attachment_service.resolve_image_attachments.return_value = [self.attachment, url_attachment]
         mock_editor = MagicMock()
         mock_editor.execute.return_value = "http://test.com/edited.png"
         mock_editor.error = None
@@ -316,7 +316,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.assertIn("http://test.com/image.png", call_kwargs["image_urls"])
 
     def test_empty_ids_and_no_urls_raises_error(self):
-        self.mock_di.chat_attachment_service.resolve_attachments.side_effect = Exception("missing attachments")
+        self.mock_di.chat_attachment_service.resolve_image_attachments.side_effect = Exception("missing attachments")
 
         with self.assertRaises(Exception):
             ChatImageEditService(

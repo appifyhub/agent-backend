@@ -33,7 +33,7 @@ class ChatImageEditService:
         di: DI,
     ):
         self.__di = di
-        self.__attachments = self.__di.chat_attachment_service.resolve_attachments(attachment_ids, urls)
+        self.__attachments = self.__di.chat_attachment_service.resolve_image_attachments(attachment_ids, urls)
         self.__operation_guidance = operation_guidance
         self.__aspect_ratio = aspect_ratio
         self.__output_size = output_size

@@ -116,6 +116,16 @@ class TelegramDomainMapper:
                     mime_type = None,
                 ),
             )
+        if message.video:
+            log.t(f"  Mapping video: {message.video}")
+            attachments.append(
+                self.__map_attachment(
+                    file_id = message.video.file_id,
+                    file_size = message.video.file_size,
+                    message_id = str(message.message_id),
+                    mime_type = message.video.mime_type,
+                ),
+            )
         if message.voice:
             log.t(f"  Mapping voice: {message.voice}")
             attachments.append(

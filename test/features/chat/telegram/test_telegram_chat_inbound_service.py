@@ -15,6 +15,7 @@ from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.document import Document
+from features.chat.telegram.model.attachment.video import Video
 from features.chat.telegram.model.chat import Chat
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.text_quote import TextQuote
@@ -186,6 +187,38 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_message_repo.save.assert_called_once()
         self.mock_di.chat_membership_service.ensure_for_inbound.assert_called_once_with(result.author, result.chat)
 
+    def test_ingest_message_with_video_uses_download_path_and_preserves_missing_mime_type(self):
+        self.mock_di.telegram_bot_api.download_file.return_value = b"\x00\x00\x00\x18ftypmp42"
+        message = Message(
+            chat = Chat(id = 1, type = "private"),
+            message_id = 10,
+            date = int(datetime.now().timestamp()),
+            caption = "Video caption",
+            video = Video(
+                file_id = "video1",
+                file_unique_id = "unique-video",
+                width = 1920,
+                height = 1080,
+                duration = 5,
+            ),
+            **{
+                "from": TelegramUser(
+                    id = 1,
+                    first_name = "New User",
+                    username = "username",
+                    is_bot = False,
+                ),
+            },
+        )
+
+        result = self.resolver.ingest_message(message)
+
+        self.assertEqual(result.raw_message_text, "Video caption")
+        self.assertEqual(len(result.attachments), 1)
+        self.assertEqual(result.attachments[0].external_id, "video1")
+        self.assertIsNone(result.attachments[0].mime_type)
+        self.mock_di.telegram_bot_api.download_file.assert_called_once_with("video1")
+
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "1", chat_type = ChatConfigDB.ChatType.telegram),
@@ -343,6 +376,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
             tool_choice_vision = "openai",
             tool_choice_hearing = "openai",
             tool_choice_images_gen = "replicate",
+            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_images_edit = "replicate",
             tool_choice_search = "perplexity",
             tool_choice_embedding = "openai",
@@ -393,6 +427,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_vision, existing_user.tool_choice_vision)
         self.assertEqual(result.tool_choice_hearing, existing_user.tool_choice_hearing)
         self.assertEqual(result.tool_choice_images_gen, existing_user.tool_choice_images_gen)
+        self.assertEqual(result.tool_choice_videos_gen, existing_user.tool_choice_videos_gen)
         self.assertEqual(result.tool_choice_images_edit, existing_user.tool_choice_images_edit)
         self.assertEqual(result.tool_choice_search, existing_user.tool_choice_search)
         self.assertEqual(result.tool_choice_embedding, existing_user.tool_choice_embedding)

@@ -6,6 +6,7 @@ from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.audio import Audio
 from features.chat.telegram.model.attachment.document import Document
 from features.chat.telegram.model.attachment.photo_size import PhotoSize
+from features.chat.telegram.model.attachment.video import Video
 from features.chat.telegram.model.attachment.voice import Voice
 from features.chat.telegram.model.chat import Chat
 from features.chat.telegram.model.message import Message
@@ -226,13 +227,21 @@ class TelegramDomainMapperTest(unittest.TestCase):
                 PhotoSize(file_id = "no", file_unique_id = "no", file_size = 0, width = 1, height = 1),
                 PhotoSize(file_id = "p3", file_unique_id = "p", file_size = 3, width = 800, height = 600),
             ],
-            voice = Voice(file_id = "v4", file_unique_id = "v", file_size = 4, mime_type = "audio/ogg"),
+            video = Video(
+                file_id = "video4",
+                file_unique_id = "video",
+                file_size = 4,
+                width = 1920,
+                height = 1080,
+                duration = 5,
+            ),
+            voice = Voice(file_id = "v5", file_unique_id = "v", file_size = 5, mime_type = "audio/ogg"),
             date = int(datetime.now().timestamp()),
         )
 
         result = self.mapper.map_attachments(message)
 
-        self.assertEqual(len(result), 4)
+        self.assertEqual(len(result), 5)
         # audio
         self.assertEqual(result[0].message_id, str(message.message_id))
         self.assertEqual(result[0].external_id, message.audio.file_id)
@@ -254,13 +263,20 @@ class TelegramDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result[2].mime_type)
         self.assertIsNone(result[2].extension)
         self.assertIsNone(result[2].last_url)
-        # voice
+        # video
         self.assertEqual(result[3].message_id, str(message.message_id))
-        self.assertEqual(result[3].external_id, message.voice.file_id)
-        self.assertEqual(result[3].size, message.voice.file_size)
-        self.assertEqual(result[3].mime_type, message.voice.mime_type)
+        self.assertEqual(result[3].external_id, message.video.file_id)
+        self.assertEqual(result[3].size, message.video.file_size)
+        self.assertIsNone(result[3].mime_type)
         self.assertIsNone(result[3].extension)
         self.assertIsNone(result[3].last_url)
+        # voice
+        self.assertEqual(result[4].message_id, str(message.message_id))
+        self.assertEqual(result[4].external_id, message.voice.file_id)
+        self.assertEqual(result[4].size, message.voice.file_size)
+        self.assertEqual(result[4].mime_type, message.voice.mime_type)
+        self.assertIsNone(result[4].extension)
+        self.assertIsNone(result[4].last_url)
 
     def test_map_attachments_empty(self):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it

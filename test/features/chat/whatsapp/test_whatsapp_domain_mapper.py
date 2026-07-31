@@ -66,6 +66,23 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
 
         self.assertEqual(result.text, "This is a caption")
 
+    def test_map_message_uses_video_caption(self):
+        message = Message(
+            id = "100",
+            **{"from": "1234567890"},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "video",
+            video = MediaAttachment(
+                id = "video_id",
+                mime_type = "video/mp4",
+                caption = "This is a video caption",
+            ),
+        )
+
+        result = self.mapper.map_message(message)
+
+        self.assertEqual(result.text, "This is a video caption")
+
     def test_map_author_filled(self):
         value_dict = {
             "messaging_product": "whatsapp",
@@ -230,6 +247,25 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         result = self.mapper.map_attachments(message)
 
         self.assertEqual(len(result), 0)
+
+    def test_map_attachments_video(self):
+        message = Message(
+            id = "100",
+            **{"from": "1234567890"},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "video",
+            video = MediaAttachment(
+                id = "video_id",
+                mime_type = "video/mp4",
+            ),
+        )
+
+        result = self.mapper.map_attachments(message)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].external_id, "video_id")
+        self.assertEqual(result[0].message_id, "100")
+        self.assertEqual(result[0].mime_type, "video/mp4")
 
     def test_map_to_attachment_filled(self):
         media_id = "123"

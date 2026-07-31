@@ -294,6 +294,24 @@ def copywriting_image_prompt_upscaler(chat_type: ChatConfigDB.ChatType) -> str:
     ).render()
 
 
+def copywriting_video_screenwriter(
+    chat_type: ChatConfigDB.ChatType,
+    reference_image_count: int = 0,
+) -> str:
+    composer = prompt_composer.build(
+        prompt_library.contexts.core,
+        prompt_library.contexts.copywriting_video_screenwriter,
+        prompt_library.styles.copywriting_video_screenwriter,
+        prompt_library.metas.today,
+        prompt_library.metas.privacy,
+    )
+    return composer.add_variables(
+        (PromptVar.agent_name, resolve_agent_user(chat_type).full_name or PLACEHOLDER_NO_DATA),
+        (PromptVar.date_and_time, __now()),
+        (PromptVar.reference_image_count, str(reference_image_count)),
+    ).render()
+
+
 def computer_vision(chat_type: ChatConfigDB.ChatType) -> str:
     return prompt_composer.build(
         prompt_library.contexts.core,

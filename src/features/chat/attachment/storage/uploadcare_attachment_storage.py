@@ -50,6 +50,7 @@ class UploadcareAttachmentStorage(AttachmentStorage):
             with NamedTemporaryFile(suffix = filename) as tmp_file:
                 tmp_file.write(content)
                 tmp_file.flush()
+                tmp_file.seek(0)
                 tmp_file.name = filename
                 stored_file = self.__client.upload(tmp_file, store = True)
             if not stored_file.cdn_url or not stored_file.filename:

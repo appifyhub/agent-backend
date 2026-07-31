@@ -9,7 +9,7 @@ from api.auth import create_public_attachment_token, verify_public_attachment_to
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import PublicAttachment
-from features.chat.supported_files import is_supported_mime_type, resolve_file_type
+from features.chat.supported_files import KNOWN_IMAGE_FORMATS, is_supported_mime_type, resolve_file_type
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util import log
 from util.config import config
@@ -20,6 +20,7 @@ from util.error_codes import (
     MISSING_ATTACHMENT_IDS,
     MISSING_CONTENT,
     NOT_CHAT_MEMBER,
+    UNSUPPORTED_MEDIA_TYPE,
 )
 from util.errors import AuthorizationError, ExternalServiceError, NotFoundError, ValidationError
 
@@ -178,6 +179,13 @@ class ChatAttachmentService:
         ]
         # return all of them together
         return local_attachments + remote_attachments
+
+    def resolve_image_attachments(self, attachment_ids: list[str] | None, urls: list[str] | None) -> list[ChatAttachment]:
+        attachments = self.resolve_attachments(attachment_ids, urls)
+        for attachment in attachments:
+            if (attachment.mime_type not in KNOWN_IMAGE_FORMATS.values() and attachment.extension not in KNOWN_IMAGE_FORMATS):
+                raise ValidationError(f"Attachment '{attachment.id}' is not a supported image", UNSUPPORTED_MEDIA_TYPE)
+        return attachments
 
     def __fetch_remote_content(
         self,

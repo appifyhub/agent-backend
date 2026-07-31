@@ -48,6 +48,7 @@ class User:
     tool_choice_vision: str | None = None
     tool_choice_hearing: str | None = None
     tool_choice_images_gen: str | None = None
+    tool_choice_videos_gen: str | None = None
     tool_choice_images_edit: str | None = None
     tool_choice_search: str | None = None
     tool_choice_embedding: str | None = None

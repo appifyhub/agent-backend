@@ -18,12 +18,9 @@ OPAQUE_IMAGE_FORMATS = {"jpg", "jpeg"}
 
 SUPPORTED_AUDIO_FORMATS = {
     "mp3": "audio/mpeg",
-    "mp4": "video/mp4",
-    "mpeg": "video/mpeg",
     "mpga": "audio/mpeg",
     "m4a": "audio/mp4",
     "wav": "audio/wav",
-    "webm": "video/webm",
 }
 
 # File extension -> Audio format
@@ -42,6 +39,12 @@ CONVERTIBLE_AUDIO_FORMATS = {
 KNOWN_AUDIO_FORMATS = SUPPORTED_AUDIO_FORMATS | CONVERTIBLE_AUDIO_FORMATS
 
 TARGET_AUDIO_FORMAT = "wav"
+
+KNOWN_VIDEO_FORMATS = {
+    "mp4": "video/mp4",
+    "mpeg": "video/mpeg",
+    "webm": "video/webm",
+}
 
 KNOWN_DOCS_FORMATS = {
     # binary document formats
@@ -81,7 +84,7 @@ KNOWN_DOCS_FORMATS = {
     "kt": "text/plain",
 }
 
-KNOWN_FILE_FORMATS = KNOWN_IMAGE_FORMATS | KNOWN_AUDIO_FORMATS | KNOWN_DOCS_FORMATS
+KNOWN_FILE_FORMATS = KNOWN_IMAGE_FORMATS | KNOWN_AUDIO_FORMATS | KNOWN_VIDEO_FORMATS | KNOWN_DOCS_FORMATS
 
 
 def resolve_file_type(

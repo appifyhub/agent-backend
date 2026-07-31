@@ -69,6 +69,24 @@ class WhatsAppBotAPI:
         response = self.__post_request(payload)
         return MessageResponse(**response)
 
+    def send_video(
+        self,
+        recipient_id: str,
+        video_url: str,
+        caption: str | None = None,
+    ) -> MessageResponse:
+        log.t(f"Sending video to recipient #{recipient_id}")
+        video_payload = {"link": video_url}
+        if caption:
+            video_payload["caption"] = caption
+        payload = self.__create_payload(
+            recipient_id = recipient_id,
+            message_type = "video",
+            content = {"video": video_payload},
+        )
+        response = self.__post_request(payload)
+        return MessageResponse(**response)
+
     def send_reaction(
         self,
         recipient_id: str,

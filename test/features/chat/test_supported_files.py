@@ -28,6 +28,17 @@ class SupportedFilesTest(unittest.TestCase):
 
         self.assertEqual(result, ("image/jpeg", "jpg"))
 
+    def test_resolve_file_type_resolves_video_metadata(self):
+        for mime_type, extension, expected in [
+            ("video/mp4", None, ("video/mp4", "mp4")),
+            (None, "mpeg", ("video/mpeg", "mpeg")),
+            (None, "webm", ("video/webm", "webm")),
+        ]:
+            with self.subTest(mime_type = mime_type, extension = extension):
+                result = resolve_file_type(mime_type = mime_type, extension = extension)
+
+                self.assertEqual(result, expected)
+
     def test_resolve_file_type_normalizes_mime_type_parameters(self):
         result = resolve_file_type(mime_type = "audio/ogg; codecs=opus")
 
@@ -94,12 +105,14 @@ class SupportedFilesTest(unittest.TestCase):
     def test_is_supported_mime_type(self):
         self.assertTrue(is_supported_mime_type("image/png"))
         self.assertTrue(is_supported_mime_type("audio/ogg; codecs=opus"))
+        self.assertTrue(is_supported_mime_type("video/mp4"))
         self.assertFalse(is_supported_mime_type("application/x-custom"))
         self.assertFalse(is_supported_mime_type(None))
 
     def test_is_supported_extension(self):
         self.assertTrue(is_supported_extension("png"))
         self.assertTrue(is_supported_extension("PNG"))
+        self.assertTrue(is_supported_extension("webm"))
         self.assertFalse(is_supported_extension("unknown"))
         self.assertFalse(is_supported_extension(None))
 

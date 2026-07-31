@@ -286,6 +286,27 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
             copywriter_tool = copywriter_tool,
         )
 
+    def test_fetch_text_content_with_video_returns_unsupported_without_reading(self):
+        video_attachment = _make_attachment(
+            id = "3",
+            mime_type = "video/mp4",
+            extension = "mp4",
+            url = "http://test.com/video.mp4",
+        )
+        resolver = ChatAttachmentProcessor(
+            additional_context = "context",
+            attachment_ids = ["3"],
+            urls = None,
+            di = self.mock_di,
+        )
+
+        content = resolver.fetch_text_content(video_attachment)
+
+        self.assertEqual(content, "Video attachment '3' is unsupported for analysis")
+        self.mock_di.attachment_storage.open.assert_not_called()
+        self.mock_di.audio_transcriber.assert_not_called()
+        self.mock_di.tool_choice_resolver.require_tool.assert_not_called()
+
     @requests_mock.Mocker()
     def test_fetch_text_content_with_unsupported_type(self, m: requests_mock.Mocker):
         unsupported_attachment = _make_attachment(

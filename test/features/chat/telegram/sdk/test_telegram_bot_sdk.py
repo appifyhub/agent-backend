@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
 
 from db.model.chat_config import ChatConfigDB
@@ -31,6 +31,11 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.mock_chat_attachment_service.save.side_effect = self.__save_attachment
         self.mock_chat_attachment_service.create_public_url.return_value = SimpleNamespace(url = self.public_url)
         self.mock_di.chat_attachment_service = self.mock_chat_attachment_service
+        self.mock_di.attachment_storage = Mock()
+        self.temporary_attachment_path = "/tmp/stored-video.mp4"
+        temporary_path_context = MagicMock()
+        temporary_path_context.__enter__.return_value = self.temporary_attachment_path
+        self.mock_di.attachment_storage.temporary_path.return_value = temporary_path_context
         # noinspection PyPropertyAccess
         self.mock_di.chat_message_repo = Mock()
         self.mock_di.chat_message_repo.save.side_effect = lambda message: message
@@ -60,6 +65,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.mock_di.telegram_bot_api.send_text_message.return_value = self.api_response
         self.mock_di.telegram_bot_api.send_photo.return_value = self.api_response
         self.mock_di.telegram_bot_api.send_document.return_value = self.api_response
+        self.mock_di.telegram_bot_api.send_video.return_value = self.api_response
         self.mock_di.telegram_bot_api.send_button_link.return_value = self.api_response
         self.mock_di.telegram_bot_api.get_chat_member.return_value = self.api_response
 
@@ -150,6 +156,62 @@ class TelegramBotSDKTest(unittest.TestCase):
         patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
         self.assertEqual(patched_attachment.id, attachment.id)
         self.assertEqual(patched_attachment.message_id, self.message_id)
+
+    def test_send_video(self):
+        caption = "test video"
+        attachment = ChatAttachment(
+            id = "local789",
+            chat_id = self.chat_uuid,
+            uploader_user_id = self.mock_di.invoker.id,
+            extension = "mp4",
+            mime_type = "video/mp4",
+        )
+
+        metadata = SimpleNamespace(width = 320, height = 180, duration_seconds = 119.8)
+        with patch(
+            "features.chat.telegram.sdk.telegram_bot_sdk.inspect_video",
+            return_value = metadata,
+        ) as mock_inspect:
+            result = self.sdk.send_video(
+                chat_config = self.chat_config,
+                attachment = attachment,
+                caption = caption,
+            )
+
+        self.mock_di.attachment_storage.temporary_path.assert_called_once_with(attachment)
+        mock_inspect.assert_called_once_with(self.temporary_attachment_path)
+        self.mock_di.telegram_bot_api.send_video.assert_called_once_with(
+            chat_id = self.chat_id,
+            video_path = self.temporary_attachment_path,
+            metadata = metadata,
+            caption = caption,
+            parse_mode = "markdown",
+            disable_notification = False,
+        )
+        self.assertEqual(result.text, "test video\n\n📎 [ local789 (video/mp4) ]")
+        patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
+        self.assertEqual(patched_attachment.id, attachment.id)
+        self.assertEqual(patched_attachment.message_id, self.message_id)
+
+    def test_send_video_document_uses_stored_bytes_and_attachment_filename(self):
+        attachment = ChatAttachment(
+            id = "local-video",
+            chat_id = self.chat_uuid,
+            uploader_user_id = self.mock_di.invoker.id,
+            extension = "mp4",
+            mime_type = "video/mp4",
+        )
+
+        self.sdk.send_document(
+            chat_config = self.chat_config,
+            attachment = attachment,
+        )
+
+        self.mock_di.attachment_storage.temporary_path.assert_called_once_with(attachment)
+        call_kwargs = self.mock_di.telegram_bot_api.send_document.call_args.kwargs
+        self.assertEqual(call_kwargs["document_path"], self.temporary_attachment_path)
+        self.assertEqual(call_kwargs["filename"], "local-video.mp4")
+        self.mock_chat_attachment_service.create_public_url.assert_not_called()
 
     def test_set_status_typing(self):
         self.sdk.set_status_typing(self.chat_id)

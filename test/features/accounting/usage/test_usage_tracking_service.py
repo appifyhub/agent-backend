@@ -59,6 +59,9 @@ class UsageTrackingServiceTest(unittest.TestCase):
         input_image_1k: int | None = None,
         input_image_2k: int | None = None,
         input_image_4k: int | None = None,
+        output_video_1k_second: int | None = None,
+        output_video_2k_second: int | None = None,
+        output_video_4k_second: int | None = None,
         api_call: int | None = None,
         second_of_runtime: int | None = None,
     ) -> ExternalTool:
@@ -79,6 +82,9 @@ class UsageTrackingServiceTest(unittest.TestCase):
             input_image_1k = input_image_1k,
             input_image_2k = input_image_2k,
             input_image_4k = input_image_4k,
+            output_video_1k_second = output_video_1k_second,
+            output_video_2k_second = output_video_2k_second,
+            output_video_4k_second = output_video_4k_second,
             api_call = api_call,
             second_of_runtime = second_of_runtime,
         )
@@ -357,6 +363,47 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
         self.assertIsNotNone(record)
         self.assertEqual(record.model_cost_credits, 0.0)
+
+    def test_track_video_model_records_normalized_size_duration_and_cost(self):
+        tool = self._create_tool(
+            output_video_1k_second = 1,
+            output_video_2k_second = 3,
+            output_video_4k_second = 6,
+        )
+
+        record = self.service.track_video_model(
+            tool = tool,
+            tool_purpose = ToolType.videos_gen,
+            runtime_seconds = 2,
+            payer_id = self.payer_id,
+            uses_credits = True,
+            output_video_size = "2K",
+            output_video_duration_seconds = 5,
+        )
+
+        self.assertEqual(record.output_video_size, "2k")
+        self.assertEqual(record.output_video_duration_seconds, 5)
+        self.assertEqual(record.model_cost_credits, 15.0)
+        self.assertEqual(record.maintenance_fee_credits, 1.0)
+        self.assertEqual(record.total_cost_credits, 16.0)
+        self.assertFalse(record.is_failed)
+
+    def test_track_video_model_marks_failed_usage_record(self):
+        tool = self._create_tool(output_video_1k_second = 2)
+
+        record = self.service.track_video_model(
+            tool = tool,
+            tool_purpose = ToolType.videos_gen,
+            runtime_seconds = 2,
+            payer_id = self.payer_id,
+            uses_credits = True,
+            output_video_size = "1K",
+            output_video_duration_seconds = 4,
+            is_failed = True,
+        )
+
+        self.assertTrue(record.is_failed)
+        self.assertEqual(record.model_cost_credits, 8.0)
 
     def test_track_api_call(self):
         tool = self._create_tool(api_call = 10)

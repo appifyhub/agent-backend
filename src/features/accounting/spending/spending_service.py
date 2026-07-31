@@ -24,6 +24,8 @@ class SpendingService:
         runtime_seconds: float = 0.0,
         input_image_sizes: list[str] | None = None,
         output_image_sizes: list[str] | None = None,
+        output_video_size: str | None = None,
+        output_video_duration_seconds: float | None = None,
     ) -> None:
         if not configured_tool.uses_credits:
             return
@@ -34,6 +36,8 @@ class SpendingService:
             runtime_seconds = runtime_seconds,
             input_image_sizes = input_image_sizes,
             output_image_sizes = output_image_sizes,
+            output_video_size = output_video_size,
+            output_video_duration_seconds = output_video_duration_seconds,
         ) + config.usage_maintenance_fee_credits
         user = self.__di.user_repo.get(configured_tool.payer_id)
         if user is None:

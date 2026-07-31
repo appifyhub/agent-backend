@@ -37,6 +37,7 @@ class PromptVar(Enum):
     query = "query"
     support_request_type = "support_request_type"
     content_template = "content_template"
+    reference_image_count = "reference_image_count"
     tools_list = "tools_list"
     allowed_reactions = "allowed_reactions"
 

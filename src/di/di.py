@@ -93,6 +93,9 @@ if TYPE_CHECKING:
     from features.support.user_support_service import UserSupportService
     from features.tools_cache.tools_cache_repo import ToolsCacheRepository
     from features.users.user_repo import UserRepository
+    from features.videos.simple_video_generator import SimpleVideoGenerator
+    from features.videos.smart_video_generator import SmartVideoGenerator
+    from features.videos.video_api_utils import UnifiedVideoParameters
     from features.web_browsing.ai_web_search import AIWebSearch
     from features.web_browsing.html_content_cleaner import HTMLContentCleaner
     from features.web_browsing.photo_downloader import PhotoDownloader
@@ -657,6 +660,8 @@ class DI:
         timeout_s: float | None = None,
         output_image_sizes: list[str] | None = None,
         input_image_sizes: list[str] | None = None,
+        output_video_size: str | None = None,
+        output_video_duration_seconds: float | None = None,
     ) -> "ReplicateUsageTrackingDecorator":
         from features.accounting.usage.decorators.replicate_usage_tracking_decorator import ReplicateUsageTrackingDecorator
 
@@ -668,6 +673,8 @@ class DI:
             configured_tool,
             output_image_sizes,
             input_image_sizes,
+            output_video_size,
+            output_video_duration_seconds,
         )
 
     # noinspection PyMethodMayBeStatic
@@ -972,6 +979,38 @@ class DI:
     ) -> "SimpleImageGenerator":
         from features.images.simple_image_generator import SimpleImageGenerator
         return SimpleImageGenerator(prompt, configured_tool, self, aspect_ratio, output_size)
+
+    def simple_video_generator(
+        self,
+        configured_tool: ConfiguredTool,
+        parameters: "UnifiedVideoParameters",
+    ) -> "SimpleVideoGenerator":
+        from features.videos.simple_video_generator import SimpleVideoGenerator
+        return SimpleVideoGenerator(configured_tool, parameters, self)
+
+    def smart_video_generator(
+        self,
+        raw_prompt: str,
+        attachment_ids: list[str],
+        urls: list[str],
+        configured_copywriter_tool: ConfiguredTool,
+        configured_video_gen_tool: ConfiguredTool,
+        duration: str | None = None,
+        aspect_ratio: str | None = None,
+        output_size: str | None = None,
+    ) -> "SmartVideoGenerator":
+        from features.videos.smart_video_generator import SmartVideoGenerator
+        return SmartVideoGenerator(
+            raw_prompt = raw_prompt,
+            attachment_ids = attachment_ids,
+            urls = urls,
+            configured_copywriter_tool = configured_copywriter_tool,
+            configured_video_gen_tool = configured_video_gen_tool,
+            di = self,
+            duration = duration,
+            aspect_ratio = aspect_ratio,
+            output_size = output_size,
+        )
 
     def chat_image_edit_service(
         self,

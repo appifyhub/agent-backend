@@ -200,6 +200,27 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_message_repo.save.assert_called_once()
         self.mock_di.chat_membership_service.ensure_for_inbound.assert_called_once_with(result.author, result.chat)
 
+    def test_ingest_message_with_video_uses_authenticated_download_path(self):
+        message = Message(
+            id = "video-message",
+            **{"from": "1"},
+            timestamp = str(int(datetime.now().timestamp())),
+            type = "video",
+            video = MediaAttachment(
+                id = "video1",
+                mime_type = "video/mp4",
+                caption = "Video caption",
+            ),
+        )
+
+        result = self.resolver.ingest_message(message, self.__value([message]))
+
+        self.assertEqual(result.raw_message_text, "Video caption")
+        self.assertEqual(len(result.attachments), 1)
+        self.assertEqual(result.attachments[0].external_id, "video1")
+        self.assertEqual(result.attachments[0].mime_type, "video/mp4")
+        self.mock_di.whatsapp_bot_api.download_media.assert_called_once_with("video1")
+
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
             ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
@@ -329,6 +350,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             tool_choice_vision = "openai",
             tool_choice_hearing = "openai",
             tool_choice_images_gen = "replicate",
+            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_images_edit = "replicate",
             tool_choice_search = "perplexity",
             tool_choice_embedding = "openai",
@@ -377,6 +399,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_vision, existing_user.tool_choice_vision)
         self.assertEqual(result.tool_choice_hearing, existing_user.tool_choice_hearing)
         self.assertEqual(result.tool_choice_images_gen, existing_user.tool_choice_images_gen)
+        self.assertEqual(result.tool_choice_videos_gen, existing_user.tool_choice_videos_gen)
         self.assertEqual(result.tool_choice_images_edit, existing_user.tool_choice_images_edit)
         self.assertEqual(result.tool_choice_search, existing_user.tool_choice_search)
         self.assertEqual(result.tool_choice_embedding, existing_user.tool_choice_embedding)
