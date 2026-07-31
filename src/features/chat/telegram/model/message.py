@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from features.chat.telegram.model.attachment.audio import Audio
 from features.chat.telegram.model.attachment.document import Document
 from features.chat.telegram.model.attachment.photo_size import PhotoSize
+from features.chat.telegram.model.attachment.video import Video
 from features.chat.telegram.model.attachment.voice import Voice
 from features.chat.telegram.model.chat import Chat
 from features.chat.telegram.model.message_entity import MessageEntity
@@ -27,6 +28,7 @@ class Message(BaseModel):
     audio: Audio | None = None
     document: Document | None = None
     photo: list[PhotoSize] | None = None
+    video: Video | None = None
     voice: Voice | None = None
     date: int
     edit_date: int | None = None

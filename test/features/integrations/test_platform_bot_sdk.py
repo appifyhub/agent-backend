@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
 
 from PIL import Image
@@ -13,11 +13,16 @@ from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
-from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYTES
+from features.integrations.integration_config import (
+    TELEGRAM_MAX_PHOTO_SIZE_BYTES,
+    TELEGRAM_MAX_VIDEO_SIZE_BYTES,
+    WHATSAPP_MAX_VIDEO_SIZE_BYTES,
+)
 from features.integrations.platform_bot_sdk import ChatAccess, PlatformBotSDK
 from features.users.user import User
+from features.videos.video_file_utils import VideoMetadata
 from util.config import config
-from util.errors import ExternalServiceError
+from util.errors import ConfigurationError, ExternalServiceError
 
 
 def _make_di() -> DI:
@@ -34,13 +39,17 @@ def _make_di() -> DI:
     di.telegram_bot_sdk = Mock()
     di.telegram_bot_sdk.send_photo = Mock(return_value = "sent")
     di.telegram_bot_sdk.send_document = Mock(return_value = "document-sent")
+    di.telegram_bot_sdk.send_video = Mock(return_value = "video-sent")
     di.whatsapp_bot_sdk = Mock()
     di.whatsapp_bot_sdk.send_photo = Mock(return_value = "sent")
     di.whatsapp_bot_sdk.send_document = Mock(return_value = "document-sent")
+    di.whatsapp_bot_sdk.send_video = Mock(return_value = "video-sent")
     di.chat_attachment_service = Mock()
     di.chat_attachment_service.save.return_value = SimpleNamespace(
         id = "stored-attachment",
         last_url = "s3://the-agent/chats/chat-id/attachments/stored-attachment",
+        extension = "mp4",
+        mime_type = "video/mp4",
     )
     di.chat_attachment_service.create_public_url.return_value = SimpleNamespace(
         url = _public_attachment_url("stored-attachment"),
@@ -83,6 +92,38 @@ def _jpeg_bytes() -> bytes:
 
 
 class PlatformBotSDKTest(unittest.TestCase):
+
+    def __video_context(
+        self,
+        original: bytes = b"original",
+        prepared: bytes | None = None,
+        container: str = "mp4",
+    ):
+        original_path = _make_temp_file(original)
+        self.addCleanup(os.unlink, original_path)
+        prepared_path = original_path
+        if prepared is not None:
+            prepared_path = _make_temp_file(prepared)
+            self.addCleanup(os.unlink, prepared_path)
+        context = MagicMock()
+        context.__enter__.return_value = (
+            original_path,
+            prepared_path,
+            VideoMetadata(
+                container = container,
+                video_codecs = ("h264",),
+                audio_codecs = ("aac",),
+                pixel_formats = ("yuv420p",),
+                video_stream_count = 1,
+                audio_stream_count = 1,
+                width = 1280,
+                height = 720,
+                duration_seconds = 10,
+                size_bytes = len(prepared or original),
+                has_fast_start = True,
+            ),
+        )
+        return context, original_path, prepared_path, context.__enter__.return_value[2]
 
     def test_send_photo_resizes_and_uploads(self):
         di = _make_di()
@@ -142,8 +183,10 @@ class PlatformBotSDKTest(unittest.TestCase):
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.jpg")
         stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
         self.assertEqual(stored_bytes, body)
-        # the source URL must have no effect on storage — only the downloaded bytes are saved
-        self.assertNotIn("remote_url", di.chat_attachment_service.save.call_args.kwargs)
+        self.assertEqual(
+            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            "http://example.com/img.jpg",
+        )
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
             di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
@@ -179,13 +222,22 @@ class PlatformBotSDKTest(unittest.TestCase):
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
                 patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
                 patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"document")
+            response = _mock_response(body = b"document")
+            response.headers = {"Content-Type": "application/pdf"}
+            mock_get.return_value = response
             mock_resize.side_effect = lambda path, max_size_bytes: path
             result = sdk.send_document(chat_id = 1, document_url = "http://example.com/doc.pdf")
         self.assertIsNone(mock_resize.call_args.args[1])
         mock_prepare.assert_not_called()
         stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
         self.assertEqual(stored_bytes, b"document")
+        stored_attachment = di.chat_attachment_service.save.call_args.kwargs["attachment"]
+        self.assertIsNone(stored_attachment.last_url)
+        self.assertEqual(stored_attachment.mime_type, "application/pdf")
+        self.assertEqual(
+            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            "http://example.com/doc.pdf",
+        )
         di.telegram_bot_sdk.send_document.assert_called_once_with(
             chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
             attachment = di.chat_attachment_service.save.return_value,
@@ -282,6 +334,226 @@ class PlatformBotSDKTest(unittest.TestCase):
             )
         di.telegram_bot_sdk.send_photo.assert_called_once()
         di.telegram_bot_sdk.send_document.assert_called_once()
+        self.assertEqual(result, "document-sent")
+
+    def test_prepare_outgoing_video_stores_prepared_media(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+        video_context, _, _, _ = self.__video_context(prepared = b"prepared")
+
+        with patch(
+            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
+            return_value = video_context,
+        ) as mock_video_files:
+            result = sdk.prepare_outgoing_video_attachment(
+                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
+                public_url = "https://example.com/video.mp4",
+            )
+
+        mock_video_files.assert_called_once_with(
+            "https://example.com/video.mp4",
+            max_size_bytes = TELEGRAM_MAX_VIDEO_SIZE_BYTES,
+        )
+        di.chat_attachment_service.save.assert_called_once()
+        self.assertEqual(di.chat_attachment_service.save.call_args.kwargs["content"], b"prepared")
+        attachment = di.chat_attachment_service.save.call_args.kwargs["attachment"]
+        self.assertIsNone(attachment.last_url)
+        self.assertEqual(attachment.extension, "mp4")
+        self.assertIsNone(attachment.mime_type)
+        self.assertEqual(
+            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            "https://example.com/video.mp4",
+        )
+        self.assertIs(result, di.chat_attachment_service.save.return_value)
+
+    def test_prepare_outgoing_video_uses_url_when_container_is_unknown(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+        video_context, _, _, _ = self.__video_context(prepared = b"prepared", container = "unknown")
+
+        with patch(
+            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
+            return_value = video_context,
+        ):
+            sdk.prepare_outgoing_video_attachment(
+                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
+                public_url = "https://example.com/video.webm",
+            )
+
+        attachment = di.chat_attachment_service.save.call_args.kwargs["attachment"]
+        self.assertIsNone(attachment.extension)
+        self.assertEqual(
+            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            "https://example.com/video.webm",
+        )
+
+    def test_prepare_outgoing_video_stores_compliant_media(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+        video_context, _, _, _ = self.__video_context()
+
+        with patch(
+            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
+            return_value = video_context,
+        ):
+            sdk.prepare_outgoing_video_attachment(
+                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
+                public_url = "https://example.com/video.mp4",
+            )
+
+        di.chat_attachment_service.save.assert_called_once()
+        self.assertEqual(
+            di.chat_attachment_service.save.call_args.kwargs["content"],
+            b"original",
+        )
+
+    def test_prepare_outgoing_video_uses_whatsapp_limit(self):
+        di = _make_di()
+        di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
+        sdk = PlatformBotSDK(di = di)
+        video_context, _, _, _ = self.__video_context(prepared = b"prepared")
+
+        with patch(
+            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
+            return_value = video_context,
+        ) as mock_video_files:
+            sdk.prepare_outgoing_video_attachment(
+                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
+                public_url = "https://example.com/video.mp4",
+            )
+
+        mock_video_files.assert_called_once_with(
+            "https://example.com/video.mp4",
+            max_size_bytes = WHATSAPP_MAX_VIDEO_SIZE_BYTES,
+        )
+
+    def test_send_video_prepares_for_telegram_and_routes_native_attachment(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+        prepared_attachment = SimpleNamespace(id = "prepared")
+
+        with patch.object(sdk, "prepare_outgoing_video_attachment", return_value = prepared_attachment) as mock_prepare:
+            result = sdk.send_video(
+                chat_id = 1,
+                video_url = "https://example.com/video.mp4",
+                caption = "caption",
+            )
+
+        mock_prepare.assert_called_once_with(
+            di.chat_config_repo.get_by_external_identifiers.return_value,
+            "https://example.com/video.mp4",
+        )
+        di.telegram_bot_sdk.send_video.assert_called_once_with(
+            di.chat_config_repo.get_by_external_identifiers.return_value,
+            prepared_attachment,
+            "caption",
+        )
+        self.assertEqual(result, "video-sent")
+
+    def test_send_video_prepares_for_whatsapp_and_routes_native_attachment(self):
+        di = _make_di()
+        di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
+        sdk = PlatformBotSDK(di = di)
+        prepared_attachment = SimpleNamespace(id = "prepared")
+
+        with patch.object(
+            sdk,
+            "prepare_outgoing_video_attachment",
+            return_value = prepared_attachment,
+        ):
+            result = sdk.send_video(
+                chat_id = 1,
+                video_url = "https://example.com/video.mp4",
+                caption = "caption",
+            )
+
+        di.whatsapp_bot_sdk.send_video.assert_called_once_with(
+            di.chat_config_repo.get_by_external_identifiers.return_value,
+            prepared_attachment,
+            "caption",
+        )
+        self.assertEqual(result, "video-sent")
+
+    def test_send_video_rejects_unsupported_chat_type(self):
+        di = _make_di()
+        di.require_invoker_chat_type.return_value = "unsupported"
+        sdk = PlatformBotSDK(di = di)
+
+        with patch.object(sdk, "prepare_outgoing_video_attachment", return_value = Mock()), \
+                self.assertRaises(ConfigurationError):
+            sdk.send_video(
+                chat_id = 1,
+                video_url = "https://example.com/video.mp4",
+            )
+
+    def test_smart_send_video_file_mode_sends_document_only(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch.object(sdk, "send_video", return_value = "video-sent") as mock_send_video, \
+                patch.object(sdk, "send_document", return_value = "document-sent") as mock_send_document:
+            result = sdk.smart_send_video(
+                media_mode = ChatConfigDB.MediaMode.file,
+                chat_id = 1,
+                video_url = "https://example.com/video.mp4",
+                caption = "caption",
+            )
+
+        mock_send_video.assert_not_called()
+        mock_send_document.assert_called_once_with(
+            1,
+            "https://example.com/video.mp4",
+            "caption",
+        )
+        self.assertEqual(result, "document-sent")
+
+    def test_smart_send_video_all_mode_sends_video_and_document(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch.object(sdk, "send_video", return_value = "video-sent") as mock_send_video, \
+                patch.object(sdk, "send_document", return_value = "document-sent") as mock_send_document:
+            result = sdk.smart_send_video(
+                media_mode = ChatConfigDB.MediaMode.all,
+                chat_id = 1,
+                video_url = "https://example.com/video.mp4",
+                caption = "caption",
+            )
+
+        mock_send_video.assert_called_once_with(
+            1,
+            "https://example.com/video.mp4",
+            "caption",
+        )
+        mock_send_document.assert_called_once_with(
+            1,
+            "https://example.com/video.mp4",
+            "caption",
+        )
+        self.assertEqual(result, "document-sent")
+
+    def test_smart_send_video_photo_mode_falls_back_to_document(self):
+        di = _make_di()
+        sdk = PlatformBotSDK(di = di)
+
+        with patch.object(sdk, "send_video", side_effect = RuntimeError("send failed")) as mock_send_video, \
+                patch.object(sdk, "send_document", return_value = "document-sent") as mock_send_document:
+            result = sdk.smart_send_video(
+                media_mode = ChatConfigDB.MediaMode.photo,
+                chat_id = 1,
+                video_url = "https://example.com/video.mp4",
+            )
+
+        mock_send_video.assert_called_once_with(
+            1,
+            "https://example.com/video.mp4",
+            None,
+        )
+        mock_send_document.assert_called_once_with(
+            1,
+            "https://example.com/video.mp4",
+            None,
+        )
         self.assertEqual(result, "document-sent")
 
 

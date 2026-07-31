@@ -568,6 +568,84 @@ IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2 = ExternalTool(
     max_input_images = 14,
 )
 
+VIDEO_GEN_P_VIDEO = ExternalTool(
+    id = "prunaai/p-video",
+    name = "Pruna AI: P-Video",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 2,
+        output_video_2k_second = 4,
+        output_video_4k_second = 4,
+    ),
+    max_input_images = 1,
+)
+
+VIDEO_GEN_SEEDANCE_2_0 = ExternalTool(
+    id = "bytedance/seedance-2.0",
+    name = "ByteDance: Seedance 2.0",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 18,
+        output_video_2k_second = 45,
+        output_video_4k_second = 100,
+    ),
+    max_input_images = 9,
+)
+
+VIDEO_GEN_SEEDANCE_2_0_FAST = ExternalTool(
+    id = "bytedance/seedance-2.0-fast",
+    name = "ByteDance: Seedance 2.0 Fast",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 15,
+        output_video_2k_second = 15,
+        output_video_4k_second = 15,
+    ),
+    max_input_images = 9,
+)
+
+VIDEO_GEN_VEO_3_1 = ExternalTool(
+    id = "google/veo-3.1",
+    name = "Google: Veo 3.1",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 40,
+        output_video_2k_second = 40,
+        output_video_4k_second = 40,
+    ),
+    max_input_images = 3,
+)
+
+VIDEO_GEN_VEO_3_1_FAST = ExternalTool(
+    id = "google/veo-3.1-fast",
+    name = "Google: Veo 3.1 Fast",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 15,
+        output_video_2k_second = 15,
+        output_video_4k_second = 15,
+    ),
+    max_input_images = 1,
+)
+
+VIDEO_GEN_RAY_3_2 = ExternalTool(
+    id = "luma/ray-3.2",
+    name = "Luma: Ray 3.2",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 15,
+        output_video_2k_second = 50,
+        output_video_4k_second = 50,
+    ),
+    max_input_images = 1,
+)
+
 ###  API Integrations  ###
 
 FIAT_CURRENCY_EXCHANGE = ExternalTool(
@@ -671,6 +749,12 @@ ALL_EXTERNAL_TOOLS = [
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2,
+    VIDEO_GEN_P_VIDEO,
+    VIDEO_GEN_SEEDANCE_2_0,
+    VIDEO_GEN_SEEDANCE_2_0_FAST,
+    VIDEO_GEN_VEO_3_1,
+    VIDEO_GEN_VEO_3_1_FAST,
+    VIDEO_GEN_RAY_3_2,
     # API Integrations
     FIAT_CURRENCY_EXCHANGE,
     X_READ_POST,

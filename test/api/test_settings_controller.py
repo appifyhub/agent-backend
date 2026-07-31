@@ -32,6 +32,7 @@ from features.external_tools.external_tool_library import (
     IMAGE_GEN_FLUX_1_1,
     SONAR,
     TWELVE_DATA_STOCK_QUOTE,
+    VIDEO_GEN_P_VIDEO,
 )
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
@@ -86,6 +87,7 @@ class SettingsControllerTest(unittest.TestCase):
             tool_choice_reasoning = "claude-3-7-sonnet-latest",
             tool_choice_vision = "gpt-4o",
             tool_choice_images_gen = "dall-e-3",
+            tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_search = "perplexity-search",
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.developer,
@@ -264,6 +266,7 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(result.telegram_chat_id, self.invoker_user.telegram_chat_id)
         self.assertEqual(result.telegram_user_id, self.invoker_user.telegram_user_id)
         self.assertEqual(result.group, self.invoker_user.group.value)
+        self.assertEqual(result.tool_choice_videos_gen, VIDEO_GEN_P_VIDEO.id)
         self.assertFalse(result.is_sponsored)
 
     def test_fetch_user_settings_is_sponsored_true(self):
@@ -303,6 +306,7 @@ class SettingsControllerTest(unittest.TestCase):
             tool_choice_reasoning = GPT_5_5.id,
             tool_choice_vision = CLAUDE_4_6_SONNET.id,
             tool_choice_images_gen = IMAGE_GEN_FLUX_1_1.id,
+            tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_search = SONAR.id,
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
         )
@@ -683,6 +687,7 @@ class SettingsControllerTest(unittest.TestCase):
             tool_choice_reasoning = self.invoker_user.tool_choice_reasoning,
             tool_choice_vision = self.invoker_user.tool_choice_vision,
             tool_choice_images_gen = self.invoker_user.tool_choice_images_gen,
+            tool_choice_videos_gen = self.invoker_user.tool_choice_videos_gen,
             tool_choice_search = self.invoker_user.tool_choice_search,
             group = self.invoker_user.group,
             created_at = self.invoker_user.created_at,
@@ -885,6 +890,7 @@ class SettingsControllerTest(unittest.TestCase):
             tool_choice_reasoning = self.invoker_user.tool_choice_reasoning,
             tool_choice_vision = self.invoker_user.tool_choice_vision,
             tool_choice_images_gen = self.invoker_user.tool_choice_images_gen,
+            tool_choice_videos_gen = self.invoker_user.tool_choice_videos_gen,
             tool_choice_search = self.invoker_user.tool_choice_search,
             group = self.invoker_user.group,
             created_at = self.invoker_user.created_at,

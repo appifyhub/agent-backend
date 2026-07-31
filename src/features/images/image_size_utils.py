@@ -121,6 +121,70 @@ def normalize_image_size_category(size: str) -> str:
     return re.sub(r"\s+", "", size.lower()).replace("mb", "k").replace("mp", "k").replace("m", "k")
 
 
+def convert_size_to_mp(size: str) -> str:
+    size_lower = size.lower()
+    if size_lower.endswith(" mp"):
+        return size
+    if size_lower == "1k":
+        return "1 MP"
+    elif size_lower == "2k":
+        return "2 MP"
+    elif size_lower == "4k":
+        return "4 MP"
+    else:
+        log.w(f"Unknown size format '{size}', defaulting to '2 MP'")
+        return "2 MP"
+
+
+def convert_size_to_k(size: str, fallback: str = "2K") -> str:
+    size_lower = size.lower()
+    if size_lower.endswith("k"):
+        return size.upper()
+    elif size_lower.endswith(" mp"):
+        mp_value = size_lower.replace(" mp", "")
+        if mp_value == "1":
+            return "1K"
+        elif mp_value == "2":
+            return "2K"
+        elif mp_value == "4":
+            return "4K"
+    log.w(f"Unknown size format '{size}', defaulting to '{fallback}'")
+    return fallback
+
+
+def resolve_closest_aspect_ratio(
+    aspect_ratio: str | None,
+    supported_aspect_ratios: list[str] | tuple[str, ...],
+    default_aspect_ratio: str,
+) -> str:
+    if not aspect_ratio:
+        return default_aspect_ratio
+    cleaned = re.sub(r"\s+", "", aspect_ratio)
+    if cleaned in supported_aspect_ratios:
+        log.t(f"Using valid aspect ratio '{cleaned}' as requested")
+        return cleaned
+
+    try:
+        parts = cleaned.split(":")
+        if len(parts) != 2:
+            raise ValueError("Invalid format")  # caught locally as control flow
+        input_ratio = float(parts[0]) / float(parts[1])
+    except (ValueError, ZeroDivisionError):
+        log.w(f"Invalid aspect ratio '{aspect_ratio}', using default")
+        return default_aspect_ratio
+
+    valid_float_ratios = []
+    for ratio_str in supported_aspect_ratios:
+        parts = ratio_str.split(":")
+        float_ratio = float(parts[0]) / float(parts[1])
+        valid_float_ratios.append((float_ratio, ratio_str))
+    closest_ratio_tuple = min(valid_float_ratios, key = lambda t: abs(t[0] - input_ratio))
+    closest_ratio = closest_ratio_tuple[1]
+
+    log.t(f"Using closest aspect ratio '{closest_ratio}'")
+    return closest_ratio
+
+
 def calculate_image_size_category(file_path: str) -> str:
     """
     Calculate the image size category based on megapixels.

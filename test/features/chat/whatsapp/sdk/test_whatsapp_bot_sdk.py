@@ -66,6 +66,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.mock_di.whatsapp_bot_api.send_text_message.return_value = self.api_response
         self.mock_di.whatsapp_bot_api.send_image.return_value = self.api_response
         self.mock_di.whatsapp_bot_api.send_document.return_value = self.api_response
+        self.mock_di.whatsapp_bot_api.send_video.return_value = self.api_response
 
         self.chat_config = ChatConfig(
             chat_id = self.chat_uuid,
@@ -128,7 +129,12 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_document(self):
         caption = "test document"
-        attachment = ChatAttachment(id = "local456", chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        attachment = ChatAttachment(
+            id = "local456",
+            chat_id = self.chat_uuid,
+            uploader_user_id = self.mock_di.invoker.id,
+            extension = "pdf",
+        )
 
         result = self.sdk.send_document(
             chat_config = self.chat_config,
@@ -141,6 +147,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
             recipient_id = str(self.chat_id),
             document_url = self.public_url,
             caption = caption,
+            filename = "local456.pdf",
         )
         self.mock_chat_attachment_service.create_public_url.assert_called_once_with(attachment)
         self.mock_chat_attachment_service.save.assert_called_once()
@@ -150,6 +157,35 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertIsInstance(result, ChatMessage)
         self.assertEqual(result.message_id, self.message_id)
         self.assertEqual(result.text, "test document\n\n📎 [ local456 ]")
+        self.assertEqual(result.chat_id, self.chat_uuid)
+
+    def test_send_video(self):
+        caption = "test video"
+        attachment = ChatAttachment(
+            id = "local789",
+            chat_id = self.chat_uuid,
+            uploader_user_id = self.mock_di.invoker.id,
+            mime_type = "video/mp4",
+        )
+
+        result = self.sdk.send_video(
+            chat_config = self.chat_config,
+            attachment = attachment,
+            caption = caption,
+        )
+
+        self.mock_di.whatsapp_bot_api.send_video.assert_called_once_with(
+            recipient_id = self.chat_id,
+            video_url = self.public_url,
+            caption = caption,
+        )
+        self.mock_chat_attachment_service.create_public_url.assert_called_once_with(attachment)
+        patched_attachment = self.mock_chat_attachment_service.save.call_args.args[0]
+        self.assertEqual(patched_attachment.id, attachment.id)
+        self.assertEqual(patched_attachment.message_id, self.message_id)
+        self.assertIsInstance(result, ChatMessage)
+        self.assertEqual(result.message_id, self.message_id)
+        self.assertEqual(result.text, "test video\n\n📎 [ local789 (video/mp4) ]")
         self.assertEqual(result.chat_id, self.chat_uuid)
 
     def test_set_reaction(self):

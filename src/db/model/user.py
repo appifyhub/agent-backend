@@ -68,6 +68,7 @@ class UserDB(BaseModel):
     tool_choice_vision = Column(String, nullable = True)
     tool_choice_hearing = Column(String, nullable = True)
     tool_choice_images_gen = Column(String, nullable = True)
+    tool_choice_videos_gen = Column(String, nullable = True)
     tool_choice_images_edit = Column(String, nullable = True)
     tool_choice_search = Column(String, nullable = True)
     tool_choice_embedding = Column(String, nullable = True)

@@ -102,6 +102,7 @@ class TelegramChatInboundService:
             or message.audio
             or message.document
             or message.photo
+            or message.video
             or message.voice,
         )
 

@@ -43,6 +43,9 @@ class UsageRecordDB(BaseModel):
     # image-related properties
     output_image_sizes = Column(JSON, nullable = True)
     input_image_sizes = Column(JSON, nullable = True)
+    # video-related properties
+    output_video_size = Column(String, nullable = True)
+    output_video_duration_seconds = Column(Float, nullable = True)
 
     # transfer-related properties
     counterpart_id = Column(UUID(as_uuid = True), nullable = True)

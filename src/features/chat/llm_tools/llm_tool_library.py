@@ -22,6 +22,7 @@ from features.images.smart_image_generator import SmartImageGenerator
 from features.integrations.integrations import add_messaging_frequency_warning, resolve_private_chat_id
 from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
 from features.support.user_support_service import UserSupportService
+from features.videos.smart_video_generator import SmartVideoGenerator
 from features.web_browsing.ai_web_search import AIWebSearch
 from util import log
 from util.config import config
@@ -128,6 +129,55 @@ def generate_image(
         if result == SmartImageGenerator.Result.failed:
             raise ExternalServiceError(f"Failed to generate the image! Reason: {str(generator.error)}", IMAGE_GENERATION_FAILED)
         return __success({"next_step": "Confirm to partner that the image has been sent"})
+    except Exception as e:
+        return __error(e)
+
+
+def generate_video(
+    di: DI,
+    prompt: str,
+    attachment_ids: str | None = None,
+    urls: str | None = None,
+    duration: str | None = None,
+    aspect_ratio: str | None = None,
+    size: str | None = None,
+) -> str:
+    """
+    Generates a new video from text, optionally using one or more reference images.
+
+    Args:
+        prompt: [mandatory] The user's description or prompt for the generated video
+        attachment_ids: [optional] A comma-separated list of verbatim, unique 📎 attachment IDs that need to be processed (located in each message); include any dashes, underscores or other symbols; these IDs are not to be cleaned or truncated
+        urls: [optional] A comma-separated list of external media URLs (starting with http:// or https://) to process
+        duration: [optional] The desired video duration. Valid options: short, medium, long. If not explicitly requested, don't send
+        aspect_ratio: [optional] The desired video aspect ratio. Valid options: 1:1, 2:3, 3:2, 3:4, 4:3, 16:9, 9:16, 21:9, match_input_image. If not explicitly requested, don't send
+        size: [optional] The desired video size/resolution. Valid options: 1K, 2K, 4K. If not explicitly requested, don't send
+    """
+    try:
+        attachment_ids = [id.strip() for id in attachment_ids.split(",") if id.strip()] if attachment_ids else []
+        raw_urls = [url.strip() for url in urls.split(",") if url.strip()] if urls else []
+        copywriter_tool = di.tool_choice_resolver.require_tool(
+            SmartVideoGenerator.COPYWRITER_TOOL_TYPE,
+            default_tool_for(SmartVideoGenerator.COPYWRITER_TOOL_TYPE),
+        )
+        video_gen_tool = di.tool_choice_resolver.require_tool(
+            SmartVideoGenerator.VIDEO_GEN_TOOL_TYPE,
+            default_tool_for(SmartVideoGenerator.VIDEO_GEN_TOOL_TYPE),
+        )
+        details = di.smart_video_generator(
+            raw_prompt = prompt,
+            attachment_ids = attachment_ids,
+            urls = raw_urls,
+            configured_copywriter_tool = copywriter_tool,
+            configured_video_gen_tool = video_gen_tool,
+            duration = duration,
+            aspect_ratio = aspect_ratio,
+            output_size = size,
+        ).execute()
+        return __success({
+            **details,
+            "next_step": "Tell the partner that video generation started and it will be sent once ready",
+        })
     except Exception as e:
         return __error(e)
 
@@ -560,6 +610,7 @@ ALL_LLM_TOOLS: dict[str, Callable[..., str]] = {
     "remove_asset_price_alert": remove_asset_price_alert,
     "list_asset_price_alerts": list_asset_price_alerts,
     "generate_image": generate_image,
+    "generate_video": generate_video,
     "ai_web_search": ai_web_search,
     "announce_maintenance_or_news": announce_maintenance_or_news,
     "deliver_message": deliver_message,

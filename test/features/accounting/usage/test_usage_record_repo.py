@@ -65,6 +65,8 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             total_cost_credits = 0.7,
             runtime_seconds = 1.5,
             output_image_sizes = ["1024x1024"],
+            output_video_size = "1k",
+            output_video_duration_seconds = 5,
         )
 
         persisted = self.repo.create(record)
@@ -75,6 +77,8 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(persisted.tool_purpose, ToolType.vision)
         self.assertEqual(persisted.total_cost_credits, 0.7)
         self.assertEqual(persisted.output_image_sizes, ["1024x1024"])
+        self.assertEqual(persisted.output_video_size, "1k")
+        self.assertEqual(persisted.output_video_duration_seconds, 5)
 
     def test_get(self):
         record = self._create_record()

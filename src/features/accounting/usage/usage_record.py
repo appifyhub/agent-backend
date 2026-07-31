@@ -33,6 +33,9 @@ class UsageRecord:
     # image-related properties
     output_image_sizes: list[str] | None = None
     input_image_sizes: list[str] | None = None
+    # video-related properties
+    output_video_size: str | None = None
+    output_video_duration_seconds: float | None = None
     # transfer-related properties
     counterpart_id: UUID | None = None
     note: str | None = None

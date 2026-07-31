@@ -52,6 +52,9 @@ The project currently uses the following tech stack:
 
 Using `pipenv`, you can run `pipenv install` in the root directory to set up your dependencies correctly.
 
+Video preparation also requires the system `ffmpeg` and `ffprobe` executables. The Docker image installs
+them through Debian packages. On macOS, install the native ARM or Intel build with `brew install ffmpeg`.
+
 To prepare the production server (less logging, more parallelism):
 
 ```bash

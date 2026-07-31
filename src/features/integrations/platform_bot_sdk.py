@@ -10,11 +10,18 @@ from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
+from features.chat.supported_files import KNOWN_VIDEO_FORMATS, is_supported_mime_type
 from features.images.image_bitmap_utils import add_outgoing_png_background
 from features.images.image_size_utils import resize_file
-from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYTES, WHATSAPP_MAX_PHOTO_SIZE_BYTES
+from features.integrations.integration_config import (
+    TELEGRAM_MAX_PHOTO_SIZE_BYTES,
+    TELEGRAM_MAX_VIDEO_SIZE_BYTES,
+    WHATSAPP_MAX_PHOTO_SIZE_BYTES,
+    WHATSAPP_MAX_VIDEO_SIZE_BYTES,
+)
 from features.integrations.integrations import is_own_chat
 from features.users.user import User
+from features.videos.video_file_utils import prepare_remote_video_files
 from util import log
 from util.config import config
 from util.error_codes import CHAT_CONFIG_NOT_FOUND, MEDIA_DOWNLOAD_FAILED, UNSUPPORTED_CHAT_TYPE
@@ -51,15 +58,10 @@ class PlatformBotSDK:
             case _:
                 raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
 
-    def send_photo(
-        self,
-        chat_id: int | str,
-        photo_url: str,
-        caption: str | None = None,
-    ) -> ChatMessage:
+    def send_photo(self, chat_id: int | str, photo_url: str, caption: str | None = None) -> ChatMessage:
         chat_type = self.__di.require_invoker_chat_type()
         chat_config = self.__require_chat_config(chat_id, chat_type)
-        attachment = self.prepare_outgoing_attachment(chat_config, photo_url, should_add_png_background = True)
+        attachment = self.prepare_outgoing_static_attachment(chat_config, photo_url, should_add_png_background = True)
 
         match chat_type:
             case ChatConfigDB.ChatType.telegram:
@@ -103,10 +105,10 @@ class PlatformBotSDK:
         chat_type = self.__di.require_invoker_chat_type()
         chat_config = self.__require_chat_config(chat_id, chat_type)
 
-        attachment = self.prepare_outgoing_attachment(chat_config, document_url, should_resize = False)
+        attachment = self.prepare_outgoing_static_attachment(chat_config, document_url, should_resize = False)
         thumbnail_url: str | None = None
         if thumbnail:
-            thumbnail_attachment = self.prepare_outgoing_attachment(chat_config, thumbnail)
+            thumbnail_attachment = self.prepare_outgoing_static_attachment(chat_config, thumbnail)
             thumbnail_url = self.__di.chat_attachment_service.create_public_url(thumbnail_attachment).url
 
         match chat_type:
@@ -125,6 +127,41 @@ class PlatformBotSDK:
                 )
             case _:
                 raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
+
+    def send_video(self, chat_id: int | str, video_url: str, caption: str | None = None) -> ChatMessage:
+        chat_type = self.__di.require_invoker_chat_type()
+        chat_config = self.__require_chat_config(chat_id, chat_type)
+        attachment = self.prepare_outgoing_video_attachment(chat_config, video_url)
+        match chat_type:
+            case ChatConfigDB.ChatType.telegram:
+                return self.__di.telegram_bot_sdk.send_video(chat_config, attachment, caption)
+            case ChatConfigDB.ChatType.whatsapp:
+                return self.__di.whatsapp_bot_sdk.send_video(chat_config, attachment, caption)
+            case _:
+                raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
+
+    def smart_send_video(
+        self,
+        media_mode: ChatConfigDB.MediaMode,
+        chat_id: int | str,
+        video_url: str,
+        caption: str | None = None,
+    ) -> ChatMessage:
+        match media_mode:
+            case ChatConfigDB.MediaMode.photo:
+                try:
+                    return self.send_video(chat_id, video_url, caption)
+                except Exception as e:
+                    log.e("Failed to send video, falling back to document", e)
+                    return self.send_document(chat_id, video_url, caption)
+            case ChatConfigDB.MediaMode.file:
+                return self.send_document(chat_id, video_url, caption)
+            case ChatConfigDB.MediaMode.all:
+                try:
+                    self.send_video(chat_id, video_url, caption)
+                except Exception as e:
+                    log.e("Failed to send video in 'all' mode, continuing with document", e)
+                return self.send_document(chat_id, video_url, caption)
 
     def send_button_link(self, chat_id: int | str, link_url: str, button_text: str = "⚙️") -> ChatMessage:
         chat_type = self.__di.require_invoker_chat_type()
@@ -177,7 +214,7 @@ class PlatformBotSDK:
             case _:
                 return None
 
-    def prepare_outgoing_attachment(
+    def prepare_outgoing_static_attachment(
         self,
         chat_config: ChatConfig,
         public_url: str,
@@ -200,15 +237,20 @@ class PlatformBotSDK:
         temp_path: str | None = None
         prepared_path: str | None = None
         resized_path: str | None = None
+        response_mime_type: str | None = None
         try:
-            with NamedTemporaryFile(delete = False) as tmp:
-                temp_path = tmp.name
+            with NamedTemporaryFile(delete = False) as temp_file:
+                temp_path = temp_file.name
                 log.t(f"Downloading outbound media to temp file: {temp_path}")
                 try:
                     with requests.get(public_url, timeout = config.web_timeout_s * 3, stream = True) as response:
                         response.raise_for_status()
+                        content_type = response.headers.get("Content-Type")
+                        if isinstance(content_type, str):
+                            clean_http_mime_type = content_type.split(";", 1)[0].strip() or None
+                            response_mime_type = clean_http_mime_type if is_supported_mime_type(clean_http_mime_type) else None
                         for chunk in response.iter_content(chunk_size = 1024 * 256):
-                            tmp.write(chunk)
+                            temp_file.write(chunk)
                 except Exception as e:
                     log.w(f"Could not download outbound media '{public_url[:4]}...{public_url[-4:]}'", e)
                     raise ExternalServiceError("Could not download outbound media", MEDIA_DOWNLOAD_FAILED) from e
@@ -219,8 +261,13 @@ class PlatformBotSDK:
             prepared_path = add_outgoing_png_background(temp_path) if should_add_png_background else temp_path
             resized_path = resize_file(prepared_path, max_size_bytes)
             attachment = self.__di.chat_attachment_service.save(
-                attachment = ChatAttachment(chat_id = chat_config.chat_id, uploader_user_id = self.__di.invoker.id),
+                attachment = ChatAttachment(
+                    chat_id = chat_config.chat_id,
+                    uploader_user_id = self.__di.invoker.id,
+                    mime_type = response_mime_type,
+                ),
                 content = Path(resized_path).read_bytes(),
+                remote_url = public_url,
             )
             log.t(f"Prepared outgoing attachment '{attachment.id}'")
             return attachment
@@ -228,6 +275,33 @@ class PlatformBotSDK:
             delete_file_safe(temp_path)
             delete_file_safe(prepared_path)
             delete_file_safe(resized_path)
+
+    def prepare_outgoing_video_attachment(self, chat_config: ChatConfig, public_url: str) -> ChatAttachment:
+        chat_type = self.__di.require_invoker_chat_type()
+        match chat_type:
+            case ChatConfigDB.ChatType.telegram:
+                max_size_bytes = TELEGRAM_MAX_VIDEO_SIZE_BYTES
+            case ChatConfigDB.ChatType.whatsapp:
+                max_size_bytes = WHATSAPP_MAX_VIDEO_SIZE_BYTES
+            case _:
+                raise ConfigurationError(f"Unsupported chat type: {chat_type}", UNSUPPORTED_CHAT_TYPE)
+
+        with prepare_remote_video_files(public_url, max_size_bytes = max_size_bytes) as (_, prepared_path, prepared_metadata):
+            attachment = self.__di.chat_attachment_service.save(
+                attachment = ChatAttachment(
+                    chat_id = chat_config.chat_id,
+                    uploader_user_id = self.__di.invoker.id,
+                    extension = (
+                        prepared_metadata.container
+                        if prepared_metadata.container in KNOWN_VIDEO_FORMATS
+                        else None
+                    ),
+                ),
+                content = Path(prepared_path).read_bytes(),
+                remote_url = public_url,
+            )
+            log.t(f"Prepared outgoing video attachment '{attachment.id}'")
+            return attachment
 
     def __require_chat_config(self, chat_id: int | str, chat_type: ChatConfigDB.ChatType) -> ChatConfig:
         chat_config = self.__di.chat_config_repo.get_by_external_identifiers(str(chat_id), chat_type)

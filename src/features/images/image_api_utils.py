@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass, replace
 from typing import IO
 
@@ -21,6 +20,7 @@ from features.external_tools.external_tool_library import (
     NANO_BANANA_2,
     NANO_BANANA_PRO,
 )
+from features.images.image_size_utils import convert_size_to_k, convert_size_to_mp, resolve_closest_aspect_ratio
 from util import log
 
 VALID_ASPECT_RATIOS = [
@@ -168,7 +168,7 @@ def resolve_aspect_ratio(
     if not aspect_ratio:
         log.t("No aspect ratio requested, using default: 'match_input_image' if editing, '2:3' if generation")
         return "match_input_image" if is_editing else "2:3"
-    cleaned = re.sub(r"\s+", "", aspect_ratio)
+    cleaned = "".join(aspect_ratio.split())
 
     # check if match_input_image is requested
     if cleaned == "match_input_image":
@@ -178,60 +178,8 @@ def resolve_aspect_ratio(
         log.t("Using 'match_input_image' for editing, as requested")
         return cleaned
 
-    # check if valid aspect ratio is requested
-    if cleaned in VALID_ASPECT_RATIOS:
-        log.t(f"Using valid aspect ratio '{cleaned}' as requested")
-        return cleaned
-
-    # check if invalid aspect ratio is requested
-    try:
-        parts = cleaned.split(":")
-        if len(parts) != 2:
-            raise ValueError("Invalid format")  # caught locally as control flow
-        input_ratio = float(parts[0]) / float(parts[1])
-    except (ValueError, ZeroDivisionError):
-        log.w(f"Invalid aspect ratio '{aspect_ratio}', using default")
-        return "match_input_image" if is_editing else "2:3"
-
-    # find the closest valid aspect ratio
-    valid_float_ratios = []
-    for ratio_str in VALID_ASPECT_RATIOS:
-        parts = ratio_str.split(":")
-        float_ratio = float(parts[0]) / float(parts[1])
-        valid_float_ratios.append((float_ratio, ratio_str))
-    closest_ratio_tuple = min(valid_float_ratios, key = lambda t: abs(t[0] - input_ratio))
-    closest_ratio = closest_ratio_tuple[1]
-
-    log.t(f"Using closest aspect ratio '{closest_ratio}'")
-    return closest_ratio
-
-
-def convert_size_to_mp(size: str) -> str:
-    size_lower = size.lower()
-    if size_lower.endswith(" mp"):
-        return size
-    if size_lower == "1k":
-        return "1 MP"
-    elif size_lower == "2k":
-        return "2 MP"
-    elif size_lower == "4k":
-        return "4 MP"
-    else:
-        log.w(f"Unknown size format '{size}', defaulting to '2 MP'")
-        return "2 MP"
-
-
-def convert_size_to_k(size: str) -> str:
-    size_lower = size.lower()
-    if size_lower.endswith("k"):
-        return size.upper()
-    elif size_lower.endswith(" mp"):
-        mp_value = size_lower.replace(" mp", "")
-        if mp_value == "1":
-            return "1K"
-        elif mp_value == "2":
-            return "2K"
-        elif mp_value == "4":
-            return "4K"
-    log.w(f"Unknown size format '{size}', defaulting to '2K'")
-    return "2K"
+    return resolve_closest_aspect_ratio(
+        aspect_ratio = cleaned,
+        supported_aspect_ratios = VALID_ASPECT_RATIOS,
+        default_aspect_ratio = "match_input_image" if is_editing else "2:3",
+    )

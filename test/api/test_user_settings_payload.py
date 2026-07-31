@@ -23,6 +23,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_vision = "gpt-4o",
             tool_choice_hearing = "whisper-1",
             tool_choice_images_gen = "dall-e-3",
+            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_images_edit = "dall-e-2",
             tool_choice_search = "perplexity-search",
             tool_choice_embedding = "text-embedding-3-large",
@@ -47,6 +48,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.tool_choice_vision, "gpt-4o")
         self.assertEqual(payload.tool_choice_hearing, "whisper-1")
         self.assertEqual(payload.tool_choice_images_gen, "dall-e-3")
+        self.assertEqual(payload.tool_choice_videos_gen, "prunaai/p-video")
         self.assertEqual(payload.tool_choice_images_edit, "dall-e-2")
         self.assertEqual(payload.tool_choice_search, "perplexity-search")
         self.assertEqual(payload.tool_choice_embedding, "text-embedding-3-large")
@@ -79,6 +81,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.tool_choice_copywriting)
         self.assertIsNone(payload.tool_choice_hearing)
         self.assertIsNone(payload.tool_choice_images_gen)
+        self.assertIsNone(payload.tool_choice_videos_gen)
         self.assertIsNone(payload.tool_choice_images_edit)
         self.assertIsNone(payload.tool_choice_search)
         self.assertIsNone(payload.tool_choice_embedding)
@@ -98,6 +101,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_vision = " gpt-4o ",
             tool_choice_hearing = "  whisper-1  ",
             tool_choice_images_gen = "\tdall-e-3\n",
+            tool_choice_videos_gen = "  prunaai/p-video\n",
             tool_choice_search = " perplexity-search ",
             tool_choice_embedding = "  text-embedding-3-large  ",
         )
@@ -110,6 +114,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.tool_choice_vision, "gpt-4o")
         self.assertEqual(payload.tool_choice_hearing, "whisper-1")
         self.assertEqual(payload.tool_choice_images_gen, "dall-e-3")
+        self.assertEqual(payload.tool_choice_videos_gen, "prunaai/p-video")
         self.assertEqual(payload.tool_choice_search, "perplexity-search")
         self.assertEqual(payload.tool_choice_embedding, "text-embedding-3-large")
 
@@ -124,6 +129,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_vision = "",  # Already empty
             tool_choice_hearing = "   ",
             tool_choice_images_gen = "\t\n",
+            tool_choice_videos_gen = "  ",
             tool_choice_search = "",
         )
 
@@ -136,6 +142,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.tool_choice_vision, "")
         self.assertEqual(payload.tool_choice_hearing, "")
         self.assertEqual(payload.tool_choice_images_gen, "")
+        self.assertEqual(payload.tool_choice_videos_gen, "")
         self.assertEqual(payload.tool_choice_search, "")
 
     def test_none_values_preserved(self):
@@ -175,6 +182,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.tool_choice_vision)
         self.assertIsNone(payload.tool_choice_hearing)
         self.assertIsNone(payload.tool_choice_images_gen)
+        self.assertIsNone(payload.tool_choice_videos_gen)
         self.assertIsNone(payload.tool_choice_images_edit)
         self.assertIsNone(payload.tool_choice_search)
         self.assertIsNone(payload.tool_choice_embedding)
@@ -190,6 +198,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_reasoning = "claude-3-7-sonnet-latest",
             tool_choice_vision = "gpt-4o",
             tool_choice_images_gen = "dall-e-3",
+            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_search = "perplexity-search",
         )
 
@@ -209,6 +218,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.tool_choice_reasoning, "claude-3-7-sonnet-latest")
         self.assertEqual(payload.tool_choice_vision, "gpt-4o")
         self.assertEqual(payload.tool_choice_images_gen, "dall-e-3")
+        self.assertEqual(payload.tool_choice_videos_gen, "prunaai/p-video")
         self.assertEqual(payload.tool_choice_search, "perplexity-search")
 
         # Unset tool choices should be None

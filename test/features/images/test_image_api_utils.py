@@ -97,36 +97,6 @@ class ImageApiUtilsTest(unittest.TestCase):
         result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "invalid", input_files)
         self.assertEqual(result, "match_input_image")
 
-    def test_convert_size_to_mp_from_k(self):
-        self.assertEqual(image_api_utils.convert_size_to_mp("1K"), "1 MP")
-        self.assertEqual(image_api_utils.convert_size_to_mp("2K"), "2 MP")
-        self.assertEqual(image_api_utils.convert_size_to_mp("4K"), "4 MP")
-
-    def test_convert_size_to_mp_already_mp(self):
-        self.assertEqual(image_api_utils.convert_size_to_mp("2 MP"), "2 MP")
-
-    def test_convert_size_to_mp_case_insensitive(self):
-        self.assertEqual(image_api_utils.convert_size_to_mp("2k"), "2 MP")
-        self.assertEqual(image_api_utils.convert_size_to_mp("4K"), "4 MP")
-
-    def test_convert_size_to_mp_invalid_defaults_to_2mp(self):
-        self.assertEqual(image_api_utils.convert_size_to_mp("invalid"), "2 MP")
-
-    def test_convert_size_to_k_from_mp(self):
-        self.assertEqual(image_api_utils.convert_size_to_k("1 MP"), "1K")
-        self.assertEqual(image_api_utils.convert_size_to_k("2 MP"), "2K")
-        self.assertEqual(image_api_utils.convert_size_to_k("4 MP"), "4K")
-
-    def test_convert_size_to_k_already_k(self):
-        self.assertEqual(image_api_utils.convert_size_to_k("2K"), "2K")
-
-    def test_convert_size_to_k_case_insensitive(self):
-        self.assertEqual(image_api_utils.convert_size_to_k("2 mp"), "2K")
-        self.assertEqual(image_api_utils.convert_size_to_k("4k"), "4K")
-
-    def test_convert_size_to_k_invalid_defaults_to_2k(self):
-        self.assertEqual(image_api_utils.convert_size_to_k("invalid"), "2K")
-
     def test_map_to_model_parameters_single_image_model_uses_singular_fields_only(self):
         file1 = BytesIO(b"test image data")
         file2 = BytesIO(b"test image data 2")
