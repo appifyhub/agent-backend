@@ -24,7 +24,7 @@ from features.external_tools.external_tool_library import (
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
-    VIDEO_GEN_SEEDANCE_2_0,
+    VIDEO_GEN_SEEDANCE_2_0_FAST,
     WHISPER_1,
     X_READ_POST,
 )
@@ -120,7 +120,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         vision = GPT_5_5,
         hearing = GPT_4O_MINI_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO,
-        videos_gen = VIDEO_GEN_SEEDANCE_2_0,
+        videos_gen = VIDEO_GEN_SEEDANCE_2_0_FAST,
         images_edit = IMAGE_GEN_EDIT_FLUX_2_PRO,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_3_SMALL,

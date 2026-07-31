@@ -5,7 +5,7 @@ from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import (
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
-    VIDEO_GEN_SEEDANCE_2_0,
+    VIDEO_GEN_SEEDANCE_2_0_FAST,
 )
 from features.external_tools.intelligence_presets import (
     INTELLIGENCE_PRESETS,
@@ -40,7 +40,7 @@ class IntelligencePresetsTest(unittest.TestCase):
         self.assertEqual(result["search"], choices.search.id)
         self.assertEqual(result["embedding"], choices.embedding.id)
         self.assertEqual(result["api_stock_quote"], choices.api_stock_quote.id)
-        self.assertEqual(result["videos_gen"], VIDEO_GEN_SEEDANCE_2_0.id)
+        self.assertEqual(result["videos_gen"], VIDEO_GEN_SEEDANCE_2_0_FAST.id)
 
     def test_get_all_presets_returns_dict_with_all_presets(self):
         result = get_all_presets()
@@ -100,9 +100,9 @@ class IntelligencePresetsTest(unittest.TestCase):
         )
         self.assertEqual(
             INTELLIGENCE_PRESETS[IntelligencePreset.agent_choice].videos_gen,
-            VIDEO_GEN_SEEDANCE_2_0,
+            VIDEO_GEN_SEEDANCE_2_0_FAST,
         )
-        self.assertEqual(default_tool_for(ToolType.videos_gen), VIDEO_GEN_SEEDANCE_2_0)
+        self.assertEqual(default_tool_for(ToolType.videos_gen), VIDEO_GEN_SEEDANCE_2_0_FAST)
 
     def test_default_tool_for_deprecated_raises(self):
         with self.assertRaises(InternalError) as context:
