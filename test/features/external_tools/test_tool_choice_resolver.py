@@ -13,6 +13,7 @@ from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     GPT_5_6_TERRA,
+    IMAGE_GEN_EDIT_FLUX_2_PRO,
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
 )
@@ -37,6 +38,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
             anthropic_key = SecretStr("test_anthropic_key"),
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_vision = "gpt-5.6-terra",
+            tool_choice_images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO.id,
             tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.standard,
@@ -162,6 +164,17 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertEqual(result.token.get_secret_value(), "test_token")
         self.assertEqual(result.purpose, ToolType.chat)
         self.assertFalse(result.uses_credits)
+
+    def test_legacy_image_edit_resolves_generation_choice(self):
+        resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
+        self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved
+
+        result = ToolChoiceResolver(self.mock_di).get_tool(ToolType.images_edit)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.definition, IMAGE_GEN_EDIT_FLUX_2_PRO)
+        self.assertEqual(result.purpose, ToolType.images_edit)
 
     def test_get_tool_success_user_no_access_to_user_choice_but_has_access_to_others(self):
         resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)

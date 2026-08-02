@@ -110,10 +110,9 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.assertEqual(result, ChatImageEditService.Result.success)
         self.assertEqual(details, [{"url": "http://test.com/edited_image.png", "error": None, "status": "delivered"}])
         self.mock_di.image_editor.assert_called_once_with(
-            image_urls = ["http://test.com/image.png"],
+            input_attachments = [self.attachment],
             configured_tool = self.mock_di.tool_choice_resolver.require_tool.return_value,
             prompt = "<empty>",
-            input_mime_types = ["image/png"],
             aspect_ratio = None,
             output_size = None,
         )
@@ -144,10 +143,9 @@ class ChatImageEditServiceTest(unittest.TestCase):
         self.assertEqual(result, ChatImageEditService.Result.success)
         self.assertEqual(details, [{"url": "http://test.com/edited_image.png", "error": None, "status": "delivered"}])
         self.mock_di.image_editor.assert_called_once_with(
-            image_urls = ["http://test.com/image.png", "http://test.com/image2.png"],
+            input_attachments = [self.attachment, self.attachment2],
             configured_tool = self.mock_di.tool_choice_resolver.require_tool.return_value,
             prompt = "<empty>",
-            input_mime_types = ["image/png", "image/png"],
             aspect_ratio = None,
             output_size = None,
         )
@@ -171,12 +169,11 @@ class ChatImageEditServiceTest(unittest.TestCase):
 
         self.assertEqual(result, ChatImageEditService.Result.partial)
         self.assertEqual(details, [{"url": "http://test.com/edited_image.png", "error": None, "status": "delivered"}])
-        # Only the valid URL is passed to the editor
+        # only the valid attachment is passed to the editor
         self.mock_di.image_editor.assert_called_once_with(
-            image_urls = ["http://test.com/image.png"],
+            input_attachments = [self.attachment],
             configured_tool = self.mock_di.tool_choice_resolver.require_tool.return_value,
             prompt = "<empty>",
-            input_mime_types = ["image/png"],
             aspect_ratio = None,
             output_size = None,
         )
@@ -282,8 +279,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
 
         self.assertEqual(result, ChatImageEditService.Result.success)
         call_kwargs = self.mock_di.image_editor.call_args[1]
-        self.assertEqual(call_kwargs["image_urls"], [virtual_url])
-        self.assertEqual(call_kwargs["input_mime_types"], ["image/png"])
+        self.assertEqual(call_kwargs["input_attachments"], [self.url_attachment])
 
     def test_service_resolved_url_and_db_attachments_are_edited(self):
         virtual_url = "https://example.com/virtual.png"
@@ -312,8 +308,7 @@ class ChatImageEditServiceTest(unittest.TestCase):
         service.execute()
 
         call_kwargs = self.mock_di.image_editor.call_args[1]
-        self.assertIn(virtual_url, call_kwargs["image_urls"])
-        self.assertIn("http://test.com/image.png", call_kwargs["image_urls"])
+        self.assertEqual(call_kwargs["input_attachments"], [self.attachment, url_attachment])
 
     def test_empty_ids_and_no_urls_raises_error(self):
         self.mock_di.chat_attachment_service.resolve_image_attachments.side_effect = Exception("missing attachments")

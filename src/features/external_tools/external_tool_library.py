@@ -413,18 +413,6 @@ SONAR_DEEP_RESEARCH = ExternalTool(
 
 ###  Replicate  ###
 
-IMAGE_GEN_FLUX_1_1 = ExternalTool(
-    id = "black-forest-labs/flux-1.1-pro",
-    name = "Black Forest Labs: Flux 1.1 Pro",
-    provider = REPLICATE,
-    types = [ToolType.images_gen],
-    cost_estimate = CostEstimate(
-        output_image_1k = 4,
-        output_image_2k = 4,
-        output_image_4k = 4,
-    ),
-)
-
 IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO = ExternalTool(
     id = "black-forest-labs/flux-kontext-pro",
     name = "Black Forest Labs: Flux Kontext Pro",
@@ -738,7 +726,6 @@ ALL_EXTERNAL_TOOLS = [
     SONAR_REASONING_PRO,
     SONAR_DEEP_RESEARCH,
     # Replicate
-    IMAGE_GEN_FLUX_1_1,
     IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO,
     IMAGE_GEN_EDIT_FLUX_2_PRO,
     IMAGE_GEN_EDIT_FLUX_2_MAX,

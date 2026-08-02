@@ -1075,15 +1075,11 @@ components:
         tool_choice_images_gen:
           type: string
           nullable: true
-          description: Tool choice for image generation
+          description: Tool choice for image generation and editing
         tool_choice_videos_gen:
           type: string
           nullable: true
           description: Tool choice for video generation
-        tool_choice_images_edit:
-          type: string
-          nullable: true
-          description: Tool choice for image editing
         tool_choice_search:
           type: string
           nullable: true
@@ -1211,9 +1207,6 @@ components:
           type: string
           nullable: true
         tool_choice_videos_gen:
-          type: string
-          nullable: true
-        tool_choice_images_edit:
           type: string
           nullable: true
         tool_choice_search:

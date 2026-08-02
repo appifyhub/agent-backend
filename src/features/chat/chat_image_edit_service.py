@@ -42,8 +42,7 @@ class ChatImageEditService:
         log.t(f"Editing {len(self.__attachments)} images in aspect ratio {self.__aspect_ratio}")
 
         # collect valid attachments; track missing storage as partial failures
-        image_urls: list[str] = []
-        mime_types: list[str | None] = []
+        input_attachments: list[ChatAttachment] = []
         skip_errors: list[str | None] = []
         for attachment in self.__attachments:
             if not attachment.last_url:
@@ -51,12 +50,10 @@ class ChatImageEditService:
                 log.w(message)
                 skip_errors.append(message)
             else:
-                public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
-                image_urls.append(public_url)
-                mime_types.append(attachment.mime_type)
+                input_attachments.append(attachment)
                 skip_errors.append(None)
 
-        if not image_urls:
+        if not input_attachments:
             return ChatImageEditService.Result.failed, [None], ["No valid attachment URLs found"]
 
         try:
@@ -64,10 +61,9 @@ class ChatImageEditService:
                 ImageEditor.TOOL_TYPE, default_tool_for(ImageEditor.TOOL_TYPE),
             )
             editor = self.__di.image_editor(
-                image_urls = image_urls,
+                input_attachments = input_attachments,
                 configured_tool = configured_tool,
                 prompt = self.__operation_guidance or "<empty>",
-                input_mime_types = mime_types,
                 aspect_ratio = self.__aspect_ratio,
                 output_size = self.__output_size,
             )

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.users.user import User
@@ -1025,15 +1026,14 @@ class DI:
 
     def image_editor(
         self,
-        image_urls: list[str],
+        input_attachments: list[ChatAttachment],
         configured_tool: ConfiguredTool,
         prompt: str,
-        input_mime_types: list[str | None],
         aspect_ratio: str | None = None,
         output_size: str | None = None,
     ) -> "ImageEditor":
         from features.images.image_editor import ImageEditor
-        return ImageEditor(image_urls, configured_tool, prompt, self, input_mime_types, aspect_ratio, output_size)
+        return ImageEditor(input_attachments, configured_tool, prompt, self, aspect_ratio, output_size)
 
     def computer_vision_analyzer(
         self,
