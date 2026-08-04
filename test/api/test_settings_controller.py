@@ -29,7 +29,7 @@ from features.external_tools.external_tool import CostEstimate, ExternalTool, Ex
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     GPT_5_5,
-    IMAGE_GEN_FLUX_1_1,
+    IMAGE_GEN_EDIT_FLUX_2_PRO,
     SONAR,
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
@@ -305,7 +305,7 @@ class SettingsControllerTest(unittest.TestCase):
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_reasoning = GPT_5_5.id,
             tool_choice_vision = CLAUDE_4_6_SONNET.id,
-            tool_choice_images_gen = IMAGE_GEN_FLUX_1_1.id,
+            tool_choice_images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO.id,
             tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_search = SONAR.id,
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,

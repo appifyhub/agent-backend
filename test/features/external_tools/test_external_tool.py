@@ -228,7 +228,6 @@ class ExternalToolTest(unittest.TestCase):
             ToolType.hearing,
             ToolType.images_gen,
             ToolType.videos_gen,
-            ToolType.images_edit,
             ToolType.embedding,
             ToolType.api_fiat_exchange,
             ToolType.api_crypto_exchange,

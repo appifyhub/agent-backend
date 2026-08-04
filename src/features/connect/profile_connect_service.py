@@ -180,8 +180,6 @@ class ProfileConnectService:
             merged.tool_choice_images_gen = casualty.tool_choice_images_gen
         if not merged.tool_choice_videos_gen and casualty.tool_choice_videos_gen:
             merged.tool_choice_videos_gen = casualty.tool_choice_videos_gen
-        if not merged.tool_choice_images_edit and casualty.tool_choice_images_edit:
-            merged.tool_choice_images_edit = casualty.tool_choice_images_edit
         if not merged.tool_choice_search and casualty.tool_choice_search:
             merged.tool_choice_search = casualty.tool_choice_search
         if not merged.tool_choice_embedding and casualty.tool_choice_embedding:

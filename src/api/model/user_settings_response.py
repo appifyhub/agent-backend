@@ -34,7 +34,6 @@ class UserSettingsResponse(BaseModel):
     tool_choice_hearing: str | None = None
     tool_choice_images_gen: str | None = None
     tool_choice_videos_gen: str | None = None
-    tool_choice_images_edit: str | None = None
     tool_choice_search: str | None = None
     tool_choice_embedding: str | None = None
     tool_choice_api_fiat_exchange: str | None = None

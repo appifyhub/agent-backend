@@ -3,6 +3,7 @@ from dataclasses import fields
 
 from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import (
+    IMAGE_GEN_EDIT_FLUX_2_PRO,
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
     VIDEO_GEN_SEEDANCE_2_0_FAST,
@@ -58,7 +59,16 @@ class IntelligencePresetsTest(unittest.TestCase):
                 self.assertIsInstance(tool_id, str)
 
     def test_all_presets_have_required_tool_types(self):
-        required_types = ["chat", "reasoning", "vision", "hearing", "videos_gen", "search", "embedding"]
+        required_types = [
+            "chat",
+            "reasoning",
+            "vision",
+            "hearing",
+            "images_gen",
+            "videos_gen",
+            "search",
+            "embedding",
+        ]
         result = get_all_presets()
         for preset_name, choices in result.items():
             for tool_type in required_types:
@@ -103,6 +113,9 @@ class IntelligencePresetsTest(unittest.TestCase):
             VIDEO_GEN_SEEDANCE_2_0_FAST,
         )
         self.assertEqual(default_tool_for(ToolType.videos_gen), VIDEO_GEN_SEEDANCE_2_0_FAST)
+
+    def test_image_generation_default(self):
+        self.assertEqual(default_tool_for(ToolType.images_gen), IMAGE_GEN_EDIT_FLUX_2_PRO)
 
     def test_default_tool_for_deprecated_raises(self):
         with self.assertRaises(InternalError) as context:

@@ -3,7 +3,7 @@ import math
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from PIL import Image
 
@@ -185,21 +185,34 @@ def resolve_closest_aspect_ratio(
     return closest_ratio
 
 
-def calculate_image_size_category(file_path: str) -> str:
+def calculate_image_size_category(
+    file_path: str | None = None,
+    file_contents: BinaryIO | None = None,
+) -> str:
     """
     Calculate the image size category based on megapixels.
 
     Args:
-        file_path: Path to the image file
+        file_path: Local filesystem path to the image
+        file_contents: Binary image stream, preferred when both arguments are supplied
 
     Returns:
         Size category as "1k", "2k", "4k", "8k", or "12k"
 
     Raises:
-        ValueError: If image is larger than 14 megapixels
+        ValidationError: If no input is supplied or the image is larger than 14 megapixels
     """
     try:
-        with Image.open(file_path) as image:
+        if file_contents is not None:
+            if not file_contents.seekable():
+                file_contents = io.BytesIO(file_contents.read())
+            image_file = Image.open(file_contents)
+        elif file_path is not None:
+            image_file = Image.open(file_path)
+        else:
+            raise ValidationError("Image file path or contents are required", INVALID_IMAGE_SIZE)
+
+        with image_file as image:
             width, height = image.size
             megapixels = (width * height) / 1_000_000
 

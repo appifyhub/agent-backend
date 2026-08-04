@@ -1,5 +1,5 @@
 from time import time
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
@@ -18,6 +18,7 @@ class RunnableUsageTrackingDecorator(Runnable[LanguageModelInput, AIMessage]):
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
+    __rollback_db_session: Callable[[], None]
     __max_tokens: int
 
     def __init__(
@@ -26,6 +27,7 @@ class RunnableUsageTrackingDecorator(Runnable[LanguageModelInput, AIMessage]):
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
+        rollback_db_session: Callable[[], None],
         max_tokens: int,
     ):
         super().__init__()
@@ -33,10 +35,12 @@ class RunnableUsageTrackingDecorator(Runnable[LanguageModelInput, AIMessage]):
         self.__tracking_service = tracking_service
         self.__spending_service = spending_service
         self.__configured_tool = configured_tool
+        self.__rollback_db_session = rollback_db_session
         self.__max_tokens = max_tokens
 
     def invoke(self, input: LanguageModelInput, config: RunnableConfig | None = None, **kwargs) -> AIMessage:
         self.__spending_service.validate_pre_flight(self.__configured_tool, self.__max_tokens, str(input))
+        self.__rollback_db_session()
         start_time = time()
         try:
             response = self.__wrapped_runnable.invoke(input, config, **kwargs)
@@ -81,6 +85,7 @@ class ChatModelUsageTrackingDecorator:
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
+    __rollback_db_session: Callable[[], None]
     __max_tokens: int
 
     def __init__(
@@ -89,16 +94,19 @@ class ChatModelUsageTrackingDecorator:
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
+        rollback_db_session: Callable[[], None],
         max_tokens: int,
     ):
         self.__wrapped_model = wrapped_model
         self.__tracking_service = tracking_service
         self.__spending_service = spending_service
         self.__configured_tool = configured_tool
+        self.__rollback_db_session = rollback_db_session
         self.__max_tokens = max_tokens
 
     def invoke(self, input: LanguageModelInput, config: RunnableConfig | None = None, **kwargs) -> AIMessage:
         self.__spending_service.validate_pre_flight(self.__configured_tool, self.__max_tokens, str(input))
+        self.__rollback_db_session()
         start_time = time()
         try:
             response = self.__wrapped_model.invoke(input, config, **kwargs)
@@ -117,6 +125,7 @@ class ChatModelUsageTrackingDecorator:
             self.__tracking_service,
             self.__spending_service,
             self.__configured_tool,
+            self.__rollback_db_session,
             self.__max_tokens,
         )
 

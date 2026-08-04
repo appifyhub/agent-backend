@@ -14,7 +14,6 @@ from langchain_core.tools import tool
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
 from features.chat.chat_attachment_processor import ChatAttachmentProcessor
-from features.chat.chat_image_edit_service import ChatImageEditService
 from features.chat.dev_announcements_service import DevAnnouncementsService
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.intelligence_presets import default_tool_for
@@ -28,74 +27,36 @@ from util import log
 from util.config import config
 from util.error_codes import (
     EXTERNAL_EMPTY_RESPONSE,
-    IMAGE_EDIT_FAILED,
-    IMAGE_GENERATION_FAILED,
     INVALID_ASSET_AMOUNT,
-    INVALID_ATTACHMENT_OPERATION,
     PROFILE_CONNECT_FAILED,
 )
 from util.errors import ExternalServiceError, InternalError, ServiceError, ValidationError
 
 TOOL_TRUNCATE_LENGTH = 8192  # to save some tokens
 
-KEYWORD_ATTACHMENT_ANALYZE = "analyze"
-KEYWORD_ATTACHMENT_IMAGE_EDIT = "image-edit"
-ATTACHMENT_OPERATIONS = [KEYWORD_ATTACHMENT_ANALYZE, KEYWORD_ATTACHMENT_IMAGE_EDIT]
 
-
-def process_media(
+def analyze_attachments(
     di: DI,
-    operation: str = KEYWORD_ATTACHMENT_ANALYZE,
     attachment_ids: str | None = None,
     urls: str | None = None,
     context: str | None = None,
-    aspect_ratio: str | None = None,
-    size: str | None = None,
 ) -> str:
     """
-    Processes the contents of the given media sources (chat attachments and/or external URLs). Allowed operations are:
-        - 'analyze' (default): Analyzes attachments and returns descriptions — images are analyzed using vision (multiple images can be provided and all will be described), audio is transcribed, documents are searched
-        - 'image-edit': Generates a new image using the provided attachments as visual reference or inspiration — use this whenever the partner's images should influence the output (e.g. "use this logo", "generate a variant of this", "apply this style"). Multiple images can be provided for multi-reference generation. To process images individually (one output per image), call this function multiple times with a single image each time.
+    Analyzes the contents of the given media sources (chat attachments and/or external URLs). Images are analyzed using vision, audio is transcribed, and documents are searched. To generate an image using supplied images as references, use generate_image instead.
 
     Args:
-        operation: [mandatory] The action to perform on the attachments
-        attachment_ids: [optional] A comma-separated list of verbatim, unique 📎 attachment IDs that need to be processed (located in each message); include any dashes, underscores or other symbols; these IDs are not to be cleaned or truncated
-        urls: [optional] A comma-separated list of external media URLs (starting with http:// or https://) to process; at least one of attachment_ids or urls must be provided
-        context: [optional] Additional task context or guidance, e.g. the user's message/question/caption, if available
-        aspect_ratio: [optional] The desired image's aspect ratio for image editing. Valid options: 1:1, 2:3, 3:2, 3:4, 4:3, 16:9, 9:16, match_input_image. If not explicitly requested, don't send
-        size: [optional] The desired image size/resolution for image editing. Valid options: 1K, 2K, 4K. If not explicitly requested, don't send
+        attachment_ids: [optional] A comma-separated list of verbatim, unique 📎 attachment IDs to analyze (located in each message); include any dashes, underscores or other symbols; these IDs are not to be cleaned or truncated
+        urls: [optional] A comma-separated list of external media URLs (starting with http:// or https://) to analyze; at least one of attachment_ids or urls must be provided
+        context: [optional] Additional analysis context or guidance, e.g. the user's message/question/caption, if available
     """
     try:
-        operation = operation.lower().strip()
         attachment_ids_list = [id.strip() for id in attachment_ids.split(",") if id.strip()] if attachment_ids else []
         raw_urls_list = [url.strip() for url in urls.split(",") if url.strip()] if urls else []
-
-        if operation == KEYWORD_ATTACHMENT_ANALYZE:
-            # Analyze the attachments and convert contents to text descriptions
-            analyzer = di.chat_attachment_processor(context, attachment_ids_list, raw_urls_list or None)
-            result = analyzer.execute()
-            if result == ChatAttachmentProcessor.Result.failed:
-                raise ExternalServiceError("Failed to resolve attachments", EXTERNAL_EMPTY_RESPONSE)
-            return json.dumps({"result": result.value, "attachments": analyzer.result})
-        elif operation == KEYWORD_ATTACHMENT_IMAGE_EDIT:
-            log.d(
-                f"LLM requested to process {len(attachment_ids_list)} attachments "
-                f"and {len(raw_urls_list)} URLs in aspect ratio {aspect_ratio}, size {size}",
-            )
-            # Generate images based on the provided context and attachments
-            result, details = di.chat_image_edit_service(attachment_ids_list, raw_urls_list, context, aspect_ratio, size).execute()
-            if result == ChatImageEditService.Result.failed:
-                raise ExternalServiceError("Failed to edit the images! Details: " + str(details), IMAGE_EDIT_FAILED)
-            return __success(
-                {
-                    "status": result.value,
-                    "details": details,
-                    "description": "Results were already delivered to the partner!",
-                    "next_step": "You may deliver any errors to the partner (but no links or 📎 attachment IDs)",
-                },
-            )
-        else:
-            raise ValidationError(f"Unknown operation '{operation}'; try one of: [{', '.join(ATTACHMENT_OPERATIONS)}]", INVALID_ATTACHMENT_OPERATION)
+        analyzer = di.chat_attachment_processor(context, attachment_ids_list, raw_urls_list or None)
+        result = analyzer.execute()
+        if result == ChatAttachmentProcessor.Result.failed:
+            raise ExternalServiceError("Failed to resolve attachments", EXTERNAL_EMPTY_RESPONSE)
+        return json.dumps({"result": result.value, "attachments": analyzer.result})
     except Exception as e:
         return __error(e)
 
@@ -103,18 +64,24 @@ def process_media(
 def generate_image(
     di: DI,
     prompt: str,
+    attachment_ids: str | None = None,
+    urls: str | None = None,
     aspect_ratio: str | None = None,
     size: str | None = None,
 ) -> str:
     """
-    Generates (draws) a new image from text only, with no reference images. Use this when creating something entirely new from a description. If the partner has provided image attachments that should influence the output (e.g. "use this logo", "based on this photo"), use process_media with 'image-edit' instead.
+    Generates a new image from text, optionally using one or more reference images.
 
     Args:
         prompt: [mandatory] The user's description or prompt for the generated image
-        aspect_ratio: [optional] The desired image's aspect ratio. Valid options: 1:1, 2:3, 3:2, 3:4, 4:3, 16:9, 9:16. If not explicitly requested, don't send
+        attachment_ids: [optional] A comma-separated list of verbatim, unique 📎 attachment IDs that should influence the generated image; include any dashes, underscores or other symbols; these IDs are not to be cleaned or truncated
+        urls: [optional] A comma-separated list of external image URLs (starting with http:// or https://) that should influence the generated image
+        aspect_ratio: [optional] The desired image's aspect ratio. Valid options: 1:1, 2:3, 3:2, 3:4, 4:3, 16:9, 9:16, match_input_image. If not explicitly requested, don't send
         size: [optional] The desired image size/resolution. Valid options: 1K, 2K, 4K. If not explicitly requested, don't send
     """
     try:
+        attachment_ids_list = [id.strip() for id in attachment_ids.split(",") if id.strip()] if attachment_ids else []
+        raw_urls_list = [url.strip() for url in urls.split(",") if url.strip()] if urls else []
         log.d(f"LLM requested to generate an image in aspect ratio {aspect_ratio}")
         copywriter_tool = di.tool_choice_resolver.require_tool(
             SmartImageGenerator.COPYWRITER_TOOL_TYPE,
@@ -124,11 +91,19 @@ def generate_image(
             SmartImageGenerator.IMAGE_GEN_TOOL_TYPE,
             default_tool_for(SmartImageGenerator.IMAGE_GEN_TOOL_TYPE),
         )
-        generator = di.smart_image_generator(prompt, copywriter_tool, image_gen_tool, aspect_ratio, size)
-        result = generator.execute()
-        if result == SmartImageGenerator.Result.failed:
-            raise ExternalServiceError(f"Failed to generate the image! Reason: {str(generator.error)}", IMAGE_GENERATION_FAILED)
-        return __success({"next_step": "Confirm to partner that the image has been sent"})
+        details = di.smart_image_generator(
+            raw_prompt = prompt,
+            attachment_ids = attachment_ids_list,
+            urls = raw_urls_list,
+            configured_copywriter_tool = copywriter_tool,
+            configured_image_gen_tool = image_gen_tool,
+            aspect_ratio = aspect_ratio,
+            output_size = size,
+        ).execute()
+        return __success({
+            **details,
+            "next_step": "Tell the partner that image generation started and it will be sent once ready",
+        })
     except Exception as e:
         return __error(e)
 
@@ -604,7 +579,7 @@ def __error(message: str | Exception) -> str:
 
 ALL_LLM_TOOLS: dict[str, Callable[..., str]] = {
     "fetch_web_content": fetch_web_content,
-    "process_media": process_media,
+    "analyze_attachments": analyze_attachments,
     "get_asset_price": get_asset_price,
     "set_up_asset_price_alert": set_up_asset_price_alert,
     "remove_asset_price_alert": remove_asset_price_alert,

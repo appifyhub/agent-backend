@@ -84,8 +84,6 @@ class ToolChoiceResolver:
                 return self.__di.invoker.tool_choice_images_gen
             case ToolType.videos_gen:
                 return self.__di.invoker.tool_choice_videos_gen
-            case ToolType.images_edit:
-                return self.__di.invoker.tool_choice_images_edit
             case ToolType.search:
                 return self.__di.invoker.tool_choice_search
             case ToolType.embedding:

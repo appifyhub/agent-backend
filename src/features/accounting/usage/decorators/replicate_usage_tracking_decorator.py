@@ -25,6 +25,7 @@ class PredictionUsageTrackingDecorator:
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
+    __rollback_db_session: Callable[[], None]
     __output_image_sizes: list[str] | None
     __input_image_sizes: list[str] | None
     __output_video_size: str | None
@@ -39,6 +40,7 @@ class PredictionUsageTrackingDecorator:
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
+        rollback_db_session: Callable[[], None],
         output_image_sizes: list[str] | None = None,
         input_image_sizes: list[str] | None = None,
         output_video_size: str | None = None,
@@ -49,6 +51,7 @@ class PredictionUsageTrackingDecorator:
         self.__tracking_service = tracking_service
         self.__spending_service = spending_service
         self.__configured_tool = configured_tool
+        self.__rollback_db_session = rollback_db_session
         self.__output_image_sizes = output_image_sizes
         self.__input_image_sizes = input_image_sizes
         self.__output_video_size = output_video_size
@@ -62,6 +65,7 @@ class PredictionUsageTrackingDecorator:
             if self.__wait_error is not None:
                 raise self.__wait_error
             return self.__result
+        self.__rollback_db_session()
         try:
             is_video = self.__output_video_size is not None and self.__output_video_duration_seconds is not None
             result = self.__wait_for_video() if is_video else self.__wrapped_prediction.wait()
@@ -179,6 +183,7 @@ class ReplicateUsageTrackingDecorator:
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
+    __rollback_db_session: Callable[[], None]
     __output_image_sizes: list[str] | None
     __input_image_sizes: list[str] | None
     __output_video_size: str | None
@@ -190,6 +195,7 @@ class ReplicateUsageTrackingDecorator:
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
+        rollback_db_session: Callable[[], None],
         output_image_sizes: list[str] | None = None,
         input_image_sizes: list[str] | None = None,
         output_video_size: str | None = None,
@@ -199,6 +205,7 @@ class ReplicateUsageTrackingDecorator:
         self.__tracking_service = tracking_service
         self.__spending_service = spending_service
         self.__configured_tool = configured_tool
+        self.__rollback_db_session = rollback_db_session
         self.__output_image_sizes = output_image_sizes
         self.__input_image_sizes = input_image_sizes
         self.__output_video_size = output_video_size
@@ -225,12 +232,14 @@ class ReplicateUsageTrackingDecorator:
                 output_video_size = self.__output_video_size,
                 output_video_duration_seconds = self.__output_video_duration_seconds,
             )
+            self.__rollback_db_session()
             prediction = original_method(**kwargs)
             return PredictionUsageTrackingDecorator(
                 prediction,
                 self.__tracking_service,
                 self.__spending_service,
                 self.__configured_tool,
+                self.__rollback_db_session,
                 self.__output_image_sizes,
                 self.__input_image_sizes,
                 self.__output_video_size,

@@ -58,7 +58,6 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_hearing, "hearing-tool")
         self.assertEqual(result.tool_choice_images_gen, "images-gen-tool")
         self.assertEqual(result.tool_choice_videos_gen, "videos-gen-tool")
-        self.assertEqual(result.tool_choice_images_edit, "images-edit-tool")
         self.assertEqual(result.tool_choice_search, "search-tool")
         self.assertEqual(result.tool_choice_embedding, "embedding-tool")
         self.assertEqual(result.tool_choice_api_fiat_exchange, "fiat-tool")
@@ -97,6 +96,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.twelve_data_api_key, "twelve-data")
         self.assertEqual(result.x_key, "x")
         self.assertEqual(result.x_ai_key, "x-ai")
+        self.assertEqual(result.tool_choice_images_gen, "images-gen-tool")
         self.assertEqual(result.tool_choice_videos_gen, "videos-gen-tool")
         self.assertEqual(result.tool_choice_api_stock_quote, "stock-tool")
         self.assertEqual(result.tool_choice_api_twitter, "twitter-tool")
@@ -254,7 +254,6 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_hearing = "hearing-tool",
             tool_choice_images_gen = "images-gen-tool",
             tool_choice_videos_gen = "videos-gen-tool",
-            tool_choice_images_edit = "images-edit-tool",
             tool_choice_search = "search-tool",
             tool_choice_embedding = "embedding-tool",
             tool_choice_api_fiat_exchange = "fiat-tool",
@@ -298,7 +297,6 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_hearing = "hearing-tool",
             tool_choice_images_gen = "images-gen-tool",
             tool_choice_videos_gen = "videos-gen-tool",
-            tool_choice_images_edit = "images-edit-tool",
             tool_choice_search = "search-tool",
             tool_choice_embedding = "embedding-tool",
             tool_choice_api_fiat_exchange = "fiat-tool",

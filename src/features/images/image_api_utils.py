@@ -1,7 +1,6 @@
-from dataclasses import dataclass, replace
-from typing import IO
+from dataclasses import asdict, dataclass, replace
 
-from features.external_tools.external_tool import ExternalTool, ToolType
+from features.external_tools.external_tool import ExternalTool
 from features.external_tools.external_tool_library import (
     IMAGE_GEN_EDIT_FLUX_2_MAX,
     IMAGE_GEN_EDIT_FLUX_2_PRO,
@@ -13,7 +12,6 @@ from features.external_tools.external_tool_library import (
     IMAGE_GEN_EDIT_GPT_IMAGE_2,
     IMAGE_GEN_EDIT_SEEDREAM_4,
     IMAGE_GEN_EDIT_SEEDREAM_4_5,
-    IMAGE_GEN_FLUX_1_1,
     IMAGE_GEN_GROK_IMAGINE,
     IMAGE_GEN_GROK_IMAGINE_QUALITY,
     NANO_BANANA,
@@ -77,11 +75,11 @@ class UnifiedImageParameters:
     # input
     input_fidelity: str = "high"
     guidance_scale: float = 5.5
-    # file inputs
-    image: IO[bytes] | None = None
-    input_image: IO[bytes] | None = None
-    image_input: list[IO[bytes]] | None = None
-    input_images: list[IO[bytes]] | None = None
+    # image inputs (URLs)
+    image: str | None = None
+    input_image: str | None = None
+    image_input: list[str] | None = None
+    input_images: list[str] | None = None
 
 
 def map_to_model_parameters(
@@ -89,15 +87,15 @@ def map_to_model_parameters(
     prompt: str = "",
     aspect_ratio: str | None = None,
     output_size: str | None = None,
-    input_files: list[IO[bytes]] | None = None,
+    input_urls: list[str] | None = None,
 ) -> UnifiedImageParameters:
     log.d(f"Mapping image parameters for model '{tool.id}'")
 
-    single_image = input_files[0] if input_files else None
-    multi_images = input_files if input_files and tool.max_input_images > 1 else None
+    single_image = input_urls[0] if input_urls else None
+    multi_images = input_urls if input_urls and tool.max_input_images > 1 else None
     unified_params = UnifiedImageParameters(
         prompt = prompt,
-        aspect_ratio = resolve_aspect_ratio(tool, aspect_ratio, input_files),
+        aspect_ratio = resolve_aspect_ratio(tool, aspect_ratio, input_urls),
         size = output_size or "2K",
         image = single_image,
         input_image = single_image,
@@ -105,9 +103,7 @@ def map_to_model_parameters(
         input_images = multi_images,
     )
 
-    if tool == IMAGE_GEN_FLUX_1_1:
-        return replace(unified_params, safety_tolerance = 6)
-    elif tool == IMAGE_GEN_EDIT_FLUX_2_PRO:
+    if tool == IMAGE_GEN_EDIT_FLUX_2_PRO:
         return replace(unified_params, resolution = convert_size_to_mp(unified_params.size), safety_tolerance = 5)
     elif tool == IMAGE_GEN_EDIT_FLUX_2_MAX:
         return replace(unified_params, resolution = convert_size_to_mp(unified_params.size), safety_tolerance = 5)
@@ -149,31 +145,33 @@ def map_to_model_parameters(
         return unified_params
 
 
-def filter_replicate_params(tool: ExternalTool, params: dict) -> dict:
+def filter_replicate_params(tool: ExternalTool, parameters: UnifiedImageParameters) -> dict:
     allowed = ALLOWED_REPLICATE_PARAMS.get(tool.id)
-    if allowed is None:
-        return params
-    return {k: v for k, v in params.items() if k in allowed}
+    return {
+        key: value
+        for key, value in asdict(parameters).items()
+        if value is not None and (allowed is None or key in allowed)
+    }
 
 
 def resolve_aspect_ratio(
     tool: ExternalTool,
     aspect_ratio: str | None,
-    input_files: list[IO[bytes]] | None = None,
+    input_urls: list[str] | None = None,
 ) -> str:
-    is_editing = ToolType.images_edit in tool.types and input_files
+    is_editing = bool(input_urls)
     log.t(f"Resolving aspect ratio for '{tool.id}'... is_editing: {is_editing}, requested: '{aspect_ratio}'")
 
     # no aspect ratio requested
     if not aspect_ratio:
-        log.t("No aspect ratio requested, using default: 'match_input_image' if editing, '2:3' if generation")
+        log.t("No aspect ratio requested, using default: 'match_input_image' with input references, '2:3' otherwise")
         return "match_input_image" if is_editing else "2:3"
     cleaned = "".join(aspect_ratio.split())
 
     # check if match_input_image is requested
     if cleaned == "match_input_image":
         if not is_editing:
-            log.w(f"'match_input_image' not supported for '{tool.id}' (no input files or generation-only), using '2:3'")
+            log.w(f"'match_input_image' not supported for '{tool.id}' without input references, using '2:3'")
             return "2:3"
         log.t("Using 'match_input_image' for editing, as requested")
         return cleaned

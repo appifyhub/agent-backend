@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
+from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.users.user import User
@@ -51,7 +52,6 @@ if TYPE_CHECKING:
     from features.chat.attachment.storage.attachment_storage import AttachmentStorage
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
-    from features.chat.chat_image_edit_service import ChatImageEditService
     from features.chat.chat_progress_notifier import ChatProgressNotifier
     from features.chat.command_processor import CommandProcessor
     from features.chat.config.chat_config_repo import ChatConfigRepository
@@ -81,7 +81,7 @@ if TYPE_CHECKING:
     from features.external_tools.access_token_resolver import AccessTokenResolver
     from features.external_tools.tool_choice_resolver import ToolChoiceResolver
     from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
-    from features.images.image_editor import ImageEditor
+    from features.images.image_api_utils import UnifiedImageParameters
     from features.images.simple_image_generator import SimpleImageGenerator
     from features.images.smart_image_generator import SmartImageGenerator
     from features.integrations.platform_bot_sdk import PlatformBotSDK
@@ -641,6 +641,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             resolved_max_tokens,
         )
 
@@ -671,6 +672,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             output_image_sizes,
             input_image_sizes,
             output_video_size,
@@ -706,6 +708,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             output_image_sizes,
             input_image_sizes,
         )
@@ -749,6 +752,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             output_image_sizes,
             input_image_sizes,
         )
@@ -960,6 +964,8 @@ class DI:
     def smart_image_generator(
         self,
         raw_prompt: str,
+        attachment_ids: list[str],
+        urls: list[str],
         configured_copywriter_tool: ConfiguredTool,
         configured_image_gen_tool: ConfiguredTool,
         aspect_ratio: str | None = None,
@@ -967,23 +973,40 @@ class DI:
     ) -> "SmartImageGenerator":
         from features.images.smart_image_generator import SmartImageGenerator
         return SmartImageGenerator(
-            raw_prompt, configured_copywriter_tool, configured_image_gen_tool, self, aspect_ratio, output_size,
+            raw_prompt = raw_prompt,
+            attachment_ids = attachment_ids,
+            urls = urls,
+            configured_copywriter_tool = configured_copywriter_tool,
+            configured_image_gen_tool = configured_image_gen_tool,
+            di = self,
+            aspect_ratio = aspect_ratio,
+            output_size = output_size,
         )
 
     def simple_image_generator(
         self,
-        prompt: str,
         configured_tool: ConfiguredTool,
-        aspect_ratio: str | None = None,
-        output_size: str | None = None,
+        parameters: UnifiedImageParameters,
+        input_attachments: list[ChatAttachment],
+        input_image_urls: list[str],
+        input_image_sizes: list[str] | None,
+        output_image_sizes: list[str] | None,
     ) -> "SimpleImageGenerator":
         from features.images.simple_image_generator import SimpleImageGenerator
-        return SimpleImageGenerator(prompt, configured_tool, self, aspect_ratio, output_size)
+        return SimpleImageGenerator(
+            configured_tool = configured_tool,
+            parameters = parameters,
+            input_attachments = input_attachments,
+            input_image_urls = input_image_urls,
+            input_image_sizes = input_image_sizes,
+            output_image_sizes = output_image_sizes,
+            di = self,
+        )
 
     def simple_video_generator(
         self,
         configured_tool: ConfiguredTool,
-        parameters: "UnifiedVideoParameters",
+        parameters: UnifiedVideoParameters,
     ) -> "SimpleVideoGenerator":
         from features.videos.simple_video_generator import SimpleVideoGenerator
         return SimpleVideoGenerator(configured_tool, parameters, self)
@@ -1011,29 +1034,6 @@ class DI:
             aspect_ratio = aspect_ratio,
             output_size = output_size,
         )
-
-    def chat_image_edit_service(
-        self,
-        attachment_ids: list[str] | None,
-        urls: list[str] | None = None,
-        operation_guidance: str | None = None,
-        aspect_ratio: str | None = None,
-        output_size: str | None = None,
-    ) -> "ChatImageEditService":
-        from features.chat.chat_image_edit_service import ChatImageEditService
-        return ChatImageEditService(attachment_ids, urls, operation_guidance, aspect_ratio, output_size, self)
-
-    def image_editor(
-        self,
-        image_urls: list[str],
-        configured_tool: ConfiguredTool,
-        prompt: str,
-        input_mime_types: list[str | None],
-        aspect_ratio: str | None = None,
-        output_size: str | None = None,
-    ) -> "ImageEditor":
-        from features.images.image_editor import ImageEditor
-        return ImageEditor(image_urls, configured_tool, prompt, self, input_mime_types, aspect_ratio, output_size)
 
     def computer_vision_analyzer(
         self,

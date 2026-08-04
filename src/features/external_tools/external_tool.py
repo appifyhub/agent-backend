@@ -96,7 +96,6 @@ class ToolType(str, Enum):
     hearing = "hearing"  # hearing features
     images_gen = "images_gen"  # image generation
     videos_gen = "videos_gen"  # video generation
-    images_edit = "images_edit"  # image editing
     search = "search"  # web search features
     embedding = "embedding"  # embedding models
     api_fiat_exchange = "api_fiat_exchange"  # fiat exchange API

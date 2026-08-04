@@ -1,3 +1,4 @@
+import io
 import random
 import tempfile
 import unittest
@@ -31,6 +32,15 @@ def _noisy_image(width: int, height: int) -> Image.Image:
 
 def _blank_image(width: int, height: int) -> Image.Image:
     return Image.new("RGB", (width, height), color = (100, 150, 200))
+
+
+class _NonSeekableBytesIO(io.BytesIO):
+
+    def seekable(self) -> bool:
+        return False
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        raise OSError("stream is not seekable")
 
 
 class ImageSizeUtilsTest(unittest.TestCase):
@@ -210,26 +220,53 @@ class ImageSizeUtilsTest(unittest.TestCase):
 
     def test_calculate_1k_for_small_image(self):
         path = self._save(_blank_image(500, 500), ".jpg", format = "JPEG")
-        self.assertEqual(calculate_image_size_category(path), "1k")
+        self.assertEqual(calculate_image_size_category(file_path = path), "1k")
+
+    def test_calculate_1k_for_binary_stream(self):
+        path = self._save(_blank_image(500, 500), ".jpg", format = "JPEG")
+        with Path(path).open("rb") as stream:
+            self.assertEqual(calculate_image_size_category(file_contents = stream), "1k")
+
+    def test_calculate_1k_for_non_seekable_binary_stream(self):
+        image_bytes = io.BytesIO()
+        _blank_image(500, 500).save(image_bytes, format = "JPEG")
+        stream = _NonSeekableBytesIO(image_bytes.getvalue())
+        self.assertEqual(calculate_image_size_category(file_contents = stream), "1k")
+
+    def test_calculate_prefers_file_contents_over_file_path(self):
+        path = self._save(_blank_image(500, 500), ".jpg", format = "JPEG")
+        file_contents = io.BytesIO()
+        _blank_image(1200, 1200).save(file_contents, format = "JPEG")
+        file_contents.seek(0)
+
+        result = calculate_image_size_category(file_path = path, file_contents = file_contents)
+
+        self.assertEqual(result, "2k")
+
+    def test_calculate_raises_when_no_input_is_supplied(self):
+        with self.assertRaises(ValidationError) as ctx:
+            calculate_image_size_category()
+
+        self.assertEqual(ctx.exception.error_code, INVALID_IMAGE_SIZE)
 
     def test_calculate_2k_for_1_to_2_mp(self):
         path = self._save(_blank_image(1200, 1200), ".jpg", format = "JPEG")
-        self.assertEqual(calculate_image_size_category(path), "2k")
+        self.assertEqual(calculate_image_size_category(file_path = path), "2k")
 
     def test_calculate_4k_for_2_to_4_mp(self):
         path = self._save(_blank_image(1800, 1800), ".jpg", format = "JPEG")
-        self.assertEqual(calculate_image_size_category(path), "4k")
+        self.assertEqual(calculate_image_size_category(file_path = path), "4k")
 
     def test_calculate_8k_for_4_to_8_mp(self):
         path = self._save(_blank_image(2400, 2400), ".jpg", format = "JPEG")
-        self.assertEqual(calculate_image_size_category(path), "8k")
+        self.assertEqual(calculate_image_size_category(file_path = path), "8k")
 
     def test_calculate_12k_for_8_to_14_mp(self):
         path = self._save(_blank_image(3000, 3000), ".jpg", format = "JPEG")
-        self.assertEqual(calculate_image_size_category(path), "12k")
+        self.assertEqual(calculate_image_size_category(file_path = path), "12k")
 
     def test_calculate_raises_for_over_14_mp(self):
         path = self._save(_blank_image(3750, 3750), ".jpg", format = "JPEG")
         with self.assertRaises(ValidationError) as ctx:
-            calculate_image_size_category(path)
+            calculate_image_size_category(file_path = path)
         self.assertEqual(ctx.exception.error_code, INVALID_IMAGE_SIZE)
