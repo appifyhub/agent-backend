@@ -47,7 +47,6 @@ class PresetChoices:
     hearing: ExternalTool
     images_gen: ExternalTool
     videos_gen: ExternalTool
-    images_edit: ExternalTool
     search: ExternalTool
     embedding: ExternalTool
     api_fiat_exchange: ExternalTool
@@ -65,7 +64,6 @@ class PresetChoices:
             ToolType.hearing.value: self.hearing.id,
             ToolType.images_gen.value: self.images_gen.id,
             ToolType.videos_gen.value: self.videos_gen.id,
-            ToolType.images_edit.value: self.images_edit.id,
             ToolType.search.value: self.search.id,
             ToolType.embedding.value: self.embedding.id,
             ToolType.api_fiat_exchange.value: self.api_fiat_exchange.id,
@@ -85,7 +83,6 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         hearing = WHISPER_1,
         images_gen = IMAGE_GEN_EDIT_SEEDREAM_4,
         videos_gen = VIDEO_GEN_P_VIDEO,
-        images_edit = IMAGE_GEN_EDIT_SEEDREAM_4,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_3_SMALL,
         api_fiat_exchange = FIAT_CURRENCY_EXCHANGE,
@@ -103,7 +100,6 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         hearing = GPT_4O_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
         videos_gen = VIDEO_GEN_RAY_3_2,
-        images_edit = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_5_LARGE,
         api_fiat_exchange = FIAT_CURRENCY_EXCHANGE,
@@ -121,7 +117,6 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         hearing = GPT_4O_MINI_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO,
         videos_gen = VIDEO_GEN_SEEDANCE_2_0_FAST,
-        images_edit = IMAGE_GEN_EDIT_FLUX_2_PRO,
         search = GEMINI_FLASH_LATEST,
         embedding = TEXT_EMBEDDING_3_SMALL,
         api_fiat_exchange = FIAT_CURRENCY_EXCHANGE,

@@ -13,6 +13,7 @@ from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     GPT_5_6_TERRA,
+    IMAGE_GEN_EDIT_FLUX_2_PRO,
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
 )
@@ -37,6 +38,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
             anthropic_key = SecretStr("test_anthropic_key"),
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_vision = "gpt-5.6-terra",
+            tool_choice_images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO.id,
             tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.standard,

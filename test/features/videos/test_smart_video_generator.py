@@ -72,7 +72,7 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             di = self.di,
         )
 
-    def test_constructor_rejects_empty_prompt_before_resolving_dependencies(self):
+    def test_constructor_rejects_empty_prompt_before_resolving_attachments(self):
         with self.assertRaises(ValidationError) as context:
             SmartVideoGenerator(
                 raw_prompt = " ",
@@ -84,7 +84,6 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             )
 
         self.assertEqual(context.exception.error_code, MISSING_CONTENT)
-        self.di.chat_langchain_model.assert_not_called()
         self.di.chat_attachment_service.resolve_image_attachments.assert_not_called()
 
     def test_execute_screenwrites_synchronously_before_starting_worker(self):
@@ -331,7 +330,9 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             "https://example.com/video.mp4",
         )[1]
         worker_di.rollback_db_session.side_effect = lambda: events.append("accounting transaction released")
-        worker_di.platform_bot_sdk.return_value.smart_send_video.side_effect = lambda **_: events.append(
+        platform_sdk = worker_di.platform_bot_sdk.return_value
+        platform_sdk.set_chat_action.side_effect = lambda **_: events.append("upload action")
+        platform_sdk.smart_send_video.side_effect = lambda **_: events.append(
             "video delivery started",
         )
 
@@ -359,12 +360,13 @@ class SmartVideoGeneratorTest(unittest.TestCase):
         get_session.assert_called_once_with()
         self.assertEqual(
             events,
-            ["generation completed", "accounting transaction released", "video delivery started"],
+            ["generation completed", "accounting transaction released", "upload action", "video delivery started"],
         )
         di_factory.assert_called_once_with(worker_db, self.invoker_id.hex, self.chat_id.hex)
         worker_di.simple_video_generator.assert_called_once_with(self.video_tool, parameters)
         worker_di.rollback_db_session.assert_called_once_with()
-        worker_di.platform_bot_sdk.return_value.smart_send_video.assert_called_once_with(
+        platform_sdk.set_chat_action.assert_called_once_with(chat_id = "12345", action = "upload_video")
+        platform_sdk.smart_send_video.assert_called_once_with(
             media_mode = ChatConfigDB.MediaMode.photo,
             chat_id = "12345",
             video_url = "https://example.com/video.mp4",

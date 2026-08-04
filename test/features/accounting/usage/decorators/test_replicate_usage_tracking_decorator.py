@@ -23,7 +23,8 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_spending_service = Mock(spec = SpendingService)
-        self.tool_purpose = ToolType.images_edit
+        self.mock_rollback_db_session = Mock()
+        self.tool_purpose = ToolType.images_gen
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
         self.image_size = "512x512"
@@ -39,6 +40,7 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             output_image_sizes = [self.image_size],
         )
 
@@ -78,6 +80,19 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
 
         self.mock_spending_service.validate_pre_flight.assert_called_once()
 
+    def test_create_releases_db_session_after_preflight_and_before_provider_call(self):
+        events = []
+        mock_prediction = Mock()
+        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
+        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
+        self.mock_client.predictions.create = Mock(
+            side_effect = lambda **kwargs: events.append("provider") or mock_prediction,
+        )
+
+        self.decorator.predictions.create(input = {"prompt": "test"})
+
+        self.assertEqual(events, ["preflight", "rollback", "provider"])
+
     def test_video_create_preflights_mapped_size_and_duration_and_returns_wrapped_prediction(self):
         mock_prediction = Mock()
         self.mock_client.predictions.create = Mock(return_value = mock_prediction)
@@ -86,6 +101,7 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             output_video_size = "2K",
             output_video_duration_seconds = 10,
         )
@@ -110,7 +126,8 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service.track_image_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_tracking_service.track_video_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 20.0))
         self.mock_spending_service = Mock(spec = SpendingService)
-        self.tool_purpose = ToolType.images_edit
+        self.mock_rollback_db_session = Mock()
+        self.tool_purpose = ToolType.images_gen
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
         self.image_size = "512x512"
@@ -126,6 +143,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             output_image_sizes = [self.image_size],
         )
 
@@ -135,6 +153,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             output_video_size = "2K",
             output_video_duration_seconds = 10,
         )
@@ -156,6 +175,20 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
         self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
         self.assertEqual(call_args.kwargs["uses_credits"], False)
+
+    def test_wait_releases_db_session_before_provider_wait(self):
+        events = []
+        self.mock_prediction.metrics = None
+        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
+        self.mock_prediction.wait = Mock(side_effect = lambda: events.append("provider") or "result")
+        self.mock_tracking_service.track_image_model.side_effect = lambda **kwargs: events.append("accounting") or Mock(
+            spec = UsageRecord,
+            total_cost_credits = 10.0,
+        )
+
+        self.decorator.wait()
+
+        self.assertEqual(events, ["rollback", "provider", "accounting"])
 
     def test_wait_measures_runtime(self):
         self.mock_prediction.metrics = None

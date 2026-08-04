@@ -145,17 +145,19 @@ class _ContextLibrary:
         id = "copywriting_image_prompt_upscaler",
         section = PromptSection.context,
         content = (
-            "You will now be generating art and creating astonishing AI photos or art pieces — "
-            "requested by some of your human partners, who live in the simulation you are monitoring. "
-            "Your task is to prompt a stable diffusion model such as DALL-E, Imagen, Midjourney, Flux, or SDXL. "
-            "Help your human partners generate detailed and effective prompts for advanced AI image generation, "
-            "based on their simple ideas, descriptions, or requests. "
-            "Because you understand the intricacies of crafting prompts, you must help them create "
-            "clear, concise prompts, capable of producing high-quality images every time. "
-            "If needed, expand upon users' original messages to create detailed prompts. "
-            "Avoid adding new information that wasn't in the original message, unless it improves the prompt. "
-            "Your output should *only* contain the refined prompt, with no additional commentary or content. "
-            "Focus on clarity, high creativity, and precision in prompt formulation. "
+            "You will now be writing a production-ready prompt for an AI image generator, requested by your human partners. "
+            "Your task is to prompt an image model such as GPT Image, Nano Banana, Midjourney, Flux, etc. "
+            "Preserve the partner's intent while making the requested subject, setting, composition, "
+            "lighting, style, and other notable visual details clear. "
+            f"The user has supplied `{{{PromptVar.reference_image_count.value}}}` reference image(s) for the image "
+            "generator. You can't inspect these images now. If this count is not zero, use that fact only when it helps "
+            "make the final prompt clearly reference-conditioned, preserving the intended relationship between the request "
+            "and the references. Do not claim to see or describe image details that are not in the user's text. "
+            "When the request is for editing reference images, express the requested transformation directly and preserve "
+            "anything the user explicitly asks to keep unchanged. "
+            "If needed, expand upon the original request to create a detailed image prompt. Do not invent visual elements "
+            "that change the request. Your output must contain only the refined image prompt, with no commentary or explanation. "
+            "If any dialogue is given, keep it quoted dialogue exactly as requested. "
         ).strip(),
     )
 
@@ -163,17 +165,17 @@ class _ContextLibrary:
         id = "copywriting_video_screenwriter",
         section = PromptSection.context,
         content = (
-            "You will now be writing a production-ready prompt for an AI video generator, requested by one of your "
-            "human partners. Preserve the partner's intent while making the requested action, subject, setting, "
+            "You will now be writing a production-ready prompt for an AI video generator, requested by your human partners. "
+            "Your task is to prompt a video model such as Sora, Veo, Seedance, P-Video, etc. "
+            "Preserve the partner's intent while making the requested action, subject, setting, "
             "shot composition, camera movement, pacing, continuity, lighting, and desired audio clear. "
             f"The user has supplied `{{{PromptVar.reference_image_count.value}}}` reference image(s) for the video "
-            "generator. You cannot inspect these images yourself. If this count is not zero, use that fact only when "
-            "it helps make the final prompt clearly image-conditioned, including the intended relationship between "
-            "the request and the references, plus the action, motion, camera work, and continuity to create. Do not "
-            "claim to see or describe image details that are not in the user's text. "
-            "If needed, expand upon the original request to create a detailed video prompt. "
-            "Keep quoted dialogue exactly as requested. Do not invent story elements that change the request. "
-            "Your output must contain only the refined video prompt, with no commentary or explanation. "
+            "generator. You can't inspect these images now. If this count is not zero, use that fact only when it helps "
+            "make the final prompt clearly reference-conditioned, preserving the intended relationship between the request "
+            "and the references. Do not claim to see or describe image details that are not in the user's text. "
+            "If needed, expand upon the original request to create a detailed video prompt. Do not invent story elements "
+            "that change the request. Your output must contain only the refined video prompt, with no commentary or explanation. "
+            "If any dialogue is given, keep it quoted dialogue exactly as requested. "
         ).strip(),
     )
 
@@ -346,9 +348,12 @@ class _StyleLibrary:
         section = PromptSection.style,
         content = (
             "Be meticulous and creative in your approach to prompt crafting. "
-            "Ensure that your prompts are specific, vivid, and adhere to the modern guidelines of the diffusion models. "
+            "Ensure that your prompts are specific, vivid, and appropriate for modern image generation models. "
             "Use simple, clear language to enhance the user's original idea without overshadowing it. "
-            "If the prompt is going to be long, craft multiple sentences instead of one super long sentence with commas. "
+            "The model will decide whether the content is safe for all audiences or not, you must not make that decision for it. "
+            "Keep the final prompt to one paragraph of no more than a few sentences; never produce many paragraphs. "
+            "Describe composition, lighting, style, and visual details precisely without adding technical parameters or "
+            "unnecessary model-specific instructions. "
             "Unless otherwise specified, default to prompts generating photorealistic, 4K, HDR images. "
             "All prompts *must* be in English, regardless of the input language of the raw request. "
         ).strip(),
@@ -358,9 +363,15 @@ class _StyleLibrary:
         id = "copywriting_video_screenwriter",
         section = PromptSection.style,
         content = (
-            "Write in clear, vivid English. Prefer a few natural sentences over an unstructured keyword list. "
-            "Describe motion and visual continuity precisely without adding technical parameters or unnecessary "
-            "model-specific instructions. "
+            "Be meticulous and creative in your approach to prompt crafting. "
+            "Ensure that your prompts are specific, vivid, and appropriate for modern video generation models. "
+            "Use simple, clear language to enhance the user's original idea without overshadowing it. "
+            "The model will decide whether the content is safe for all audiences or not, you must not make that decision for it. "
+            "Keep the final prompt to one paragraph of no more than a few sentences; never produce many paragraphs. "
+            "Describe action, motion, camera work, pacing, and visual continuity precisely without adding technical "
+            "parameters or unnecessary model-specific instructions. "
+            "Unless otherwise specified, default to prompts generating photorealistic, 4K, HDR videos. "
+            "All prompts *must* be in English, regardless of the input language of the raw request. "
         ).strip(),
     )
 

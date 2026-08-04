@@ -139,9 +139,14 @@ class TelegramBotSDK:
     def set_status_uploading_image(self, chat_id: int | str):
         self.__di.telegram_bot_api.set_status_uploading_image(chat_id)
 
-    def set_chat_action(self, chat_id: int | str, action: Literal["typing", "upload_photo"]):
+    def set_status_uploading_video(self, chat_id: int | str):
+        self.__di.telegram_bot_api.set_status_uploading_video(chat_id)
+
+    def set_chat_action(self, chat_id: int | str, action: Literal["typing", "upload_photo", "upload_video"]):
         if action == "upload_photo":
             self.set_status_uploading_image(chat_id)
+        elif action == "upload_video":
+            self.set_status_uploading_video(chat_id)
         else:
             self.set_status_typing(chat_id)
 

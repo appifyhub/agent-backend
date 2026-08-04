@@ -20,6 +20,7 @@ class XAIUsageTrackingDecorator:
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
+    __rollback_db_session: Callable[[], None]
     __output_image_sizes: list[str] | None
     __input_image_sizes: list[str] | None
 
@@ -29,6 +30,7 @@ class XAIUsageTrackingDecorator:
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
+        rollback_db_session: Callable[[], None],
         output_image_sizes: list[str] | None = None,
         input_image_sizes: list[str] | None = None,
     ):
@@ -36,6 +38,7 @@ class XAIUsageTrackingDecorator:
         self.__tracking_service = tracking_service
         self.__spending_service = spending_service
         self.__configured_tool = configured_tool
+        self.__rollback_db_session = rollback_db_session
         self.__output_image_sizes = output_image_sizes
         self.__input_image_sizes = input_image_sizes
 
@@ -70,6 +73,7 @@ class XAIUsageTrackingDecorator:
                 input_image_sizes = self.__input_image_sizes,
                 output_image_sizes = self.__output_image_sizes,
             )
+            self.__rollback_db_session()
             start_time = time()
             try:
                 response = original_method(*args, **kwargs)

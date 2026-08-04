@@ -281,7 +281,7 @@ def sentient_web_search(target_chat: ChatConfig) -> str:
     raise ConfigurationError(f"Unsupported chat type: {target_chat.chat_type}", UNSUPPORTED_CHAT_TYPE)
 
 
-def copywriting_image_prompt_upscaler(chat_type: ChatConfigDB.ChatType) -> str:
+def copywriting_image_prompt_upscaler(chat_type: ChatConfigDB.ChatType, reference_image_count: int = 0) -> str:
     return prompt_composer.build(
         prompt_library.contexts.core,
         prompt_library.contexts.copywriting_image_prompt_upscaler,
@@ -291,6 +291,7 @@ def copywriting_image_prompt_upscaler(chat_type: ChatConfigDB.ChatType) -> str:
     ).add_variables(
         (PromptVar.agent_name, resolve_agent_user(chat_type).full_name or PLACEHOLDER_NO_DATA),
         (PromptVar.date_and_time, __now()),
+        (PromptVar.reference_image_count, str(reference_image_count)),
     ).render()
 
 
