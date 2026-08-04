@@ -23,6 +23,7 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_text_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_spending_service = Mock(spec = SpendingService)
+        self.mock_rollback_db_session = Mock()
         self.tool_purpose = ToolType.chat
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
@@ -38,6 +39,7 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             max_tokens = 4096,
         )
 
@@ -129,6 +131,23 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
 
         self.mock_spending_service.validate_pre_flight.assert_called_once()
 
+    def test_invoke_releases_db_session_after_preflight_and_before_model_call(self):
+        events = []
+        mock_response = Mock(spec = AIMessage)
+        mock_response.response_metadata = {}
+        mock_response.usage_metadata = None
+        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
+        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
+        self.mock_model.invoke = Mock(side_effect = lambda *args, **kwargs: events.append("model") or mock_response)
+        self.mock_tracking_service.track_text_model.side_effect = lambda **kwargs: events.append("accounting") or Mock(
+            spec = UsageRecord,
+            total_cost_credits = 10.0,
+        )
+
+        self.decorator.invoke("test input")
+
+        self.assertEqual(events, ["preflight", "rollback", "model", "accounting"])
+
     def test_bind_tools_runnable_calls_validate_pre_flight(self):
         mock_runnable = Mock()
         self.mock_model.bind_tools = Mock(return_value = mock_runnable)
@@ -161,6 +180,7 @@ class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_text_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_spending_service = Mock(spec = SpendingService)
+        self.mock_rollback_db_session = Mock()
         self.tool_purpose = ToolType.chat
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
@@ -176,6 +196,7 @@ class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             max_tokens = 4096,
         )
 
@@ -219,6 +240,23 @@ class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
 
         call_args = self.mock_tracking_service.track_text_model.call_args
         self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
+
+    def test_invoke_releases_db_session_after_preflight_and_before_runnable_call(self):
+        events = []
+        mock_response = Mock(spec = AIMessage)
+        mock_response.response_metadata = {}
+        mock_response.usage_metadata = None
+        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
+        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
+        self.mock_runnable.invoke = Mock(side_effect = lambda *args, **kwargs: events.append("model") or mock_response)
+        self.mock_tracking_service.track_text_model.side_effect = lambda **kwargs: events.append("accounting") or Mock(
+            spec = UsageRecord,
+            total_cost_credits = 10.0,
+        )
+
+        self.decorator.invoke("test input")
+
+        self.assertEqual(events, ["preflight", "rollback", "model", "accounting"])
 
     def test_invoke_failure_tracks_without_deduction(self):
         self.mock_runnable.invoke = Mock(side_effect = RuntimeError("API error"))

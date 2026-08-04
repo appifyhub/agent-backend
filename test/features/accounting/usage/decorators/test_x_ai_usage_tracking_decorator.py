@@ -27,6 +27,7 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
             return_value = Mock(spec = UsageRecord, total_cost_credits = 0.0),
         )
         self.mock_spending_service = Mock(spec = SpendingService)
+        self.mock_rollback_db_session = Mock()
         self.tool_purpose = ToolType.images_gen
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "grok-imagine-image"
@@ -43,6 +44,7 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             output_image_sizes = [self.image_size],
         )
 
@@ -165,6 +167,22 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
             output_image_sizes = [self.image_size],
         )
 
+    def test_sample_releases_db_session_after_preflight_and_before_provider_call(self):
+        events = []
+        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
+        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
+        self.mock_client.image.sample = Mock(
+            side_effect = lambda *args, **kwargs: events.append("provider") or Mock(),
+        )
+        self.mock_tracking_service.track_image_model.side_effect = lambda **kwargs: events.append("accounting") or Mock(
+            spec = UsageRecord,
+            total_cost_credits = 2.0,
+        )
+
+        self.decorator.image.sample(prompt = "test", model = "grok-imagine-image")
+
+        self.assertEqual(events, ["preflight", "rollback", "provider", "accounting"])
+
     def test_sample_failure_tracks_without_deduction(self):
         self.mock_client.image.sample = Mock(side_effect = RuntimeError("API error"))
 
@@ -216,6 +234,7 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
         )
         self.mock_client.image.sample = Mock(return_value = Mock())
 

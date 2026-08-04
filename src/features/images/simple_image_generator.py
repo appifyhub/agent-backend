@@ -14,8 +14,6 @@ from util.error_codes import EXTERNAL_EMPTY_RESPONSE, UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError, ExternalServiceError
 from util.functions import extract_url_from_replicate_result
 
-BOOT_AND_RUN_TIMEOUT_S = 120
-
 
 # Not tested as it's just a proxy
 class SimpleImageGenerator:
@@ -50,44 +48,30 @@ class SimpleImageGenerator:
         self.__output_image_sizes = output_image_sizes
 
     def execute(self) -> str | None:
-        log.t(f"Starting simple image generator with prompt: '{self.__parameters.prompt}'")
+        log.t(f"Starting simple image generator with {len(self.__input_attachments)} reference image(s)")
         self.error = None
-        if self.__input_attachments:
-            log.d(f"Starting photo editing with {len(self.__input_attachments)} image(s)")
 
         try:
             if self.__configured_tool.definition.provider == REPLICATE:
-                if self.__input_attachments:
-                    return self.__edit_with_replicate()
-                return self.__generate_with_replicate()
+                return self.__execute_with_replicate()
             elif self.__configured_tool.definition.provider == GOOGLE_AI:
-                if self.__input_attachments:
-                    return self.__edit_with_google_ai()
-                return self.__generate_with_google_ai()
+                return self.__execute_with_google_ai()
             elif self.__configured_tool.definition.provider == XAI:
-                if self.__input_attachments:
-                    return self.__edit_with_x_ai()
-                return self.__generate_with_x_ai()
+                return self.__execute_with_x_ai()
             else:
                 raise ConfigurationError(f"Unsupported provider: '{self.__configured_tool.definition.provider}'", UNSUPPORTED_PROVIDER)  # noqa: E501
         except Exception as e:
-            if self.__input_attachments:
-                self.error = f"Error editing image: {str(e)}"
-                log.e("Error editing image", e)
-            else:
-                self.error = f"Failed to generate image: {str(e)}"
-                log.e("Failed to generate image", e)
+            self.error = f"Failed to generate image: {str(e)}"
+            log.e("Failed to generate image", e)
             return None
 
-    def __generate_with_replicate(self) -> str | None:
-        log.t("Generating image with Replicate")
-
+    def __execute_with_replicate(self) -> str | None:
         dict_params = filter_replicate_params(self.__configured_tool.definition, self.__parameters)
         log.t("Calling Replicate image generator with params", dict_params)
 
         replicate = self.__di.replicate_client(
-            self.__configured_tool,
-            config.web_timeout_s * 10,
+            configured_tool = self.__configured_tool,
+            timeout_s = config.web_timeout_s * 30,
             output_image_sizes = self.__output_image_sizes,
             input_image_sizes = self.__input_image_sizes,
         )
@@ -96,14 +80,11 @@ class SimpleImageGenerator:
             input = dict_params,
         )
 
-        # we need to release the session before we start waiting
-        self.__di.rollback_db_session()
-
         prediction.wait()
         image_url = extract_url_from_replicate_result(prediction)
         log.t("Image generated successfully with Replicate")
 
-        # store the generated image as an attachment and return a public URL
+        # store the output image as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
         attachment = self.__di.chat_attachment_service.save(
             attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
@@ -111,21 +92,32 @@ class SimpleImageGenerator:
         )
         return self.__di.chat_attachment_service.create_public_url(attachment).url
 
-    def __generate_with_google_ai(self) -> str | None:
-        log.t("Generating image with Google AI")
-
+    def __execute_with_google_ai(self) -> str | None:
+        has_reference_images = bool(self.__input_attachments)
         log.t("Calling Google AI image generator API with params", asdict(self.__parameters))
 
         google_ai = self.__di.google_ai_client(
-            self.__configured_tool,
-            config.web_timeout_s * 10,
+            configured_tool = self.__configured_tool,
+            timeout_s = config.web_timeout_s * 30,
             output_image_sizes = self.__output_image_sizes,
             input_image_sizes = self.__input_image_sizes,
         )
+
+        # prepare the request data
         image_config = ImageConfig(aspect_ratio = self.__parameters.aspect_ratio, image_size = self.__parameters.size)
+        contents = (
+            [
+                self.__parameters.prompt,
+                *[
+                    Part.from_uri(file_uri = url, mime_type = attachment.mime_type)
+                    for url, attachment in zip(self.__input_image_urls, self.__input_attachments)
+                ],
+            ]
+            if has_reference_images else self.__parameters.prompt
+        )
         response = google_ai.models.generate_content(
             model = self.__configured_tool.definition.id,
-            contents = self.__parameters.prompt,
+            contents = contents,
             config = GenerateContentConfig(
                 response_modalities = ["TEXT", "IMAGE"],
                 image_config = image_config,
@@ -149,7 +141,7 @@ class SimpleImageGenerator:
             raise ExternalServiceError("No image data found in Google AI response", EXTERNAL_EMPTY_RESPONSE)
         log.t("Image generated successfully with Google AI")
 
-        # store the image data as an attachment and return a public URL
+        # store the output image as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
         attachment = self.__di.chat_attachment_service.save(
             attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
@@ -157,102 +149,27 @@ class SimpleImageGenerator:
         )
         return self.__di.chat_attachment_service.create_public_url(attachment).url
 
-    def __edit_with_replicate(self) -> str | None:
-        log.t("Editing image with Replicate")
-
-        dict_params = filter_replicate_params(
-            self.__configured_tool.definition,
-            self.__parameters,
-        )
-        log.t("Calling Replicate image editing with params", dict_params)
-
-        replicate = self.__di.replicate_client(
-            configured_tool = self.__configured_tool,
-            timeout_s = BOOT_AND_RUN_TIMEOUT_S,
-            output_image_sizes = self.__output_image_sizes,
-            input_image_sizes = self.__input_image_sizes,
-        )
-        prediction = replicate.predictions.create(version = self.__configured_tool.definition.id, input = dict_params)
-        self.__di.rollback_db_session()
-        prediction.wait()
-
-        result = extract_url_from_replicate_result(prediction)
-        log.d("Image edit successful")
-
-        # store the edited image as an attachment and return a public URL
-        chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_attachment_service.save(
-            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
-            remote_url = result,
-        )
-        return self.__di.chat_attachment_service.create_public_url(attachment).url
-
-    def __edit_with_google_ai(self) -> str | None:
-        log.t("Editing image with Google AI")
-
-        log.t("Calling Google AI image editing API with params", self.__parameters)
-
-        google_ai = self.__di.google_ai_client(
-            self.__configured_tool,
-            config.web_timeout_s * 10,
-            output_image_sizes = self.__output_image_sizes,
-            input_image_sizes = self.__input_image_sizes,
-        )
-        image_config = ImageConfig(aspect_ratio = self.__parameters.aspect_ratio, image_size = self.__parameters.size)
-        response = google_ai.models.generate_content(
-            model = self.__configured_tool.definition.id,
-            contents = [
-                self.__parameters.prompt,
-                *[
-                    Part.from_uri(file_uri = url, mime_type = attachment.mime_type)
-                    for url, attachment in zip(self.__input_image_urls, self.__input_attachments)
-                ],
-            ],
-            config = GenerateContentConfig(
-                response_modalities = ["TEXT", "IMAGE"],
-                image_config = image_config,
-            ),
-        )
-
-        # analyze the response
-        if not response or not response.candidates:
-            raise ExternalServiceError("No candidates in the response from Google AI", EXTERNAL_EMPTY_RESPONSE)
-        candidate = response.candidates[0]
-        if not candidate.content or not candidate.content.parts:
-            raise ExternalServiceError("No contents in the top candidate from Google AI", EXTERNAL_EMPTY_RESPONSE)
-
-        # locate the image data in the response
-        image_data: bytes | None = None
-        for part in candidate.content.parts:
-            if part.inline_data is not None:
-                image_data = part.inline_data.data
-                break
-        if image_data is None:
-            raise ExternalServiceError("No image data found in Google AI response", EXTERNAL_EMPTY_RESPONSE)
-        log.t("Image edited successfully with Google AI")
-
-        # store the image data as an attachment and return a public URL
-        chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_attachment_service.save(
-            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
-            content = image_data,
-        )
-        return self.__di.chat_attachment_service.create_public_url(attachment).url
-
-    def __edit_with_x_ai(self) -> str | None:
-        log.t("Editing image with xAI")
-
-        log.t("Calling xAI image editing with params", self.__parameters)
+    def __execute_with_x_ai(self) -> str | None:
+        log.t("Generating image with xAI")
+        log.t("Calling xAI image generator with params", self.__parameters)
 
         x_ai_client = self.__di.x_ai_client(
-            self.__configured_tool,
-            config.web_timeout_s * 10,
+            configured_tool = self.__configured_tool,
+            timeout_s = config.web_timeout_s * 30,
             output_image_sizes = self.__output_image_sizes,
             input_image_sizes = self.__input_image_sizes,
         )
 
-        # image_url and image_urls map to different proto fields (request.image vs request.images)
-        if len(self.__input_image_urls) == 1:
+        # prepare the request data (note: request.image vs request.images)
+        if not self.__input_image_urls:
+            response = x_ai_client.image.sample(
+                prompt = self.__parameters.prompt,
+                model = self.__configured_tool.definition.id,
+                aspect_ratio = self.__parameters.aspect_ratio,
+                resolution = self.__parameters.resolution,
+                image_format = "base64",
+            )
+        elif len(self.__input_image_urls) == 1:
             response = x_ai_client.image.sample(
                 prompt = self.__parameters.prompt,
                 model = self.__configured_tool.definition.id,
@@ -271,44 +188,6 @@ class SimpleImageGenerator:
                 image_format = "base64",
             )
 
-        log.d("xAI image edit response received")
-        if not response:
-            raise ExternalServiceError("No response returned from xAI", EXTERNAL_EMPTY_RESPONSE)
-        if not response.respect_moderation:
-            raise ExternalServiceError("xAI image was filtered by moderation", EXTERNAL_EMPTY_RESPONSE)
-        image_data = response.image
-        if not image_data:
-            raise ExternalServiceError("No image data returned from xAI", EXTERNAL_EMPTY_RESPONSE)
-        log.t("Image edited successfully with xAI")
-
-        # store the edited image as an attachment and return a public URL
-        chat = self.__di.require_invoker_chat()
-        attachment = self.__di.chat_attachment_service.save(
-            attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
-            content = image_data,
-        )
-        return self.__di.chat_attachment_service.create_public_url(attachment).url
-
-    def __generate_with_x_ai(self) -> str | None:
-        log.t("Generating image with xAI")
-
-        log.t("Calling xAI image generator with params", self.__parameters)
-
-        x_ai_client = self.__di.x_ai_client(
-            self.__configured_tool,
-            config.web_timeout_s * 10,
-            output_image_sizes = self.__output_image_sizes,
-            input_image_sizes = self.__input_image_sizes,
-        )
-
-        response = x_ai_client.image.sample(
-            prompt = self.__parameters.prompt,
-            model = self.__configured_tool.definition.id,
-            aspect_ratio = self.__parameters.aspect_ratio,
-            resolution = self.__parameters.resolution,
-            image_format = "base64",
-        )
-
         log.d("xAI image response received")
         if not response:
             raise ExternalServiceError("No response returned from xAI", EXTERNAL_EMPTY_RESPONSE)
@@ -319,7 +198,7 @@ class SimpleImageGenerator:
             raise ExternalServiceError("No image data returned from xAI", EXTERNAL_EMPTY_RESPONSE)
         log.t("Image generated successfully with xAI")
 
-        # store the image data as an attachment and return a public URL
+        # store the output image as an attachment and return a public URL
         chat = self.__di.require_invoker_chat()
         attachment = self.__di.chat_attachment_service.save(
             attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),

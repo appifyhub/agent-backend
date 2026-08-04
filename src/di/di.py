@@ -641,6 +641,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             resolved_max_tokens,
         )
 
@@ -671,6 +672,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             output_image_sizes,
             input_image_sizes,
             output_video_size,
@@ -706,6 +708,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             output_image_sizes,
             input_image_sizes,
         )
@@ -749,6 +752,7 @@ class DI:
             self.usage_tracking_service,
             self.spending_service,
             configured_tool,
+            self.rollback_db_session,
             output_image_sizes,
             input_image_sizes,
         )

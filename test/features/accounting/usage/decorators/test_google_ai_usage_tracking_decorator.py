@@ -20,6 +20,7 @@ class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_spending_service = Mock(spec = SpendingService)
+        self.mock_rollback_db_session = Mock()
         self.tool_purpose = ToolType.images_gen
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
@@ -36,6 +37,7 @@ class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
             configured_tool = self.mock_configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
             output_image_sizes = [self.image_size],
         )
 
@@ -138,6 +140,24 @@ class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
         self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
 
         self.mock_spending_service.validate_pre_flight.assert_called_once()
+
+    def test_generate_content_releases_db_session_after_preflight_and_before_provider_call(self):
+        events = []
+        mock_response = Mock(spec = GenerateContentResponse)
+        mock_response.usage_metadata = None
+        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
+        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
+        self.mock_client.models.generate_content = Mock(
+            side_effect = lambda *args, **kwargs: events.append("provider") or mock_response,
+        )
+        self.mock_tracking_service.track_image_model.side_effect = lambda **kwargs: events.append("accounting") or Mock(
+            spec = UsageRecord,
+            total_cost_credits = 10.0,
+        )
+
+        self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
+
+        self.assertEqual(events, ["preflight", "rollback", "provider", "accounting"])
 
     def test_generate_content_failure_tracks_without_deduction(self):
         self.mock_client.models.generate_content = Mock(side_effect = RuntimeError("API error"))

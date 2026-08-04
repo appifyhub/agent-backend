@@ -33,7 +33,7 @@ class SimpleVideoGenerator:
         try:
             replicate = self.__di.replicate_client(
                 self.__configured_tool,
-                config.web_timeout_s * 10,
+                config.web_timeout_s * 50,
                 output_video_size = self.__parameters.size,
                 output_video_duration_seconds = self.__parameters.duration,
             )
@@ -46,7 +46,6 @@ class SimpleVideoGenerator:
         except Exception as e:
             raise ExternalServiceError("Could not create Replicate video prediction", VIDEO_GENERATION_FAILED) from e
 
-        self.__di.rollback_db_session()
         try:
             prediction.wait()
             video_url = extract_url_from_replicate_result(prediction)
