@@ -1,5 +1,3 @@
-from dataclasses import asdict
-
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -41,10 +39,7 @@ class SimpleVideoGenerator:
             )
             prediction = replicate.predictions.create(
                 version = self.__configured_tool.definition.id,
-                input = filter_replicate_params(
-                    self.__configured_tool.definition,
-                    {key: value for key, value in asdict(self.__parameters).items() if value is not None},
-                ),
+                input = filter_replicate_params(self.__configured_tool.definition, self.__parameters),
             )
         except ServiceError:
             raise

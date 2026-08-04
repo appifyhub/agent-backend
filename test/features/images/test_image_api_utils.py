@@ -141,26 +141,25 @@ class ImageApiUtilsTest(unittest.TestCase):
         self.assertIsNone(result.resolution)
 
     def test_filter_replicate_params_seedream_4_5_strips_disallowed(self):
-        params = {
-            "prompt": "test",
-            "size": "2K",
-            "aspect_ratio": "2:3",
-            "max_images": 1,
-            "disable_safety_checker": True,
-            "sequential_image_generation": "disabled",
-            "image_input": None,
-            "quality": "high",
-            "output_format": "png",
-            "num_inference_steps": 30,
-            "prompt_upsampling": False,
-        }
-        result = image_api_utils.filter_replicate_params(IMAGE_GEN_EDIT_SEEDREAM_4_5, params)
+        parameters = image_api_utils.map_to_model_parameters(
+            IMAGE_GEN_EDIT_SEEDREAM_4_5,
+            prompt = "test",
+            input_urls = ["https://example.com/reference.png"],
+        )
+
+        result = image_api_utils.filter_replicate_params(IMAGE_GEN_EDIT_SEEDREAM_4_5, parameters)
+
         self.assertEqual(set(result.keys()), {
             "prompt", "size", "aspect_ratio", "max_images",
             "disable_safety_checker", "sequential_image_generation", "image_input",
         })
 
     def test_filter_replicate_params_non_allowlisted_model_passes_through(self):
-        params = {"prompt": "test", "quality": "high", "num_inference_steps": 30}
-        result = image_api_utils.filter_replicate_params(IMAGE_GEN_EDIT_FLUX_2_PRO, params)
-        self.assertEqual(result, params)
+        parameters = image_api_utils.map_to_model_parameters(IMAGE_GEN_EDIT_FLUX_2_PRO, prompt = "test")
+
+        result = image_api_utils.filter_replicate_params(IMAGE_GEN_EDIT_FLUX_2_PRO, parameters)
+
+        self.assertEqual(result["prompt"], "test")
+        self.assertEqual(result["quality"], "high")
+        self.assertEqual(result["num_inference_steps"], 30)
+        self.assertNotIn("image", result)

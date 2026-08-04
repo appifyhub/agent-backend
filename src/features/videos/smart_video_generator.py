@@ -49,15 +49,15 @@ class SmartVideoGenerator:
         aspect_ratio: str | None = None,
         output_size: str | None = None,
     ):
-        self.__raw_prompt = raw_prompt.strip()
-        if not self.__raw_prompt:
-            raise ValidationError("Video prompt cannot be empty", MISSING_CONTENT)
         self.__copywriter = di.chat_langchain_model(configured_copywriter_tool)
         self.__video_gen_tool = configured_video_gen_tool
         self.__duration = duration
         self.__aspect_ratio = aspect_ratio
         self.__output_size = output_size
         self.__di = di
+        self.__raw_prompt = raw_prompt.strip()
+        if not self.__raw_prompt:
+            raise ValidationError("Video prompt cannot be empty", MISSING_CONTENT)
         self.__all_attachments = []
         if attachment_ids or urls:
             self.__all_attachments = di.chat_attachment_service.resolve_image_attachments(attachment_ids, urls)

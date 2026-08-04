@@ -133,8 +133,6 @@ def default_tool_for(tool_type: ToolType) -> ExternalTool:
     if tool_type == ToolType.deprecated:
         raise InternalError("Deprecated tool type cannot be requested", UNEXPECTED_ERROR)
     choices = INTELLIGENCE_PRESETS[IntelligencePreset.agent_choice]
-    if tool_type == ToolType.images_edit:
-        return choices.images_gen
     tool: ExternalTool | None = getattr(choices, tool_type.value, None)
     if tool is None:
         raise InternalError(f"No default tool configured for '{tool_type.value}'", UNEXPECTED_ERROR)

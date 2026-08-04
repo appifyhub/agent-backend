@@ -22,8 +22,7 @@ class IntelligencePresetsTest(unittest.TestCase):
 
     def test_preset_choices_covers_all_tool_types(self):
         preset_field_names = {f.name for f in fields(PresetChoices)}
-        excluded_types = {ToolType.deprecated, ToolType.images_edit}
-        tool_type_names = {t.value for t in ToolType if t not in excluded_types}
+        tool_type_names = {t.value for t in ToolType if t != ToolType.deprecated}
         self.assertEqual(
             preset_field_names,
             tool_type_names,
@@ -115,9 +114,8 @@ class IntelligencePresetsTest(unittest.TestCase):
         )
         self.assertEqual(default_tool_for(ToolType.videos_gen), VIDEO_GEN_SEEDANCE_2_0_FAST)
 
-    def test_legacy_image_edit_default_uses_generation_default(self):
+    def test_image_generation_default(self):
         self.assertEqual(default_tool_for(ToolType.images_gen), IMAGE_GEN_EDIT_FLUX_2_PRO)
-        self.assertEqual(default_tool_for(ToolType.images_edit), IMAGE_GEN_EDIT_FLUX_2_PRO)
 
     def test_default_tool_for_deprecated_raises(self):
         with self.assertRaises(InternalError) as context:

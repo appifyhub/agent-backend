@@ -7,8 +7,7 @@ from features.chat.attachment.chat_attachment import ChatAttachment
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_provider_library import GOOGLE_AI, REPLICATE, XAI
-from features.images.image_api_utils import filter_replicate_params, map_to_model_parameters
-from features.images.image_size_utils import calculate_image_size_category
+from features.images.image_api_utils import UnifiedImageParameters, filter_replicate_params
 from util import log
 from util.config import config
 from util.error_codes import EXTERNAL_EMPTY_RESPONSE, UNSUPPORTED_PROVIDER
@@ -24,39 +23,34 @@ class SimpleImageGenerator:
     TOOL_TYPE: ToolType = ToolType.images_gen
 
     error: str | None
-    __prompt: str
     __configured_tool: ConfiguredTool
+    __parameters: UnifiedImageParameters
     __input_attachments: list[ChatAttachment]
     __input_image_urls: list[str]
-    __input_image_sizes: list[str | None]
-    __aspect_ratio: str | None
-    __output_size: str | None
+    __input_image_sizes: list[str] | None
+    __output_image_sizes: list[str] | None
     __di: DI
 
     def __init__(
         self,
-        prompt: str,
         configured_tool: ConfiguredTool,
+        parameters: UnifiedImageParameters,
+        input_attachments: list[ChatAttachment],
+        input_image_urls: list[str],
+        input_image_sizes: list[str] | None,
+        output_image_sizes: list[str] | None,
         di: DI,
-        aspect_ratio: str | None = None,
-        output_size: str | None = None,
-        input_attachments: list[ChatAttachment] | None = None,
     ):
         self.__di = di
-        self.__prompt = prompt
         self.__configured_tool = configured_tool
-        self.__aspect_ratio = aspect_ratio
-        self.__output_size = output_size
-        max_images = self.__configured_tool.definition.max_input_images
-        self.__input_attachments = (input_attachments or [])[:max_images]
-        self.__input_image_urls = [
-            self.__di.chat_attachment_service.create_public_url(attachment).url
-            for attachment in self.__input_attachments
-        ]
-        self.__input_image_sizes = self.__resolve_input_image_sizes()
+        self.__parameters = parameters
+        self.__input_attachments = input_attachments
+        self.__input_image_urls = input_image_urls
+        self.__input_image_sizes = input_image_sizes
+        self.__output_image_sizes = output_image_sizes
 
     def execute(self) -> str | None:
-        log.t(f"Starting simple image generator with prompt: '{self.__prompt}'")
+        log.t(f"Starting simple image generator with prompt: '{self.__parameters.prompt}'")
         self.error = None
         if self.__input_attachments:
             log.d(f"Starting photo editing with {len(self.__input_attachments)} image(s)")
@@ -64,15 +58,15 @@ class SimpleImageGenerator:
         try:
             if self.__configured_tool.definition.provider == REPLICATE:
                 if self.__input_attachments:
-                    return self.__edit_with_replicate(self.__input_image_urls, self.__input_image_sizes)
+                    return self.__edit_with_replicate()
                 return self.__generate_with_replicate()
             elif self.__configured_tool.definition.provider == GOOGLE_AI:
                 if self.__input_attachments:
-                    return self.__edit_with_google_ai(self.__input_image_urls, self.__input_image_sizes)
+                    return self.__edit_with_google_ai()
                 return self.__generate_with_google_ai()
             elif self.__configured_tool.definition.provider == XAI:
                 if self.__input_attachments:
-                    return self.__edit_with_x_ai(self.__input_image_urls, self.__input_image_sizes)
+                    return self.__edit_with_x_ai()
                 return self.__generate_with_x_ai()
             else:
                 raise ConfigurationError(f"Unsupported provider: '{self.__configured_tool.definition.provider}'", UNSUPPORTED_PROVIDER)  # noqa: E501
@@ -85,35 +79,17 @@ class SimpleImageGenerator:
                 log.e("Failed to generate image", e)
             return None
 
-    def __resolve_input_image_sizes(self) -> list[str | None]:
-        input_image_sizes: list[str | None] = []
-        for attachment in self.__input_attachments:
-            try:
-                with self.__di.attachment_storage.open(attachment) as stream:
-                    input_image_sizes.append(calculate_image_size_category(file_contents = stream))
-            except Exception as e:
-                log.e(f"Failed to calculate input image size, will proceed without it: {e}")
-                input_image_sizes.append(None)
-        return input_image_sizes
-
     def __generate_with_replicate(self) -> str | None:
         log.t("Generating image with Replicate")
 
-        unified_params = map_to_model_parameters(
-            tool = self.__configured_tool.definition, prompt = self.__prompt,
-            aspect_ratio = self.__aspect_ratio, output_size = self.__output_size,
-        )
-        dict_params = {
-            k: v for k, v in unified_params.__dict__.items() if v is not None
-        }
-        dict_params = filter_replicate_params(self.__configured_tool.definition, dict_params)
+        dict_params = filter_replicate_params(self.__configured_tool.definition, self.__parameters)
         log.t("Calling Replicate image generator with params", dict_params)
 
         replicate = self.__di.replicate_client(
             self.__configured_tool,
             config.web_timeout_s * 10,
-            output_image_sizes = [unified_params.size] if unified_params.size else None,
-            input_image_sizes = None,
+            output_image_sizes = self.__output_image_sizes,
+            input_image_sizes = self.__input_image_sizes,
         )
         prediction = replicate.predictions.create(
             version = self.__configured_tool.definition.id,
@@ -138,23 +114,18 @@ class SimpleImageGenerator:
     def __generate_with_google_ai(self) -> str | None:
         log.t("Generating image with Google AI")
 
-        unified_params = map_to_model_parameters(
-            tool = self.__configured_tool.definition, prompt = self.__prompt,
-            aspect_ratio = self.__aspect_ratio, output_size = self.__output_size,
-        )
-        dict_params = asdict(unified_params)
-        log.t("Calling Google AI image generator API with params", dict_params)
+        log.t("Calling Google AI image generator API with params", asdict(self.__parameters))
 
         google_ai = self.__di.google_ai_client(
             self.__configured_tool,
             config.web_timeout_s * 10,
-            output_image_sizes = [unified_params.size] if unified_params.size else None,
-            input_image_sizes = None,
+            output_image_sizes = self.__output_image_sizes,
+            input_image_sizes = self.__input_image_sizes,
         )
-        image_config = ImageConfig(aspect_ratio = unified_params.aspect_ratio, image_size = unified_params.size)
+        image_config = ImageConfig(aspect_ratio = self.__parameters.aspect_ratio, image_size = self.__parameters.size)
         response = google_ai.models.generate_content(
             model = self.__configured_tool.definition.id,
-            contents = self.__prompt,
+            contents = self.__parameters.prompt,
             config = GenerateContentConfig(
                 response_modalities = ["TEXT", "IMAGE"],
                 image_config = image_config,
@@ -186,26 +157,20 @@ class SimpleImageGenerator:
         )
         return self.__di.chat_attachment_service.create_public_url(attachment).url
 
-    def __edit_with_replicate(self, input_image_urls: list[str], input_image_sizes: list[str | None]) -> str | None:
+    def __edit_with_replicate(self) -> str | None:
         log.t("Editing image with Replicate")
 
-        unified_params = map_to_model_parameters(
-            tool = self.__configured_tool.definition, prompt = self.__prompt,
-            aspect_ratio = self.__aspect_ratio, output_size = self.__output_size,
-            input_urls = input_image_urls,
+        dict_params = filter_replicate_params(
+            self.__configured_tool.definition,
+            self.__parameters,
         )
-        dict_params = {
-            k: v for k, v in unified_params.__dict__.items() if v is not None
-        }
-        dict_params = filter_replicate_params(self.__configured_tool.definition, dict_params)
         log.t("Calling Replicate image editing with params", dict_params)
 
-        valid_sizes = [s for s in input_image_sizes if s is not None] or None
         replicate = self.__di.replicate_client(
             configured_tool = self.__configured_tool,
             timeout_s = BOOT_AND_RUN_TIMEOUT_S,
-            output_image_sizes = [unified_params.size] if unified_params.size else None,
-            input_image_sizes = valid_sizes,
+            output_image_sizes = self.__output_image_sizes,
+            input_image_sizes = self.__input_image_sizes,
         )
         prediction = replicate.predictions.create(version = self.__configured_tool.definition.id, input = dict_params)
         self.__di.rollback_db_session()
@@ -222,31 +187,25 @@ class SimpleImageGenerator:
         )
         return self.__di.chat_attachment_service.create_public_url(attachment).url
 
-    def __edit_with_google_ai(self, input_image_urls: list[str], input_image_sizes: list[str | None]) -> str | None:
+    def __edit_with_google_ai(self) -> str | None:
         log.t("Editing image with Google AI")
 
-        unified_params = map_to_model_parameters(
-            tool = self.__configured_tool.definition, prompt = self.__prompt,
-            aspect_ratio = self.__aspect_ratio, output_size = self.__output_size,
-            input_urls = input_image_urls,
-        )
-        log.t("Calling Google AI image editing API with params", unified_params)
+        log.t("Calling Google AI image editing API with params", self.__parameters)
 
-        valid_sizes = [s for s in input_image_sizes if s is not None] or None
         google_ai = self.__di.google_ai_client(
             self.__configured_tool,
             config.web_timeout_s * 10,
-            output_image_sizes = [unified_params.size] if unified_params.size else None,
-            input_image_sizes = valid_sizes,
+            output_image_sizes = self.__output_image_sizes,
+            input_image_sizes = self.__input_image_sizes,
         )
-        image_config = ImageConfig(aspect_ratio = unified_params.aspect_ratio, image_size = unified_params.size)
+        image_config = ImageConfig(aspect_ratio = self.__parameters.aspect_ratio, image_size = self.__parameters.size)
         response = google_ai.models.generate_content(
             model = self.__configured_tool.definition.id,
             contents = [
-                self.__prompt,
+                self.__parameters.prompt,
                 *[
                     Part.from_uri(file_uri = url, mime_type = attachment.mime_type)
-                    for url, attachment in zip(input_image_urls, self.__input_attachments)
+                    for url, attachment in zip(self.__input_image_urls, self.__input_attachments)
                 ],
             ],
             config = GenerateContentConfig(
@@ -280,41 +239,35 @@ class SimpleImageGenerator:
         )
         return self.__di.chat_attachment_service.create_public_url(attachment).url
 
-    def __edit_with_x_ai(self, input_image_urls: list[str], input_image_sizes: list[str | None]) -> str | None:
+    def __edit_with_x_ai(self) -> str | None:
         log.t("Editing image with xAI")
 
-        unified_params = map_to_model_parameters(
-            tool = self.__configured_tool.definition, prompt = self.__prompt,
-            aspect_ratio = self.__aspect_ratio, output_size = self.__output_size,
-            input_urls = input_image_urls,
-        )
-        log.t("Calling xAI image editing with params", unified_params)
+        log.t("Calling xAI image editing with params", self.__parameters)
 
-        valid_sizes = [s for s in input_image_sizes if s is not None] or None
         x_ai_client = self.__di.x_ai_client(
             self.__configured_tool,
             config.web_timeout_s * 10,
-            output_image_sizes = [unified_params.resolution] if unified_params.resolution else None,
-            input_image_sizes = valid_sizes,
+            output_image_sizes = self.__output_image_sizes,
+            input_image_sizes = self.__input_image_sizes,
         )
 
         # image_url and image_urls map to different proto fields (request.image vs request.images)
-        if len(input_image_urls) == 1:
+        if len(self.__input_image_urls) == 1:
             response = x_ai_client.image.sample(
-                prompt = self.__prompt,
+                prompt = self.__parameters.prompt,
                 model = self.__configured_tool.definition.id,
-                image_url = input_image_urls[0],
-                aspect_ratio = unified_params.aspect_ratio,
-                resolution = unified_params.resolution,
+                image_url = self.__input_image_urls[0],
+                aspect_ratio = self.__parameters.aspect_ratio,
+                resolution = self.__parameters.resolution,
                 image_format = "base64",
             )
         else:
             response = x_ai_client.image.sample(
-                prompt = self.__prompt,
+                prompt = self.__parameters.prompt,
                 model = self.__configured_tool.definition.id,
-                image_urls = input_image_urls,
-                aspect_ratio = unified_params.aspect_ratio,
-                resolution = unified_params.resolution,
+                image_urls = self.__input_image_urls,
+                aspect_ratio = self.__parameters.aspect_ratio,
+                resolution = self.__parameters.resolution,
                 image_format = "base64",
             )
 
@@ -339,23 +292,20 @@ class SimpleImageGenerator:
     def __generate_with_x_ai(self) -> str | None:
         log.t("Generating image with xAI")
 
-        unified_params = map_to_model_parameters(
-            tool = self.__configured_tool.definition, prompt = self.__prompt,
-            aspect_ratio = self.__aspect_ratio, output_size = self.__output_size,
-        )
-        log.t("Calling xAI image generator with params", unified_params)
+        log.t("Calling xAI image generator with params", self.__parameters)
 
         x_ai_client = self.__di.x_ai_client(
             self.__configured_tool,
             config.web_timeout_s * 10,
-            output_image_sizes = [unified_params.resolution] if unified_params.resolution else None,
+            output_image_sizes = self.__output_image_sizes,
+            input_image_sizes = self.__input_image_sizes,
         )
 
         response = x_ai_client.image.sample(
-            prompt = self.__prompt,
+            prompt = self.__parameters.prompt,
             model = self.__configured_tool.definition.id,
-            aspect_ratio = unified_params.aspect_ratio,
-            resolution = unified_params.resolution,
+            aspect_ratio = self.__parameters.aspect_ratio,
+            resolution = self.__parameters.resolution,
             image_format = "base64",
         )
 

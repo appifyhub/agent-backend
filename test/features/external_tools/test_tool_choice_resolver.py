@@ -165,17 +165,6 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertEqual(result.purpose, ToolType.chat)
         self.assertFalse(result.uses_credits)
 
-    def test_legacy_image_edit_resolves_generation_choice(self):
-        resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved
-
-        result = ToolChoiceResolver(self.mock_di).get_tool(ToolType.images_edit)
-
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertEqual(result.definition, IMAGE_GEN_EDIT_FLUX_2_PRO)
-        self.assertEqual(result.purpose, ToolType.images_edit)
-
     def test_get_tool_success_user_no_access_to_user_choice_but_has_access_to_others(self):
         resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
 

@@ -466,13 +466,7 @@ class VideoApiUtilsTest(unittest.TestCase):
             output_size = "4K",
             reference_image_urls = ["https://example.com/first.png"],
         )
-        present_parameters = {
-            key: value
-            for key, value in parameters.__dict__.items()
-            if value is not None
-        }
-
-        result = video_api_utils.filter_replicate_params(VIDEO_GEN_P_VIDEO, present_parameters)
+        result = video_api_utils.filter_replicate_params(VIDEO_GEN_P_VIDEO, parameters)
 
         self.assertEqual(
             result,
@@ -490,12 +484,6 @@ class VideoApiUtilsTest(unittest.TestCase):
         )
 
     def test_filter_replicate_params_omits_seedance_editing_inputs(self):
-        unsupported_inputs = {
-            "last_frame_image": "https://example.com/last.png",
-            "reference_videos": ["https://example.com/reference.mp4"],
-            "reference_audios": ["https://example.com/reference.mp3"],
-        }
-
         for tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
             with self.subTest(tool = tool.id):
                 parameters = video_api_utils.map_to_model_parameters(
@@ -505,21 +493,11 @@ class VideoApiUtilsTest(unittest.TestCase):
                         "https://example.com/second.png",
                     ],
                 )
-                present_parameters = {
-                    key: value
-                    for key, value in parameters.__dict__.items()
-                    if value is not None
-                }
-
-                result = video_api_utils.filter_replicate_params(
-                    tool,
-                    present_parameters | unsupported_inputs,
-                )
+                result = video_api_utils.filter_replicate_params(tool, parameters)
 
                 self.assertEqual(result["reference_images"], parameters.reference_images)
                 self.assertNotIn("image", result)
-                for unsupported_input in unsupported_inputs:
-                    self.assertNotIn(unsupported_input, result)
+                self.assertNotIn("size", result)
 
     def test_filter_replicate_params_omits_ray_unsupported_inputs(self):
         parameters = video_api_utils.map_to_model_parameters(
@@ -527,25 +505,12 @@ class VideoApiUtilsTest(unittest.TestCase):
             duration = "long",
             reference_image_urls = ["https://example.com/first.png"],
         )
-        present_parameters = {
-            key: value
-            for key, value in parameters.__dict__.items()
-            if value is not None
-        }
-
-        result = video_api_utils.filter_replicate_params(
-            VIDEO_GEN_RAY_3_2,
-            present_parameters | {
-                "end_image": "https://example.com/last.png",
-                "generate_audio": True,
-                "save_audio": True,
-            },
-        )
+        result = video_api_utils.filter_replicate_params(VIDEO_GEN_RAY_3_2, parameters)
 
         self.assertEqual(result["start_image"], parameters.start_image)
         self.assertEqual(result["duration"], 5)
         self.assertNotIn("aspect_ratio", result)
-        self.assertNotIn("end_image", result)
+        self.assertNotIn("size", result)
         self.assertNotIn("generate_audio", result)
         self.assertNotIn("save_audio", result)
 
@@ -587,12 +552,6 @@ class VideoApiUtilsTest(unittest.TestCase):
                     prompt = "make a video",
                     reference_image_urls = references,
                 )
-                present_parameters = {
-                    key: value
-                    for key, value in parameters.__dict__.items()
-                    if value is not None
-                }
-
-                result = video_api_utils.filter_replicate_params(tool, present_parameters)
+                result = video_api_utils.filter_replicate_params(tool, parameters)
 
                 self.assertEqual(set(result), expected_keys[tool.id])

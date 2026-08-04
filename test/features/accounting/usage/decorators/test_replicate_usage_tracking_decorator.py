@@ -23,7 +23,7 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_spending_service = Mock(spec = SpendingService)
-        self.tool_purpose = ToolType.images_edit
+        self.tool_purpose = ToolType.images_gen
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
         self.image_size = "512x512"
@@ -110,7 +110,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_tracking_service.track_image_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
         self.mock_tracking_service.track_video_model = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 20.0))
         self.mock_spending_service = Mock(spec = SpendingService)
-        self.tool_purpose = ToolType.images_edit
+        self.tool_purpose = ToolType.images_gen
         self.external_tool = Mock(spec = ExternalTool)
         self.external_tool.id = "test-tool"
         self.image_size = "512x512"

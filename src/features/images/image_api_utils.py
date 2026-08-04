@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 
 from features.external_tools.external_tool import ExternalTool
 from features.external_tools.external_tool_library import (
@@ -145,11 +145,13 @@ def map_to_model_parameters(
         return unified_params
 
 
-def filter_replicate_params(tool: ExternalTool, params: dict) -> dict:
+def filter_replicate_params(tool: ExternalTool, parameters: UnifiedImageParameters) -> dict:
     allowed = ALLOWED_REPLICATE_PARAMS.get(tool.id)
-    if allowed is None:
-        return params
-    return {k: v for k, v in params.items() if k in allowed}
+    return {
+        key: value
+        for key, value in asdict(parameters).items()
+        if value is not None and (allowed is None or key in allowed)
+    }
 
 
 def resolve_aspect_ratio(

@@ -1760,7 +1760,7 @@ components:
         tool_purpose:
           type: string
           nullable: false
-          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, videos_gen, images_edit, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, credit_transfer, deprecated]
+          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, videos_gen, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, credit_transfer, deprecated]
           description: The purpose/type of tool usage
         timestamp:
           type: string

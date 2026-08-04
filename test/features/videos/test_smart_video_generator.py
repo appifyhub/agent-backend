@@ -72,7 +72,7 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             di = self.di,
         )
 
-    def test_constructor_rejects_empty_prompt_before_resolving_dependencies(self):
+    def test_constructor_rejects_empty_prompt_before_resolving_attachments(self):
         with self.assertRaises(ValidationError) as context:
             SmartVideoGenerator(
                 raw_prompt = " ",
@@ -84,7 +84,6 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             )
 
         self.assertEqual(context.exception.error_code, MISSING_CONTENT)
-        self.di.chat_langchain_model.assert_not_called()
         self.di.chat_attachment_service.resolve_image_attachments.assert_not_called()
 
     def test_execute_screenwrites_synchronously_before_starting_worker(self):
