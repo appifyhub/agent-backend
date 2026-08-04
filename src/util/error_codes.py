@@ -1,3 +1,12 @@
+# Error code IDs are permanent. Removed IDs remain reserved, and new IDs must be the next number in their category.
+RESERVED_ERROR_CODES = {
+    1006,  # retired INVALID_USE_ABOUT_ME
+    1036,  # retired INVALID_USE_CUSTOM_PROMPT
+    5009,  # retired IMAGE_EDIT_FAILED
+    6002,  # retired INSUFFICIENT_CREDITS
+    8002,  # historical allocation gap
+}
+
 # Validation errors (1000-1999)
 INVALID_SETTINGS_TYPE = 1001
 INVALID_LANGUAGE_SETTINGS = 1002

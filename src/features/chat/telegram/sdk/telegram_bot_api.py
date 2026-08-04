@@ -181,10 +181,14 @@ class TelegramBotAPI:
 
     def set_status_uploading_image(self, chat_id: int | str) -> dict:
         url = f"{self.__bot_api_url}/sendChatAction"
-        payload = {
-            "chat_id": chat_id,
-            "action": "upload_photo",
-        }
+        payload = {"chat_id": chat_id, "action": "upload_photo"}
+        response = requests.post(url, json = payload, timeout = config.web_timeout_s)
+        self.__raise_for_status(response)
+        return response.json()
+
+    def set_status_uploading_video(self, chat_id: int | str) -> dict:
+        url = f"{self.__bot_api_url}/sendChatAction"
+        payload = {"chat_id": chat_id, "action": "upload_video"}
         response = requests.post(url, json = payload, timeout = config.web_timeout_s)
         self.__raise_for_status(response)
         return response.json()

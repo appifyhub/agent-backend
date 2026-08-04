@@ -141,7 +141,9 @@ def _run_video_worker(
             # we need to release the DB here because sending video can also block the transaction
             worker_di.rollback_db_session()
             # now that the video is ready, we finally send it back to the user
-            worker_di.platform_bot_sdk().smart_send_video(media_mode = media_mode, chat_id = external_chat_id, video_url = video_url)  # noqa: E501
+            platform_sdk = worker_di.platform_bot_sdk()
+            platform_sdk.set_chat_action(chat_id = external_chat_id, action = "upload_video")
+            platform_sdk.smart_send_video(media_mode = media_mode, chat_id = external_chat_id, video_url = video_url)
             log.i(f"Video generated and sent successfully to chat '{invoker_chat_id.hex}'")
     except Exception as e:
         log.e(f"Background video generation failed for chat '{invoker_chat_id.hex}'", e)

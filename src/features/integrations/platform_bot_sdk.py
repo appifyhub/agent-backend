@@ -183,12 +183,12 @@ class PlatformBotSDK:
             case _:
                 raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
 
-    def set_chat_action(self, chat_id: int | str, action: Literal["typing", "upload_photo"]) -> None:
+    def set_chat_action(self, chat_id: int | str, action: Literal["typing", "upload_photo", "upload_video"]) -> None:
         match self.__di.require_invoker_chat_type():
             case ChatConfigDB.ChatType.telegram:
                 self.__di.telegram_bot_sdk.set_chat_action(chat_id, action)
             case ChatConfigDB.ChatType.whatsapp:
-                pass  # WhatsApp doesn't support chat actions (typing indicators)
+                pass  # WhatsApp doesn't support chat actions
             case _:
                 raise ConfigurationError(f"Unsupported chat type: {self.__di.require_invoker_chat_type()}", UNSUPPORTED_CHAT_TYPE)
 
