@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.30.0
+  version: 5.31.0
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
