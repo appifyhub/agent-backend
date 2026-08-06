@@ -5,15 +5,26 @@ from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.social_cards import card_renderer
+from features.social_cards import card_renderer, video_card_compositor
 from features.social_cards.asset_workspace import SocialCardAssetWorkspace
 from features.social_cards.link_preview import fetch_og_image_url, find_favicon_urls, prepare_favicon
 from features.social_cards.providers.social_post_provider import SocialPostProvider
-from features.social_cards.social_card_models import SocialLinkPreviewAsset, SocialMediaAsset, SocialPost, SocialPostRenderAssets
+from features.social_cards.social_card_models import (
+    SocialCardMode,
+    SocialCardRenderResult,
+    SocialCardTemplateResult,
+    SocialCardVideoInput,
+    SocialLinkPreviewAsset,
+    SocialMediaAsset,
+    SocialMediaItem,
+    SocialPost,
+    SocialPostRenderAssets,
+)
 from features.social_cards.theme import pick_theme
+from features.videos.video_file_utils import VIDEO_PREPARATION_SLOTS
 from util import log
-from util.error_codes import IMAGE_GENERATION_FAILED, TOOL_NOT_FOUND, WEB_FETCH_FAILED
-from util.errors import ExternalServiceError, NotFoundError, ValidationError
+from util.error_codes import IMAGE_GENERATION_FAILED, MEDIA_DOWNLOAD_FAILED, TOOL_NOT_FOUND, WEB_FETCH_FAILED
+from util.errors import ExternalServiceError, NotFoundError, ServiceError, ValidationError
 
 
 class SocialCardOrchestrator:
@@ -29,33 +40,51 @@ class SocialCardOrchestrator:
         self.__vision_tool = vision_tool
         self.__di = di
 
-    def execute(self, url: str) -> str:
+    def execute(self, url: str, mode: SocialCardMode | None = None) -> SocialCardRenderResult:
         provider = self.__require_provider_for(url)
         post = provider.fetch(url)
         with SocialCardAssetWorkspace(self.__di.photo_downloader()) as workspace:
             assets = self.__resolve_assets(post, workspace)
             theme = pick_theme(assets.avatar_path, [asset.path for asset in assets.media])
             short_url = self.__shorten_url(post.source_url)
-            output_path = workspace.new_path(".png")
+            static_output_path = workspace.new_path(".png")
 
             try:
-                card_renderer.render(
+                template = card_renderer.render(
                     post = post,
                     theme = theme,
                     assets = assets,
-                    output_path = output_path,
+                    output_path = static_output_path,
                     short_url = short_url,
                 )
             except Exception as e:
                 raise ExternalServiceError("Card rendering failed", IMAGE_GENERATION_FAILED) from e
-            log.t("Social card generated successfully")
+
+            output_path = static_output_path
+            output_mode = SocialCardMode.IMAGE
+            dynamic_media = [media for media in post.media if media.dynamic_media]
+            if mode != SocialCardMode.IMAGE and dynamic_media:
+                dynamic_output_path = workspace.new_path(".mp4")
+                try:
+                    video_inputs = self.__resolve_video_inputs(dynamic_media, template, workspace)
+                    video_card_compositor.compose(
+                        static_card_path = static_output_path,
+                        media_inputs = video_inputs,
+                        output_path = dynamic_output_path,
+                    )
+                    output_path = dynamic_output_path
+                    output_mode = SocialCardMode.VIDEO
+                except ServiceError as e:
+                    log.w("Dynamic social-card rendering failed; using static card", e)
 
             chat = self.__di.require_invoker_chat()
             attachment = self.__di.chat_attachment_service.save(
                 attachment = ChatAttachment(chat_id = chat.chat_id, uploader_user_id = self.__di.invoker.id),
                 file_path = output_path,
             )
-            return self.__di.chat_attachment_service.create_public_url(attachment).url
+            public_url = self.__di.chat_attachment_service.create_public_url(attachment).url
+            log.t(f"Social card generated successfully as {output_mode.value}")
+            return SocialCardRenderResult(public_url = public_url, mode = output_mode)
 
     def __require_provider_for(self, url: str) -> SocialPostProvider:
         for provider_class in self.__di.social_post_provider_classes():
@@ -95,6 +124,34 @@ class SocialCardOrchestrator:
             if path:
                 media_assets.append(SocialMediaAsset(media = media, path = path))
         return media_assets
+
+    @staticmethod
+    def __resolve_video_inputs(
+        dynamic_media: list[SocialMediaItem],
+        template: SocialCardTemplateResult,
+        workspace: SocialCardAssetWorkspace,
+    ) -> list[SocialCardVideoInput]:
+        video_inputs: list[SocialCardVideoInput] = []
+        with VIDEO_PREPARATION_SLOTS:
+            for media in dynamic_media:
+                placement = next(
+                    (placement for placement in template.media_placements if placement.media is media),
+                    None,
+                )
+                dynamic = media.dynamic_media
+                if placement is None or dynamic is None:
+                    raise ExternalServiceError(
+                        "Dynamic social-card media has no rendered poster",
+                        MEDIA_DOWNLOAD_FAILED,
+                    )
+                media_path = workspace.download(dynamic.playback_url)
+                if media_path is None:
+                    raise ExternalServiceError(
+                        "Could not download dynamic social-card media",
+                        MEDIA_DOWNLOAD_FAILED,
+                    )
+                video_inputs.append(SocialCardVideoInput(media_path = media_path, placement = placement))
+        return video_inputs
 
     def __resolve_link_preview_assets(
         self,
