@@ -1,7 +1,7 @@
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.social_cards.domain import (
+from features.social_cards.social_card_models import (
     SocialAuthor,
     SocialDynamicMedia,
     SocialLinkPreview,

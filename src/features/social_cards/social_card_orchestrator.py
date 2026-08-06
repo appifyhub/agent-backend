@@ -7,9 +7,9 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.social_cards import card_renderer
 from features.social_cards.asset_workspace import SocialCardAssetWorkspace
-from features.social_cards.domain import SocialLinkPreviewAsset, SocialMediaAsset, SocialPost, SocialPostRenderAssets
 from features.social_cards.link_preview import fetch_og_image_url, find_favicon_urls, prepare_favicon
 from features.social_cards.providers.social_post_provider import SocialPostProvider
+from features.social_cards.social_card_models import SocialLinkPreviewAsset, SocialMediaAsset, SocialPost, SocialPostRenderAssets
 from features.social_cards.theme import pick_theme
 from util import log
 from util.error_codes import IMAGE_GENERATION_FAILED, TOOL_NOT_FOUND, WEB_FETCH_FAILED

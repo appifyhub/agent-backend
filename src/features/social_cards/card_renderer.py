@@ -4,7 +4,7 @@ import resvg_py
 
 from features.social_cards.card_layout import card_width_from_text
 from features.social_cards.card_template import build_svg
-from features.social_cards.domain import SocialCardTemplateResult, SocialPost, SocialPostRenderAssets
+from features.social_cards.social_card_models import SocialCardTemplateResult, SocialPost, SocialPostRenderAssets
 from features.social_cards.theme import ThemeColors
 from util.config import config
 

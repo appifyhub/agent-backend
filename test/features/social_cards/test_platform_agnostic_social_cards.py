@@ -7,11 +7,13 @@ from PIL import Image
 
 from features.social_cards import card_renderer, card_template, video_card_compositor
 from features.social_cards.card_layout import CARD_INNER_PAD, CARD_OUTER_PAD, PHOTO_CORNER_RADIUS
-from features.social_cards.domain import (
+from features.social_cards.link_preview import prepare_favicon
+from features.social_cards.social_card_models import (
     SocialAuthor,
     SocialCardMode,
     SocialCardRenderResult,
     SocialCardTemplateResult,
+    SocialCardVideoInput,
     SocialDynamicMedia,
     SocialLinkPreview,
     SocialLinkPreviewAsset,
@@ -23,8 +25,8 @@ from features.social_cards.domain import (
     SocialPost,
     SocialPostRenderAssets,
 )
-from features.social_cards.link_preview import prepare_favicon
 from features.social_cards.theme import ThemeColors
+from features.social_cards.video_card_timeline import plan_timeline
 from features.videos.video_file_utils import inspect_video, video_meets_constraints
 from util.config import config
 from util.error_codes import INVALID_SOCIAL_CARD_VIDEO_CONFIGURATION, SOCIAL_CARD_VIDEO_COMPOSITION_FAILED
@@ -62,17 +64,33 @@ def _write_image(path: Path, size: tuple[int, int] = (100, 100)) -> Path:
     return path
 
 
-def _video_placement() -> SocialMediaPlacement:
+def _video_placement(
+    kind: SocialMediaKind = SocialMediaKind.VIDEO,
+    x: int = 20,
+    y: int = 30,
+    width: int = 100,
+    height: int = 80,
+) -> SocialMediaPlacement:
     return SocialMediaPlacement(
-        media = SocialMediaItem(kind = SocialMediaKind.VIDEO),
-        x = 20,
-        y = 30,
-        width = 100,
-        height = 80,
+        media = SocialMediaItem(kind = kind),
+        x = x,
+        y = y,
+        width = width,
+        height = height,
         top_left_radius = 20,
         top_right_radius = 20,
         bottom_right_radius = 20,
         bottom_left_radius = 20,
+    )
+
+
+def _video_input(
+    media_path: Path,
+    placement: SocialMediaPlacement | None = None,
+) -> SocialCardVideoInput:
+    return SocialCardVideoInput(
+        media_path = media_path,
+        placement = placement or _video_placement(),
     )
 
 
@@ -97,6 +115,31 @@ def _extract_frame(video_path: Path, output_path: Path, timestamp: float) -> Ima
 
 def _assert_color(pixel: tuple[int, int, int], expected: tuple[int, int, int], tolerance: int = 40) -> None:
     assert all(abs(actual - target) <= tolerance for actual, target in zip(pixel, expected, strict = True))
+
+
+def _audio_is_silent(video_path: Path, start: float, duration: float) -> bool:
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-v", "info",
+            "-ss", str(start),
+            "-t", str(duration),
+            "-i", str(video_path),
+            "-map", "0:a:0",
+            "-af", "volumedetect",
+            "-f", "null",
+            "-",
+        ],
+        capture_output = True,
+        check = True,
+        text = True,
+    )
+    for line in result.stderr.splitlines():
+        if "max_volume:" not in line:
+            continue
+        measured_volume = line.partition("max_volume:")[2].split()[0]
+        return measured_volume == "-inf" or float(measured_volume) <= -80
+    return False
 
 
 @pytest.fixture(scope = "module")
@@ -347,8 +390,7 @@ def test_video_card_compositor_preserves_audio_freezes_last_frame_and_masks_corn
 
     video_card_compositor.compose(
         static_card_path,
-        video_sources["landscape"],
-        _video_placement(),
+        [_video_input(video_sources["landscape"])],
         output_path,
     )
 
@@ -378,14 +420,13 @@ def test_video_card_compositor_scales_portrait_video_and_generates_silent_audio(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 200), color = "blue").save(static_card_path)
+    Image.new("RGB", (200, 240), color = "blue").save(static_card_path)
     output_path = tmp_path / "card.mp4"
-    placement = _video_placement()
+    placement = _video_placement(height = 178)
 
     video_card_compositor.compose(
         static_card_path,
-        video_sources["portrait"],
-        placement,
+        [_video_input(video_sources["portrait"], placement)],
         output_path,
     )
 
@@ -410,8 +451,7 @@ def test_video_card_compositor_trims_to_configured_duration(
 
     video_card_compositor.compose(
         static_card_path,
-        video_sources["landscape"],
-        _video_placement(),
+        [_video_input(video_sources["landscape"])],
         output_path,
     )
 
@@ -428,8 +468,7 @@ def test_video_card_compositor_rejects_invalid_duration_configuration(
     with pytest.raises(ConfigurationError) as error:
         video_card_compositor.compose(
             tmp_path / "static.png",
-            tmp_path / "source.mp4",
-            _video_placement(),
+            [],
             output_path,
         )
 
@@ -459,8 +498,7 @@ def test_video_card_compositor_removes_partial_output_and_mask_after_process_fai
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
             static_card_path,
-            video_sources["landscape"],
-            _video_placement(),
+            [_video_input(video_sources["landscape"])],
             output_path,
         )
 
@@ -488,8 +526,7 @@ def test_video_card_compositor_reports_timeout(
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
             static_card_path,
-            video_sources["landscape"],
-            _video_placement(),
+            [_video_input(video_sources["landscape"])],
             output_path,
         )
 
@@ -517,10 +554,135 @@ def test_video_card_compositor_rejects_empty_output(
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
             static_card_path,
-            video_sources["landscape"],
-            _video_placement(),
+            [_video_input(video_sources["landscape"])],
             output_path,
         )
 
     assert error.value.error_code == SOCIAL_CARD_VIDEO_COMPOSITION_FAILED
     assert "empty output" in str(error.value)
+
+
+def test_video_card_timeline_plans_source_order_under_one_accumulated_cap() -> None:
+    timeline = plan_timeline([80.0, 80.0, 10.0], max_duration_seconds = 120.0)
+
+    assert [(segment.source_index, segment.start_seconds, segment.duration_seconds) for segment in timeline] == [
+        (0, 0.0, 80.0),
+        (1, 80.0, 40.0),
+    ]
+    assert timeline[-1].end_seconds == 120.0
+
+
+def test_video_card_compositor_plays_videos_sequentially_with_active_audio_only(
+    tmp_path: Path,
+    video_sources: dict[str, Path],
+) -> None:
+    static_card_path = tmp_path / "static.png"
+    static_card = Image.new("RGB", (160, 220), color = "black")
+    static_card.paste("yellow", (20, 20, 120, 100))
+    static_card.paste("blue", (20, 120, 120, 200))
+    static_card.save(static_card_path)
+    output_path = tmp_path / "card.mp4"
+    first_placement = _video_placement(y = 20)
+    second_placement = _video_placement(y = 120)
+
+    video_card_compositor.compose(
+        static_card_path,
+        [
+            _video_input(video_sources["landscape"], first_placement),
+            _video_input(video_sources["portrait"], second_placement),
+        ],
+        output_path,
+    )
+
+    assert inspect_video(str(output_path)).duration_seconds == pytest.approx(2, abs = 0.1)
+    first_segment = _extract_frame(output_path, tmp_path / "first-segment.png", 0.5)
+    second_segment = _extract_frame(output_path, tmp_path / "second-segment.png", 1.8)
+    _assert_color(first_segment.getpixel((70, 60)), (255, 0, 0))
+    _assert_color(first_segment.getpixel((70, 160)), (0, 0, 255))
+    _assert_color(second_segment.getpixel((70, 60)), (255, 0, 0))
+    _assert_color(second_segment.getpixel((70, 160)), (0, 128, 0))
+    assert not _audio_is_silent(output_path, start = 0.1, duration = 0.7)
+    assert _audio_is_silent(output_path, start = 1.1, duration = 0.7)
+
+
+def test_video_card_compositor_plays_video_then_gif_with_silent_gif_audio(
+    tmp_path: Path,
+    video_sources: dict[str, Path],
+) -> None:
+    static_card_path = tmp_path / "static.png"
+    static_card = Image.new("RGB", (160, 220), color = "black")
+    static_card.paste("yellow", (20, 20, 120, 100))
+    static_card.paste("blue", (20, 120, 120, 200))
+    static_card.save(static_card_path)
+    output_path = tmp_path / "card.mp4"
+
+    video_card_compositor.compose(
+        static_card_path,
+        [
+            _video_input(video_sources["portrait"], _video_placement(y = 20)),
+            _video_input(
+                video_sources["landscape"],
+                _video_placement(kind = SocialMediaKind.GIF, y = 120),
+            ),
+        ],
+        output_path,
+    )
+
+    gif_segment = _extract_frame(output_path, tmp_path / "gif-segment.png", 1.5)
+    _assert_color(gif_segment.getpixel((70, 60)), (0, 128, 0))
+    _assert_color(gif_segment.getpixel((70, 160)), (255, 0, 0))
+    assert _audio_is_silent(output_path, start = 0.1, duration = 1.7)
+
+
+def test_video_card_compositor_keeps_gif_only_output_silent(
+    tmp_path: Path,
+    video_sources: dict[str, Path],
+) -> None:
+    static_card_path = tmp_path / "static.png"
+    Image.new("RGB", (160, 120), color = "yellow").save(static_card_path)
+    output_path = tmp_path / "card.mp4"
+
+    video_card_compositor.compose(
+        static_card_path,
+        [
+            _video_input(
+                video_sources["landscape"],
+                _video_placement(kind = SocialMediaKind.GIF, y = 20),
+            ),
+        ],
+        output_path,
+    )
+
+    assert inspect_video(str(output_path)).audio_stream_count == 1
+    assert _audio_is_silent(output_path, start = 0.1, duration = 0.7)
+
+
+def test_video_card_compositor_truncates_active_item_and_does_not_start_later_items(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    video_sources: dict[str, Path],
+) -> None:
+    static_card_path = tmp_path / "static.png"
+    static_card = Image.new("RGB", (160, 320), color = "black")
+    static_card.paste("yellow", (20, 20, 120, 100))
+    static_card.paste("blue", (20, 120, 120, 200))
+    static_card.paste("magenta", (20, 220, 120, 300))
+    static_card.save(static_card_path)
+    output_path = tmp_path / "card.mp4"
+    monkeypatch.setattr(config, "social_card_video_max_duration_s", 1.5)
+
+    video_card_compositor.compose(
+        static_card_path,
+        [
+            _video_input(video_sources["landscape"], _video_placement(y = 20)),
+            _video_input(video_sources["portrait"], _video_placement(y = 120)),
+            _video_input(video_sources["landscape"], _video_placement(y = 220)),
+        ],
+        output_path,
+    )
+
+    assert inspect_video(str(output_path)).duration_seconds == pytest.approx(1.5, abs = 0.1)
+    final_segment = _extract_frame(output_path, tmp_path / "final-segment.png", 1.4)
+    _assert_color(final_segment.getpixel((70, 60)), (255, 0, 0))
+    _assert_color(final_segment.getpixel((70, 160)), (0, 128, 0))
+    _assert_color(final_segment.getpixel((70, 260)), (255, 0, 255))

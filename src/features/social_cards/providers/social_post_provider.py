@@ -1,7 +1,7 @@
 from typing import ClassVar, Protocol
 
 from features.external_tools.external_tool import ToolType
-from features.social_cards.domain import SocialPost
+from features.social_cards.social_card_models import SocialPost
 
 
 class SocialPostProvider(Protocol):

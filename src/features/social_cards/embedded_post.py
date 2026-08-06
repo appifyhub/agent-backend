@@ -12,7 +12,7 @@ from features.social_cards.card_utils import (
     rounded_rect_path,
     word_wrap_truncate,
 )
-from features.social_cards.domain import SocialPost, SocialPostRenderAssets
+from features.social_cards.social_card_models import SocialPost, SocialPostRenderAssets
 from features.social_cards.theme import ThemeColors
 
 EMBED_PAD = 20

@@ -39,15 +39,15 @@ from features.social_cards.card_utils import (
     rounded_rect_path,
     text_width,
 )
-from features.social_cards.domain import (
+from features.social_cards.embedded_post import render_embedded_post
+from features.social_cards.link_preview import render_link_previews
+from features.social_cards.social_card_models import (
     SocialCardTemplateResult,
     SocialMediaAsset,
     SocialMediaPlacement,
     SocialPost,
     SocialPostRenderAssets,
 )
-from features.social_cards.embedded_post import render_embedded_post
-from features.social_cards.link_preview import render_link_previews
 from features.social_cards.theme import ThemeColors
 from util.config import config
 

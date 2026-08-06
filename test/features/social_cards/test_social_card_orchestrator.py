@@ -8,7 +8,8 @@ from PIL import Image
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.social_cards.domain import (
+from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
+from features.social_cards.social_card_models import (
     SocialAuthor,
     SocialDynamicMedia,
     SocialMediaItem,
@@ -16,7 +17,6 @@ from features.social_cards.domain import (
     SocialPlatformBrand,
     SocialPost,
 )
-from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
 from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
 from features.web_browsing.photo_downloader import PhotoDownloader
 from features.web_browsing.twitter_status_fetcher import TweetData, TweetMediaItem, TweetMediaVariant, TweetUserData

@@ -110,6 +110,23 @@ class SocialMediaPlacement:
     bottom_left_radius: int
 
 
+@dataclass(frozen = True)
+class SocialCardVideoInput:
+    media_path: Path
+    placement: SocialMediaPlacement
+
+
+@dataclass(frozen = True)
+class SocialCardTimelineSegment:
+    source_index: int
+    start_seconds: float
+    duration_seconds: float
+
+    @property
+    def end_seconds(self) -> float:
+        return self.start_seconds + self.duration_seconds
+
+
 @dataclass
 class SocialCardTemplateResult:
     svg: str

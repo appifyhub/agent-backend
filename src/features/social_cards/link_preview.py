@@ -13,7 +13,7 @@ from features.social_cards.card_utils import (
     rounded_rect_path,
     word_wrap_truncate,
 )
-from features.social_cards.domain import SocialLinkPreviewAsset
+from features.social_cards.social_card_models import SocialLinkPreviewAsset
 from features.social_cards.theme import ThemeColors
 from util import log
 from util.config import config
