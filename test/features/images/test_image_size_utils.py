@@ -99,6 +99,18 @@ class ImageSizeUtilsTest(unittest.TestCase):
         self.assertLessEqual(result_size, max_size)
         self.assertGreaterEqual(result_size, int(max_size * 0.90))
 
+    def test_resized_output_remains_readable_after_source_is_removed(self):
+        path = self._save(_noisy_image(300, 300), ".jpg", format = "JPEG", quality = 90)
+        original_size = Path(path).stat().st_size
+
+        result = resize_file(path, original_size // 3)
+        self._temp_files.append(result)
+        Path(path).unlink()
+
+        self.assertNotEqual(result, path)
+        with Image.open(result) as image:
+            image.verify()
+
     # resize_file: edge cases
 
     def test_min_dimension_guard_handles_gracefully(self):

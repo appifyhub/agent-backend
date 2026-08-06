@@ -1,13 +1,18 @@
+import tempfile
 import unittest
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import UUID
 
 from api.auth import verify_jwt_token, verify_public_attachment_token
 from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.chat_attachment_service import ChatAttachmentService, RemoteAttachmentContent
+from features.chat.attachment.chat_attachment_service import (
+    ChatAttachmentService,
+    RemoteAttachmentContent,
+)
 from features.chat.attachment.storage.attachment_storage import PublicAttachment
 from util.errors import ExternalServiceError, NotFoundError, ValidationError
 
@@ -24,6 +29,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         )
         self.di.chat_attachment_repo.save.side_effect = lambda attachment: attachment
         self.di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
+        self.di.attachment_storage.put_file.side_effect = lambda metadata, file_path: f"s3://the-agent/{metadata.uri}"
         self.di.attachment_storage.owns_uri.side_effect = lambda uri: bool(uri) and uri.startswith("s3://the-agent/")
         self.service = ChatAttachmentService(self.di)
         self.attachment = ChatAttachment(
@@ -181,6 +187,156 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
+
+    def test_save_with_file_stores_path_and_saves_matching_metadata(self):
+        content = b"\x89PNG\r\n\x1a\ncontent"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("source")
+            source.write_bytes(content)
+
+            result = self.service.save(
+                self.attachment,
+                file_path = source,
+                remote_url = "https://example.com/photo.png",
+            )
+
+            self.assertEqual(source.read_bytes(), content)
+            self.di.attachment_storage.put_file.assert_called_once()
+            stored_metadata, stored_path = self.di.attachment_storage.put_file.call_args.args
+            self.assertEqual(stored_path, source)
+
+        self.assertEqual(stored_metadata.mime_type, "image/png")
+        self.assertEqual(stored_metadata.extension, "png")
+        self.assertIsNone(stored_metadata.last_url)
+        self.assertEqual(result.size, len(content))
+        self.assertEqual(result.mime_type, "image/png")
+        self.assertEqual(result.extension, "png")
+        self.assertEqual(result.last_url, f"s3://the-agent/{result.uri}")
+        self.di.chat_attachment_repo.save.assert_called_once_with(result)
+
+    def test_save_with_file_uses_remote_url_for_video_type_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("source")
+            source.write_bytes(b"video data")
+
+            result = self.service.save(
+                self.attachment,
+                file_path = source,
+                remote_url = "https://example.com/video.webm?token=abc",
+            )
+
+        self.assertEqual(result.mime_type, "video/webm")
+        self.assertEqual(result.extension, "webm")
+
+    def test_save_with_file_path_api_and_remote_url_fetcher_stores_fetched_content(self):
+        content = b"%PDF-1.4"
+        result = self.service.save(
+            self.attachment,
+            remote_url = "https://example.com/document",
+            remote_url_fetcher = lambda _: RemoteAttachmentContent(
+                content = content,
+                response_mime_type = "application/pdf",
+            ),
+        )
+
+        stored_metadata, stored_content = self.di.attachment_storage.put.call_args.args
+        self.assertEqual(stored_metadata.mime_type, "application/pdf")
+        self.assertEqual(stored_metadata.extension, "pdf")
+        self.assertEqual(stored_content, content)
+        self.assertEqual(result.size, len(content))
+        self.di.attachment_storage.put_file.assert_not_called()
+
+    def test_save_with_file_rejects_missing_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("missing")
+
+            with self.assertRaises(ValidationError):
+                self.service.save(self.attachment, file_path = source)
+
+        self.di.attachment_storage.put_file.assert_not_called()
+        self.di.chat_attachment_repo.save.assert_not_called()
+
+    def test_save_with_empty_file_saves_existing_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("empty")
+            source.touch()
+
+            result = self.service.save(self.attachment, file_path = source)
+
+        self.assertEqual(result, self.attachment)
+        self.di.attachment_storage.put_file.assert_not_called()
+        self.di.chat_attachment_repo.save.assert_called_once_with(self.attachment)
+
+    def test_save_with_file_deletes_old_object_when_extension_changes(self):
+        old_uri = "chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id"
+        attachment = replace(self.attachment, last_url = f"s3://the-agent/{old_uri}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("source.png")
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+
+            result = self.service.save(attachment, file_path = source)
+
+        self.assertEqual(result.extension, "png")
+        self.di.attachment_storage.put_file.assert_called_once()
+        self.di.attachment_storage.delete.assert_called_once()
+        self.assertEqual(self.di.attachment_storage.delete.call_args.args[0].uri, old_uri)
+
+    def test_save_with_file_does_not_remove_source_when_storage_fails(self):
+        self.di.attachment_storage.put_file.side_effect = ExternalServiceError("failed", "attachment_storage_failed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("source.png")
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+
+            with self.assertRaises(ExternalServiceError):
+                self.service.save(self.attachment, file_path = source)
+
+            self.assertTrue(source.exists())
+
+        self.di.chat_attachment_repo.save.assert_not_called()
+
+    @patch("features.chat.attachment.chat_attachment_service.config")
+    def test_save_with_no_file_and_own_public_url_returns_existing_attachment(self, mock_config):
+        mock_config.public_api_base_url = "http://api.example"
+        mock_config.attachment_public_token_ttl_seconds = 600
+        public_url = self.service.create_public_url(self.attachment)
+        new_attachment = replace(self.attachment, id = "new-attachment-id")
+        self.di.chat_attachment_repo.get.return_value = self.attachment
+
+        result = self.service.save(new_attachment, remote_url = public_url.url)
+
+        self.assertEqual(result, self.attachment)
+        self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
+        self.di.attachment_storage.put_file.assert_not_called()
+        self.di.chat_attachment_repo.save.assert_not_called()
+
+    @patch("features.chat.attachment.chat_attachment_service.config")
+    def test_save_with_empty_file_and_own_public_url_returns_existing_attachment(self, mock_config):
+        mock_config.public_api_base_url = "http://api.example"
+        mock_config.attachment_public_token_ttl_seconds = 600
+        public_url = self.service.create_public_url(self.attachment)
+        new_attachment = replace(self.attachment, id = "new-attachment-id")
+        self.di.chat_attachment_repo.get.return_value = self.attachment
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("empty")
+            source.touch()
+
+            result = self.service.save(new_attachment, remote_url = public_url.url, file_path = source)
+
+        self.assertEqual(result, self.attachment)
+        self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
+        self.di.attachment_storage.put_file.assert_not_called()
+        self.di.chat_attachment_repo.save.assert_not_called()
+
+    def test_save_without_file_path_saves_existing_metadata(self):
+        result = self.service.save(self.attachment)
+
+        self.assertEqual(result, self.attachment)
+        self.di.attachment_storage.put_file.assert_not_called()
+        self.di.chat_attachment_repo.save.assert_called_once_with(self.attachment)
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_remote_url_fetches_content_and_stores_attachment(self, mock_config):

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import requests
 
 from util import log
@@ -15,7 +17,7 @@ class PhotoDownloader:
 
     def download(self, url: str) -> bytes | None:
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (compatible; AppifyHub-Agent/1.0)"}
+            headers = {"User-Agent": config.user_agent}
             if self.__bearer_token:
                 headers["Authorization"] = f"Bearer {self.__bearer_token}"
             response = requests.get(url, headers = headers, timeout = config.web_timeout_s)
@@ -24,6 +26,31 @@ class PhotoDownloader:
         except Exception as e:
             log.w(f"Failed to download photo from {url}", e)
             return None
+
+    def download_to(self, url: str, destination: Path) -> bool:
+        try:
+            headers = {"User-Agent": config.user_agent}
+            if self.__bearer_token:
+                headers["Authorization"] = f"Bearer {self.__bearer_token}"
+            with requests.get(
+                url,
+                headers = headers,
+                timeout = config.web_timeout_s,
+                stream = True,
+            ) as response:
+                response.raise_for_status()
+                with destination.open("wb") as output:
+                    for chunk in response.iter_content(chunk_size = 1024 * 256):
+                        if chunk:
+                            output.write(chunk)
+            if destination.stat().st_size == 0:
+                destination.unlink(missing_ok = True)
+                return False
+            return True
+        except Exception as e:
+            destination.unlink(missing_ok = True)
+            log.w(f"Failed to download photo from {url}", e)
+            return False
 
     def download_many(self, urls: list[str]) -> list[bytes]:
         results = []

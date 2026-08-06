@@ -2,6 +2,7 @@
 
 import logging
 import os
+import platform
 from dataclasses import dataclass
 from typing import Callable
 
@@ -9,6 +10,8 @@ import yaml
 from pydantic import SecretStr
 
 from util.singleton import Singleton
+
+PLATFORM = f"{platform.python_implementation()}/{platform.python_version()}"
 
 
 @dataclass(frozen = True)
@@ -31,6 +34,7 @@ class Config(metaclass = Singleton):
     web_retries: int
     web_retry_delay_s: int
     web_timeout_s: int
+    user_agent: str
     max_users: int
     default_max_output_tokens: int
     website_url: str
@@ -76,6 +80,7 @@ class Config(metaclass = Singleton):
     uploadcare_public_key: str
     uploadcare_cdn_id: str
     attachment_public_token_ttl_seconds: int
+    social_card_video_max_duration_s: int
 
     platform_open_ai_key: SecretStr
     platform_anthropic_key: SecretStr
@@ -142,6 +147,7 @@ class Config(metaclass = Singleton):
         def_web_retries: int = 3,
         def_web_retry_delay_s: int = 1,
         def_web_timeout_s: int = 10,
+        def_user_agent: str = f"Mozilla/5.0 (compatible; The-Agent/1.0; {PLATFORM})",
         def_max_users: int = 100,
         def_default_max_output_tokens: int = 3500,
         def_website_url: str = "https://agent.appifyhub.com",
@@ -185,6 +191,7 @@ class Config(metaclass = Singleton):
         def_uploadcare_public_key: str = "",
         def_uploadcare_cdn_id: str = "",
         def_attachment_public_token_ttl_seconds: int = 600,
+        def_social_card_video_max_duration_s: int = 120,
         def_platform_open_ai_key: SecretStr = SecretStr("invalid"),
         def_platform_anthropic_key: SecretStr = SecretStr("invalid"),
         def_platform_google_ai_key: SecretStr = SecretStr("invalid"),
@@ -222,6 +229,7 @@ class Config(metaclass = Singleton):
         self.web_retries = int(self.__env("WEB_RETRIES", lambda: str(def_web_retries)))
         self.web_retry_delay_s = int(self.__env("WEB_RETRY_DELAY_S", lambda: str(def_web_retry_delay_s)))
         self.web_timeout_s = int(self.__env("WEB_TIMEOUT_S", lambda: str(def_web_timeout_s)))
+        self.user_agent = self.__env("USER_AGENT", lambda: def_user_agent)
         self.max_users = int(self.__env("MAX_USERS", lambda: str(def_max_users)))
         self.default_max_output_tokens = int(self.__env("DEFAULT_MAX_OUTPUT_TOKENS", lambda: str(def_default_max_output_tokens)))
         self.website_url = self.__env("WEBSITE_URL", lambda: def_website_url)
@@ -267,6 +275,7 @@ class Config(metaclass = Singleton):
         self.uploadcare_public_key = self.__env("UPLOADCARE_PUBLIC_KEY", lambda: def_uploadcare_public_key)
         self.uploadcare_cdn_id = self.__env("UPLOADCARE_CDN_ID", lambda: def_uploadcare_cdn_id)
         self.attachment_public_token_ttl_seconds = int(self.__env("ATTACHMENT_PUBLIC_TOKEN_TTL_SECONDS", lambda: str(def_attachment_public_token_ttl_seconds)))
+        self.social_card_video_max_duration_s = int(self.__env("SOCIAL_CARD_VIDEO_MAX_DURATION_S", lambda: str(def_social_card_video_max_duration_s)))
 
         self.__set_up_db(def_db_user, def_db_pass, def_db_host, def_db_name)
         self.api_key = self.__senv("API_KEY", lambda: def_api_key)

@@ -12,7 +12,6 @@ from features.chat.supported_files import (
     KNOWN_DOCS_FORMATS,
     KNOWN_IMAGE_FORMATS,
     KNOWN_VIDEO_FORMATS,
-    resolve_file_type,
 )
 from features.documents.document_search import DocumentSearch
 from features.external_tools.intelligence_presets import default_tool_for
@@ -278,8 +277,7 @@ class ChatAttachmentProcessor:
     def fetch_text_content(self, attachment: ChatAttachment) -> str | None:
         log.t(f"Resolving text content for attachment '{attachment.id}'")
 
-        mime_type, extension = resolve_file_type(mime_type = attachment.mime_type, extension = attachment.extension)
-        if mime_type in KNOWN_VIDEO_FORMATS.values() or extension in KNOWN_VIDEO_FORMATS:
+        if attachment.mime_type in KNOWN_VIDEO_FORMATS.values() or attachment.extension in KNOWN_VIDEO_FORMATS:
             message = f"Video attachment '{attachment.id}' is unsupported for analysis"
             log.w(message)
             return message
@@ -288,7 +286,7 @@ class ChatAttachmentProcessor:
             contents = stream.read()
 
         # handle audio
-        if mime_type in KNOWN_AUDIO_FORMATS.values() or extension in KNOWN_AUDIO_FORMATS.keys():
+        if attachment.mime_type in KNOWN_AUDIO_FORMATS.values() or attachment.extension in KNOWN_AUDIO_FORMATS.keys():
             transcriber_tool = self.__di.tool_choice_resolver.require_tool(
                 AudioTranscriber.TRANSCRIBER_TOOL_TYPE,
                 default_tool_for(AudioTranscriber.TRANSCRIBER_TOOL_TYPE),
@@ -300,7 +298,7 @@ class ChatAttachmentProcessor:
             return self.__di.audio_transcriber(
                 job_id = attachment.id,
                 audio_content = contents,
-                extension = extension,
+                extension = attachment.extension,
                 transcriber_tool = transcriber_tool,
                 copywriter_tool = copywriter_tool,
             ).execute()

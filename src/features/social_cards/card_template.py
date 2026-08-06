@@ -1,8 +1,8 @@
 import base64
-import io
 import re
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 from PIL import Image
 
@@ -33,15 +33,19 @@ from features.social_cards.card_layout import (
 from features.social_cards.card_utils import (
     FONT_NAME,
     FONT_PATH,
-    b64_image,
     emoji_split,
     escape_xml,
-    image_mime,
     render_text_segments,
     rounded_rect_path,
     text_width,
 )
-from features.social_cards.domain import SocialPost, SocialPostRenderAssets
+from features.social_cards.domain import (
+    SocialCardTemplateResult,
+    SocialMediaAsset,
+    SocialMediaPlacement,
+    SocialPost,
+    SocialPostRenderAssets,
+)
 from features.social_cards.embedded_post import render_embedded_post
 from features.social_cards.link_preview import render_link_previews
 from features.social_cards.theme import ThemeColors
@@ -93,24 +97,24 @@ def _accent_color(theme: ThemeColors) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _photo_natural_height(data: bytes, display_w: int) -> int:
+def _photo_natural_height(path: Path, display_w: int) -> int:
     try:
-        img = Image.open(io.BytesIO(data))
-        if img.width == 0:
-            return display_w
-        return round(display_w * img.height / img.width)
+        with Image.open(path) as img:
+            if img.width == 0:
+                return display_w
+            return round(display_w * img.height / img.width)
     except Exception:
         return display_w
 
 
-def _photo_sort_key(data: bytes) -> int:
+def _photo_sort_key(path: Path) -> int:
     try:
-        img = Image.open(io.BytesIO(data))
-        if img.height > img.width * 1.05:
-            return 0  # portrait first
-        if img.width > img.height * 1.05:
-            return 2  # landscape last
-        return 1  # square middle
+        with Image.open(path) as img:
+            if img.height > img.width * 1.05:
+                return 0  # portrait first
+            if img.width > img.height * 1.05:
+                return 2  # landscape last
+            return 1  # square middle
     except Exception:
         return 1
 
@@ -169,7 +173,7 @@ def _photo_cell_parts(
     y: int,
     w: int,
     h: int,
-    photo_b64: str,
+    photo_href: str,
     tl: int,
     tr: int,
     br: int,
@@ -179,7 +183,7 @@ def _photo_cell_parts(
     clip = f'<clipPath id="{cell_id}-clip"><path d="{path}"/></clipPath>'
     img = (
         f'<image clip-path="url(#{cell_id}-clip)" x="{x}" y="{y}" width="{w}" height="{h}" '
-        f'href="{photo_b64}" preserveAspectRatio="xMidYMid slice"/>'
+        f'href="{photo_href}" preserveAspectRatio="xMidYMid slice"/>'
     )
     return clip, img
 
@@ -190,7 +194,7 @@ def build_svg(
     card_width: int,
     assets: SocialPostRenderAssets,
     short_url: str | None,
-) -> str:
+) -> SocialCardTemplateResult:
     cx = CARD_OUTER_PAD  # card left edge
     inner_w = card_width - 2 * CARD_INNER_PAD
     body_x = cx + CARD_INNER_PAD
@@ -199,6 +203,7 @@ def build_svg(
 
     defs: list[str] = []
     content: list[str] = []
+    media_placements: list[SocialMediaPlacement] = []
 
     # Font
     defs.append(
@@ -233,11 +238,11 @@ def build_svg(
     y = CARD_OUTER_PAD + CARD_INNER_PAD
 
     # Header
-    if assets.avatar_bytes:
-        avatar_b64 = b64_image(assets.avatar_bytes, image_mime(assets.avatar_bytes))
+    if assets.avatar_path:
         content.append(
             f'<image clip-path="url(#avatar-clip)" x="{cx + CARD_INNER_PAD}" y="{y}" '
-            f'width="{AVATAR_SIZE}" height="{AVATAR_SIZE}" href="{avatar_b64}" preserveAspectRatio="xMidYMid slice"/>',
+            f'width="{AVATAR_SIZE}" height="{AVATAR_SIZE}" href="{escape_xml(str(assets.avatar_path.resolve()))}" '
+            f'preserveAspectRatio="xMidYMid slice"/>',
         )
     else:
         initial = (post.author.handle or "?")[0].upper()
@@ -358,29 +363,85 @@ def build_svg(
         if lp_height > 0:
             y += lp_height + CARD_SECTION_GAP
 
-    # Photos — sorted portrait → square → landscape
-    media_bytes = [asset.content for asset in assets.media]
-    if media_bytes:
-        sorted_media = sorted(media_bytes, key = _photo_sort_key)
-        total = len(sorted_media)
-        keys = [_photo_sort_key(d) for d in sorted_media]
-        n_portrait = keys.count(0)
-        cell = 0  # global cell index for unique clip-path IDs
+    # Dynamic media — source order, full-width rows
+    dynamic_media = [asset for asset in assets.media if asset.media.dynamic_media]
+    cell = 0  # global cell index for unique clip-path IDs
 
-        def _add_cell(photo_data: bytes, cx: int, cy: int, w: int, h: int, tl: int, tr: int, br: int, bl: int) -> None:
-            nonlocal cell
-            b64 = b64_image(photo_data, image_mime(photo_data))
-            clip, img = _photo_cell_parts(f"photo-{cell}", cx, cy, w, h, b64, tl, tr, br, bl)
-            defs.append(clip)
-            content.append(img)
-            cell += 1
+    def _add_cell(
+        asset: SocialMediaAsset,
+        cell_x: int,
+        cell_y: int,
+        width: int,
+        height: int,
+        top_left: int,
+        top_right: int,
+        bottom_right: int,
+        bottom_left: int,
+    ) -> None:
+        nonlocal cell
+        clip, image = _photo_cell_parts(
+            f"photo-{cell}",
+            cell_x,
+            cell_y,
+            width,
+            height,
+            escape_xml(str(asset.path.resolve())),
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        )
+        defs.append(clip)
+        content.append(image)
+        media_placements.append(
+            SocialMediaPlacement(
+                media = asset.media,
+                x = cell_x,
+                y = cell_y,
+                width = width,
+                height = height,
+                top_left_radius = top_left,
+                top_right_radius = top_right,
+                bottom_right_radius = bottom_right,
+                bottom_left_radius = bottom_left,
+            ),
+        )
+        cell += 1
+
+    for asset in dynamic_media:
+        media_height = _photo_natural_height(asset.path, inner_w)
+        _add_cell(
+            asset,
+            body_x,
+            y,
+            inner_w,
+            media_height,
+            PHOTO_CORNER_RADIUS,
+            PHOTO_CORNER_RADIUS,
+            PHOTO_CORNER_RADIUS,
+            PHOTO_CORNER_RADIUS,
+        )
+        y += media_height + PHOTO_GAP
+    if dynamic_media:
+        y += CARD_SECTION_GAP - PHOTO_GAP
+
+    # Photos — sorted portrait → square → landscape
+    photo_media = [asset for asset in assets.media if not asset.media.dynamic_media]
+    if photo_media:
+        sorted_media = sorted(photo_media, key = lambda asset: _photo_sort_key(asset.path))
+        total = len(sorted_media)
+        keys = [_photo_sort_key(asset.path) for asset in sorted_media]
+        n_portrait = keys.count(0)
 
         R = PHOTO_CORNER_RADIUS
 
         if total == 2 and all(k <= 1 for k in keys):
             # 2 portrait/square → side by side
             col_w = (inner_w - PHOTO_GAP) // 2
-            ph = max(_photo_natural_height(sorted_media[0], col_w), _photo_natural_height(sorted_media[1], col_w))
+            ph = max(
+                _photo_natural_height(sorted_media[0].path, col_w),
+                _photo_natural_height(sorted_media[1].path, col_w),
+            )
             _add_cell(sorted_media[0], body_x, y, col_w, ph, R, 2, 2, R)
             _add_cell(sorted_media[1], body_x + col_w + PHOTO_GAP, y, col_w, ph, 2, R, R, 2)
             y += ph
@@ -388,14 +449,14 @@ def build_svg(
         elif total == 3 and n_portrait == 3:
             # 3 portraits → 3 columns
             col_w = (inner_w - 2 * PHOTO_GAP) // 3
-            ph = max(_photo_natural_height(d, col_w) for d in sorted_media)
-            for i, d in enumerate(sorted_media):
+            ph = max(_photo_natural_height(asset.path, col_w) for asset in sorted_media)
+            for i, asset in enumerate(sorted_media):
                 x_off = body_x + i * (col_w + PHOTO_GAP)
                 tl = R if i == 0 else 2
                 bl = R if i == 0 else 2
                 tr = R if i == 2 else 2
                 br = R if i == 2 else 2
-                _add_cell(d, x_off, y, col_w, ph, tl, tr, br, bl)
+                _add_cell(asset, x_off, y, col_w, ph, tl, tr, br, bl)
             y += ph
 
         elif total == 3 and n_portrait == 2 and keys.count(1) == 1:
@@ -403,35 +464,44 @@ def build_svg(
             portraits = [d for d, k in zip(sorted_media, keys) if k == 0]
             square = next(d for d, k in zip(sorted_media, keys) if k == 1)
             col_w = (inner_w - PHOTO_GAP) // 2
-            ph_top = max(_photo_natural_height(portraits[0], col_w), _photo_natural_height(portraits[1], col_w))
+            ph_top = max(
+                _photo_natural_height(portraits[0].path, col_w),
+                _photo_natural_height(portraits[1].path, col_w),
+            )
             _add_cell(portraits[0], body_x, y, col_w, ph_top, R, 2, 2, 2)
             _add_cell(portraits[1], body_x + col_w + PHOTO_GAP, y, col_w, ph_top, 2, R, 2, 2)
             y += ph_top + PHOTO_GAP
-            ph_bot = _photo_natural_height(square, inner_w)
+            ph_bot = _photo_natural_height(square.path, inner_w)
             _add_cell(square, body_x, y, inner_w, ph_bot, 2, 2, R, R)
             y += ph_bot
 
         elif total == 4 and n_portrait == 4:
             # 4 portraits → 2×2 grid
             col_w = (inner_w - PHOTO_GAP) // 2
-            ph_top = max(_photo_natural_height(sorted_media[0], col_w), _photo_natural_height(sorted_media[1], col_w))
+            ph_top = max(
+                _photo_natural_height(sorted_media[0].path, col_w),
+                _photo_natural_height(sorted_media[1].path, col_w),
+            )
             _add_cell(sorted_media[0], body_x, y, col_w, ph_top, R, 2, 2, 2)
             _add_cell(sorted_media[1], body_x + col_w + PHOTO_GAP, y, col_w, ph_top, 2, R, 2, 2)
             y += ph_top + PHOTO_GAP
-            ph_bot = max(_photo_natural_height(sorted_media[2], col_w), _photo_natural_height(sorted_media[3], col_w))
+            ph_bot = max(
+                _photo_natural_height(sorted_media[2].path, col_w),
+                _photo_natural_height(sorted_media[3].path, col_w),
+            )
             _add_cell(sorted_media[2], body_x, y, col_w, ph_bot, 2, 2, 2, R)
             _add_cell(sorted_media[3], body_x + col_w + PHOTO_GAP, y, col_w, ph_bot, 2, 2, R, 2)
             y += ph_bot
 
         else:
             # stacked vertically
-            for idx, photo_data in enumerate(sorted_media):
+            for idx, asset in enumerate(sorted_media):
                 is_first = idx == 0
                 is_last = idx == total - 1
-                ph = _photo_natural_height(photo_data, inner_w)
+                ph = _photo_natural_height(asset.path, inner_w)
                 tl = tr = R if is_first else 2
                 bl = br = R if is_last else 2
-                _add_cell(photo_data, body_x, y, inner_w, ph, tl, tr, br, bl)
+                _add_cell(asset, body_x, y, inner_w, ph, tl, tr, br, bl)
                 y += ph + (PHOTO_GAP if not is_last else 0)
 
         y += CARD_SECTION_GAP
@@ -463,4 +533,10 @@ def build_svg(
 
     defs_svg = "<defs>" + "".join(defs) + "</defs>"
     content_svg = card_rect + "".join(content)
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="{svg_w}" height="{total_h}">{defs_svg}{content_svg}</svg>'
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{svg_w}" height="{total_h}">{defs_svg}{content_svg}</svg>'
+    return SocialCardTemplateResult(
+        svg = svg,
+        width = svg_w,
+        height = total_h,
+        media_placements = media_placements,
+    )

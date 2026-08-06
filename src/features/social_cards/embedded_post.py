@@ -1,14 +1,13 @@
-import io
 import re
+from pathlib import Path
 
 from PIL import Image
 
 from features.images.image_color_utils import relative_luminance
 from features.social_cards.card_utils import (
     FONT_NAME,
-    b64_image,
     emoji_split,
-    image_mime,
+    escape_xml,
     render_text_segments,
     rounded_rect_path,
     word_wrap_truncate,
@@ -54,15 +53,15 @@ def render_embedded_post(
     body_h = len(body_lines) * EMBED_BODY_LINE_HEIGHT
 
     photo_h = 0
-    photo_data_b64: str | None = None
+    photo_path: Path | None = None
     photo_display_w = inner_w
-    media_bytes = assets.media[0].content if assets.media else None
-    if media_bytes:
+    media_path = assets.media[0].path if assets.media else None
+    if media_path:
         try:
-            img = Image.open(io.BytesIO(media_bytes))
-            natural_h = round(photo_display_w * img.height / img.width) if img.width > 0 else photo_display_w
-            photo_h = min(natural_h, EMBED_PHOTO_MAX_H)
-            photo_data_b64 = b64_image(media_bytes, image_mime(media_bytes))
+            with Image.open(media_path) as img:
+                natural_h = round(photo_display_w * img.height / img.width) if img.width > 0 else photo_display_w
+                photo_h = min(natural_h, EMBED_PHOTO_MAX_H)
+                photo_path = media_path
         except Exception:
             pass
 
@@ -89,11 +88,11 @@ def render_embedded_post(
     clip_id = "embed-avatar-clip"
     defs.append(f'<clipPath id="{clip_id}"><circle cx="{av_cx}" cy="{av_cy}" r="{EMBED_AVATAR_SIZE // 2}"/></clipPath>')
 
-    if assets.avatar_bytes:
-        av_b64 = b64_image(assets.avatar_bytes, image_mime(assets.avatar_bytes))
+    if assets.avatar_path:
         content.append(
             f'<image clip-path="url(#{clip_id})" x="{av_x}" y="{cur_y}" '
-            f'width="{EMBED_AVATAR_SIZE}" height="{EMBED_AVATAR_SIZE}" href="{av_b64}" preserveAspectRatio="xMidYMid slice"/>',
+            f'width="{EMBED_AVATAR_SIZE}" height="{EMBED_AVATAR_SIZE}" '
+            f'href="{escape_xml(str(assets.avatar_path.resolve()))}" preserveAspectRatio="xMidYMid slice"/>',
         )
     else:
         initial = (post.author.handle or "?")[0].upper()
@@ -125,16 +124,17 @@ def render_embedded_post(
         cur_y += EMBED_BODY_LINE_HEIGHT - EMBED_BODY_FONT_SIZE
 
     # Photo (optional, max 1)
-    if photo_h > 0 and photo_data_b64:
+    if photo_h > 0 and photo_path:
         cur_y += EMBED_SECTION_GAP
         photo_x = x + pad
         PR = EMBED_PHOTO_CORNER_RADIUS
         photo_clip_id = "embed-photo-clip"
-        photo_path = rounded_rect_path(photo_x, cur_y, photo_display_w, photo_h, PR, PR, PR, PR)
-        defs.append(f'<clipPath id="{photo_clip_id}"><path d="{photo_path}"/></clipPath>')
+        photo_clip_path = rounded_rect_path(photo_x, cur_y, photo_display_w, photo_h, PR, PR, PR, PR)
+        defs.append(f'<clipPath id="{photo_clip_id}"><path d="{photo_clip_path}"/></clipPath>')
         content.append(
             f'<image clip-path="url(#{photo_clip_id})" x="{photo_x}" y="{cur_y}" '
-            f'width="{photo_display_w}" height="{photo_h}" href="{photo_data_b64}" preserveAspectRatio="xMidYMid slice"/>',
+            f'width="{photo_display_w}" height="{photo_h}" '
+            f'href="{escape_xml(str(photo_path.resolve()))}" preserveAspectRatio="xMidYMid slice"/>',
         )
 
     return defs, content, total_h

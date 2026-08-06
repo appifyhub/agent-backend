@@ -51,6 +51,22 @@ class LocalAttachmentStorageTest(unittest.TestCase):
 
             self.assertFalse(expected_path.exists())
 
+    def test_put_file_copies_content_without_removing_source(self):
+        metadata = self.__metadata()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).joinpath("storage")
+            source = Path(temp_dir).joinpath("source.txt")
+            source.write_bytes(b"stored content")
+            storage = LocalAttachmentStorage(root)
+
+            locator = storage.put_file(metadata, source)
+
+            self.assertEqual(locator, f"file://{root}/{metadata.uri}")
+            self.assertEqual(source.read_bytes(), b"stored content")
+            with storage.open(metadata) as stream:
+                self.assertEqual(stream.read(), b"stored content")
+
     def test_rejects_path_traversal_keys(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = LocalAttachmentStorage(Path(temp_dir))

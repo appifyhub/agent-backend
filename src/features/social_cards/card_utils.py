@@ -1,9 +1,7 @@
-import base64
-import io
 import re
 from pathlib import Path
 
-from PIL import Image, ImageFont
+from PIL import ImageFont
 
 from util.config import config
 
@@ -112,25 +110,6 @@ def render_text_segments(
         )
         cur_x += segment_width(text, font_size, is_emoji)
     return out, cur_x
-
-
-def b64_image(data: bytes, mime: str = "image/jpeg") -> str:
-    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
-
-
-def image_mime(data: bytes) -> str:
-    try:
-        img = Image.open(io.BytesIO(data))
-        fmt = (img.format or "JPEG").upper()
-        return {
-            "JPEG": "image/jpeg",
-            "PNG": "image/png",
-            "GIF": "image/gif",
-            "WEBP": "image/webp",
-            "ICO": "image/x-icon",
-        }.get(fmt, "image/jpeg")
-    except Exception:
-        return "image/jpeg"
 
 
 def escape_xml(text: str) -> str:

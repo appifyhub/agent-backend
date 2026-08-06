@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from util.config import Config
+from util.config import PLATFORM, Config
 
 PRODUCTS_FIXTURE_PATH = "test/fixtures/products.yaml"
 LOGOS_FIXTURE_PATH = "test/fixtures/logos.yaml"
@@ -31,6 +31,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.web_retries, 3)
         self.assertEqual(config.web_retry_delay_s, 1)
         self.assertEqual(config.web_timeout_s, 10)
+        self.assertEqual(config.user_agent, f"Mozilla/5.0 (compatible; The-Agent/1.0; {PLATFORM})")
         self.assertEqual(config.max_sponsorships_per_user, 2)
         self.assertEqual(config.max_users, 100)
         self.assertEqual(config.default_max_output_tokens, 3500)
@@ -75,6 +76,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.uploadcare_public_key, "")
         self.assertEqual(config.uploadcare_cdn_id, "")
         self.assertEqual(config.attachment_public_token_ttl_seconds, 600)
+        self.assertEqual(config.social_card_video_max_duration_s, 120)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://root:root@localhost:5432/agent")
         self.assertTrue(config.api_key.get_secret_value())  # Check if API key is generated
@@ -108,6 +110,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["WEB_RETRIES"] = "5"
         os.environ["WEB_RETRY_DELAY_S"] = "2"
         os.environ["WEB_TIMEOUT_S"] = "20"
+        os.environ["USER_AGENT"] = "custom-user-agent"
         os.environ["MAX_SPONSORSHIPS_PER_USER"] = "5"
         os.environ["MAX_USERS"] = "10"
         os.environ["DEFAULT_MAX_OUTPUT_TOKENS"] = "5000"
@@ -150,6 +153,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["UPLOADCARE_PUBLIC_KEY"] = "uploadcare-public-key"
         os.environ["UPLOADCARE_CDN_ID"] = "uploadcare-cdn-id"
         os.environ["ATTACHMENT_PUBLIC_TOKEN_TTL_SECONDS"] = "300"
+        os.environ["SOCIAL_CARD_VIDEO_MAX_DURATION_S"] = "90"
 
         os.environ["POSTGRES_USER"] = "admin"
         os.environ["POSTGRES_PASS"] = "admin123"
@@ -188,6 +192,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.web_retries, 5)
         self.assertEqual(config.web_retry_delay_s, 2)
         self.assertEqual(config.web_timeout_s, 20)
+        self.assertEqual(config.user_agent, "custom-user-agent")
         self.assertEqual(config.max_sponsorships_per_user, 5)
         self.assertEqual(config.max_users, 10)
         self.assertEqual(config.default_max_output_tokens, 5000)
@@ -230,6 +235,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.uploadcare_public_key, "uploadcare-public-key")
         self.assertEqual(config.uploadcare_cdn_id, "uploadcare-cdn-id")
         self.assertEqual(config.attachment_public_token_ttl_seconds, 300)
+        self.assertEqual(config.social_card_video_max_duration_s, 90)
 
         self.assertEqual(config.db_url.get_secret_value(), "postgresql://admin:admin123@db.example.com:5432/test_db")
         self.assertEqual(config.api_key.get_secret_value(), "1111-2222-3333-4444")
