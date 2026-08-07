@@ -12,6 +12,7 @@ KNOWN_IMAGE_FORMATS = {
     "bmp": "image/bmp",
     "tiff": "image/tiff",
     "tif": "image/tiff",
+    "ico": "image/x-icon",
 }
 
 OPAQUE_IMAGE_FORMATS = {"jpg", "jpeg"}
@@ -136,6 +137,8 @@ def detect_image_format(content: bytes) -> str | None:
         return "gif"
     if content[:2] == b"BM":
         return "bmp"
+    if content[:4] == b"\x00\x00\x01\x00":
+        return "ico"
     if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
         return "webp"
     if content[:4] in (b"II*\x00", b"MM\x00*"):
@@ -146,11 +149,6 @@ def detect_image_format(content: bytes) -> str | None:
 def is_supported_mime_type(mime_type: str | None) -> bool:
     mime_type = __mime_type_without_parameters(mime_type)
     return bool(mime_type and mime_type in KNOWN_FILE_FORMATS.values())
-
-
-def is_supported_extension(extension: str | None) -> bool:
-    mime_type, _ = resolve_file_type(extension = extension)
-    return mime_type is not None
 
 
 def __extension_from_uri(uri: str | None) -> str | None:

@@ -3,10 +3,8 @@ import unittest
 from features.social_cards.card_utils import (
     EMOJI_FONT_NAME,
     FONT_NAME,
-    b64_image,
     emoji_split,
     escape_xml,
-    image_mime,
     render_text_segments,
     rounded_rect_path,
     segment_width,
@@ -38,33 +36,6 @@ class CardUtilsTest(unittest.TestCase):
 
     def test_trim_trailing_sep_no_sep(self):
         assert trim_trailing_sep("clean text") == "clean text"
-
-    def test_b64_image_default_mime(self):
-        result = b64_image(b"\x00\x01\x02")
-        assert result.startswith("data:image/jpeg;base64,")
-
-    def test_b64_image_custom_mime(self):
-        result = b64_image(b"\x89PNG", "image/png")
-        assert result.startswith("data:image/png;base64,")
-
-    def test_image_mime_png(self):
-        import io
-
-        from PIL import Image
-        buf = io.BytesIO()
-        Image.new("RGB", (1, 1)).save(buf, format = "PNG")
-        assert image_mime(buf.getvalue()) == "image/png"
-
-    def test_image_mime_jpeg(self):
-        import io
-
-        from PIL import Image
-        buf = io.BytesIO()
-        Image.new("RGB", (1, 1)).save(buf, format = "JPEG")
-        assert image_mime(buf.getvalue()) == "image/jpeg"
-
-    def test_image_mime_invalid_data(self):
-        assert image_mime(b"not an image") == "image/jpeg"
 
     def test_text_width_returns_positive(self):
         width = text_width("hello", 20)

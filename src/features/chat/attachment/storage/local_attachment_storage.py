@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
@@ -32,6 +33,12 @@ class LocalAttachmentStorage(AttachmentStorage):
         path = self.__path_for(metadata.uri)
         path.parent.mkdir(parents = True, exist_ok = True)
         path.write_bytes(content)
+        return f"file://{self.__root}/{metadata.uri}"
+
+    def put_file(self, metadata: ChatAttachment, file_path: Path) -> str:
+        path = self.__path_for(metadata.uri)
+        path.parent.mkdir(parents = True, exist_ok = True)
+        shutil.copyfile(file_path, path)
         return f"file://{self.__root}/{metadata.uri}"
 
     def open(self, metadata: ChatAttachment) -> BinaryIO:

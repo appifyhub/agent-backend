@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
@@ -12,7 +13,13 @@ from di.di import DI
 from features.external_tools.tool_choice_resolver import ConfiguredTool
 from features.tools_cache.tools_cache import ToolsCache
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
-from features.web_browsing.twitter_status_fetcher import TweetData, TweetLinkPreview, TweetMediaItem, TwitterStatusFetcher
+from features.web_browsing.twitter_status_fetcher import (
+    TweetData,
+    TweetLinkPreview,
+    TweetMediaItem,
+    TweetMediaVariant,
+    TwitterStatusFetcher,
+)
 from util.config import config
 
 
@@ -220,6 +227,10 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         self.assertEqual(request.method, "GET")
         self.assertIn("123456789", request.url)
         self.assertIn("Bearer test_x_bearer_token", request.headers.get("Authorization", ""))
+        self.assertEqual(
+            set(request.qs["media.fields"][0].split(",")),
+            {"url", "type", "preview_image_url", "variants", "duration_ms", "width", "height", "alt_text"},
+        )
 
     # noinspection PyUnusedLocal
     @requests_mock.Mocker()
@@ -347,11 +358,30 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                             "type": "animated_gif",
                             "url": None,
                             "preview_image_url": "https://pbs.twimg.com/media/gif_preview.jpg",
+                            "variants": [
+                                {
+                                    "url": "https://video.twimg.com/gif.mp4",
+                                    "content_type": "video/mp4",
+                                },
+                            ],
+                            "width": 640,
+                            "height": 360,
                         },
                         {
                             "type": "video",
                             "url": None,
                             "preview_image_url": "https://pbs.twimg.com/media/video_preview.jpg",
+                            "variants": [
+                                {
+                                    "url": "https://video.twimg.com/video-low.mp4",
+                                    "content_type": "video/mp4",
+                                    "bit_rate": 256000,
+                                },
+                            ],
+                            "duration_ms": 12345,
+                            "width": 1920,
+                            "height": 1080,
+                            "alt_text": "A test video",
                         },
                     ],
                 },
@@ -379,8 +409,56 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         self.assertEqual(result.media[0].url, "https://pbs.twimg.com/media/photo.jpg")
         self.assertEqual(result.media[1].media_type, "animated_gif")
         self.assertEqual(result.media[1].preview_url, "https://pbs.twimg.com/media/gif_preview.jpg")
+        self.assertIsInstance(result.media[1].variants[0], TweetMediaVariant)
+        self.assertEqual(result.media[1].variants[0].url, "https://video.twimg.com/gif.mp4")
+        self.assertEqual(result.media[1].width, 640)
+        self.assertEqual(result.media[1].height, 360)
         self.assertEqual(result.media[2].media_type, "video")
         self.assertEqual(result.media[2].preview_url, "https://pbs.twimg.com/media/video_preview.jpg")
+        self.assertEqual(result.media[2].variants[0].bit_rate, 256000)
+        self.assertEqual(result.media[2].duration_ms, 12345)
+        self.assertEqual(result.media[2].width, 1920)
+        self.assertEqual(result.media[2].height, 1080)
+        self.assertEqual(result.media[2].alt_text, "A test video")
+
+    @requests_mock.Mocker()
+    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
+    def test_as_structured_parses_cached_media_variants(self, m: Mocker, _):
+        raw_cache_key = ToolsCache.create_key("twitter-status-fetcher-json", self.tweet_id)
+        self.mock_di.tools_cache_repo.get.return_value = ToolsCache(
+            key = raw_cache_key,
+            value = json.dumps({
+                "data": {"text": "Cached video"},
+                "includes": {
+                    "users": [{"username": "cached"}],
+                    "media": [
+                        {
+                            "type": "video",
+                            "preview_image_url": "https://pbs.twimg.com/media/preview.jpg",
+                            "variants": [
+                                {
+                                    "url": "https://video.twimg.com/cached.mp4",
+                                    "content_type": "video/mp4",
+                                    "bit_rate": 512000,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }),
+            expires_at = datetime.now() + timedelta(minutes = 5),
+        )
+        fetcher = TwitterStatusFetcher(
+            tweet_id = self.tweet_id,
+            x_api_tool = self.mock_x_api_tool,
+            vision_tool = self.mock_vision_tool,
+            di = self.mock_di,
+        )
+
+        result = fetcher.as_structured()
+
+        self.assertEqual(result.media[0].variants[0].url, "https://video.twimg.com/cached.mp4")
+        self.assertEqual(len(m.request_history), 0)
 
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)

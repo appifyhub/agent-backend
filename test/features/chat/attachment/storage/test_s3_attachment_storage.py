@@ -1,5 +1,7 @@
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
@@ -34,6 +36,10 @@ class FakeS3Client(S3Client):
 
     def put_object(self, **kwargs: object) -> object:
         self.calls.append(("put_object", dict(kwargs)))
+        return None
+
+    def upload_file(self, **kwargs: object) -> object:
+        self.calls.append(("upload_file", dict(kwargs)))
         return None
 
     def get_object(self, Bucket: str, Key: str) -> dict[str, object]:
@@ -160,7 +166,7 @@ class S3AttachmentStorageTest(unittest.TestCase):
             ],
         )
 
-    def test_put_derives_content_type_from_extension(self):
+    def test_put_omits_content_type_when_canonical_mime_type_is_missing(self):
         client = FakeS3Client()
         storage = self.__storage(client)
         metadata = self.__metadata(extension = "png")
@@ -176,7 +182,33 @@ class S3AttachmentStorageTest(unittest.TestCase):
                         "Bucket": "the-agent",
                         "Key": metadata.uri,
                         "Body": b"stored content",
-                        "ContentType": "image/png",
+                    },
+                ),
+            ],
+        )
+
+    def test_put_file_uploads_path_with_content_type(self):
+        client = FakeS3Client()
+        storage = self.__storage(client)
+        metadata = self.__metadata(mime_type = "video/mp4", extension = "mp4")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("source.mp4")
+            source.write_bytes(b"video")
+
+            locator = storage.put_file(metadata, source)
+
+        self.assertEqual(locator, f"s3://the-agent/{metadata.uri}")
+        self.assertEqual(
+            client.calls,
+            [
+                (
+                    "upload_file",
+                    {
+                        "Filename": str(source),
+                        "Bucket": "the-agent",
+                        "Key": metadata.uri,
+                        "ExtraArgs": {"ContentType": "video/mp4"},
                     },
                 ),
             ],

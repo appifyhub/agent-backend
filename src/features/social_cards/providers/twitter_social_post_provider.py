@@ -1,8 +1,9 @@
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.social_cards.domain import (
+from features.social_cards.social_card_models import (
     SocialAuthor,
+    SocialDynamicMedia,
     SocialLinkPreview,
     SocialMediaItem,
     SocialMediaKind,
@@ -96,10 +97,33 @@ class TwitterSocialPostProvider:
 
     @staticmethod
     def __map_media_item(media: TweetMediaItem) -> SocialMediaItem:
+        kind = TwitterSocialPostProvider.__media_kind(media.media_type)
         return SocialMediaItem(
-            kind = TwitterSocialPostProvider.__media_kind(media.media_type),
+            kind = kind,
             url = media.url,
             preview_url = media.preview_url,
+            alt_text = media.alt_text,
+            dynamic_media = TwitterSocialPostProvider.__map_dynamic_media(media) if kind in {
+                SocialMediaKind.VIDEO,
+                SocialMediaKind.GIF,
+            } else None,
+        )
+
+    @staticmethod
+    def __map_dynamic_media(media: TweetMediaItem) -> SocialDynamicMedia | None:
+        compatible_variants = [
+            variant
+            for variant in media.variants
+            if variant.content_type == "video/mp4"
+        ]
+        if not compatible_variants:
+            return None
+        selected_variant = max(compatible_variants, key = lambda variant: variant.bit_rate or 0)
+        return SocialDynamicMedia(
+            playback_url = selected_variant.url,
+            duration_seconds = media.duration_ms / 1000 if media.duration_ms else None,
+            width = media.width,
+            height = media.height,
         )
 
     @staticmethod

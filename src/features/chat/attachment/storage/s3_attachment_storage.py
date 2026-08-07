@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import BinaryIO, cast
 
 import boto3
@@ -7,7 +8,6 @@ from botocore.exceptions import ClientError
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage, PublicAttachment
 from features.chat.attachment.storage.s3_client import S3Client
-from features.chat.supported_files import resolve_file_type
 from util.config import config
 from util.error_codes import ATTACHMENT_STORAGE_FAILED, INVALID_ATTACHMENT_OPERATION
 from util.errors import ExternalServiceError, InternalError
@@ -60,10 +60,23 @@ class S3AttachmentStorage(AttachmentStorage):
     def put(self, metadata: ChatAttachment, content: bytes) -> str:
         try:
             put_args: dict[str, object] = {"Bucket": self.__bucket, "Key": metadata.uri, "Body": content}
-            mime_type, _ = resolve_file_type(mime_type = metadata.mime_type, extension = metadata.extension, uri = metadata.uri)
-            if mime_type:
-                put_args["ContentType"] = mime_type
+            if metadata.mime_type:
+                put_args["ContentType"] = metadata.mime_type
             self.__client.put_object(**put_args)
+            return f"s3://{self.__bucket}/{metadata.uri}"
+        except Exception as e:
+            raise ExternalServiceError("Attachment storage upload failed", ATTACHMENT_STORAGE_FAILED) from e
+
+    def put_file(self, metadata: ChatAttachment, file_path: Path) -> str:
+        try:
+            upload_args: dict[str, object] = {
+                "Filename": str(file_path),
+                "Bucket": self.__bucket,
+                "Key": metadata.uri,
+            }
+            if metadata.mime_type:
+                upload_args["ExtraArgs"] = {"ContentType": metadata.mime_type}
+            self.__client.upload_file(**upload_args)
             return f"s3://{self.__bucket}/{metadata.uri}"
         except Exception as e:
             raise ExternalServiceError("Attachment storage upload failed", ATTACHMENT_STORAGE_FAILED) from e

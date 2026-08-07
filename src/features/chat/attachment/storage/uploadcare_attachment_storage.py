@@ -1,7 +1,8 @@
 import io
 from datetime import datetime, timedelta
+from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import BinaryIO
+from typing import Any, BinaryIO, cast
 
 import requests
 from pyuploadcare import Uploadcare
@@ -13,6 +14,34 @@ from util.error_codes import ATTACHMENT_STORAGE_FAILED
 from util.errors import ExternalServiceError
 
 UPLOADCARE_PUBLIC_URL_TTL_SECONDS = 24 * 60 * 60
+
+
+class _NamedUploadStream:
+
+    name: str
+    __stream: BinaryIO
+
+    def __init__(self, stream: BinaryIO, name: str):
+        self.__stream = stream
+        self.name = name
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.__stream, name)
+
+
+class _ResponseStream(io.BufferedReader):
+
+    __response: requests.Response
+
+    def __init__(self, response: requests.Response):
+        self.__response = response
+        super().__init__(response.raw)
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            self.__response.close()
 
 
 class UploadcareAttachmentStorage(AttachmentStorage):
@@ -45,14 +74,17 @@ class UploadcareAttachmentStorage(AttachmentStorage):
         return bool(uri) and uri.startswith(self.__cdn_base)
 
     def put(self, metadata: ChatAttachment, content: bytes) -> str:
+        with NamedTemporaryFile() as temp_file:
+            temp_file.write(content)
+            temp_file.flush()
+            return self.put_file(metadata, Path(temp_file.name))
+
+    def put_file(self, metadata: ChatAttachment, file_path: Path) -> str:
         try:
             filename = metadata.uri.rsplit("/", 1)[-1]
-            with NamedTemporaryFile(suffix = filename) as tmp_file:
-                tmp_file.write(content)
-                tmp_file.flush()
-                tmp_file.seek(0)
-                tmp_file.name = filename
-                stored_file = self.__client.upload(tmp_file, store = True)
+            with file_path.open("rb") as source:
+                named_source = cast(BinaryIO, _NamedUploadStream(source, filename))
+                stored_file = self.__client.upload(named_source, store = True)
             if not stored_file.cdn_url or not stored_file.filename:
                 raise ExternalServiceError("Attachment storage upload returned no public URL", ATTACHMENT_STORAGE_FAILED)
             return f"{stored_file.cdn_url}{stored_file.filename}"
@@ -63,10 +95,21 @@ class UploadcareAttachmentStorage(AttachmentStorage):
 
     def open(self, metadata: ChatAttachment) -> BinaryIO:
         try:
-            response = requests.get(metadata.last_url, timeout = config.web_timeout_s * 4)
-            if response.status_code != 200 or not response.content:
+            response = requests.get(metadata.last_url, timeout = config.web_timeout_s * 4, stream = True)
+            if response.status_code != 200:
+                response.close()
                 raise ExternalServiceError("Attachment storage returned no body", ATTACHMENT_STORAGE_FAILED)
-            return io.BytesIO(response.content)
+            response.raw.decode_content = True
+            stream = _ResponseStream(response)
+            try:
+                has_content = bool(stream.peek(1))
+            except Exception:
+                stream.close()
+                raise
+            if not has_content:
+                stream.close()
+                raise ExternalServiceError("Attachment storage returned no body", ATTACHMENT_STORAGE_FAILED)
+            return stream
         except ExternalServiceError:
             raise
         except Exception as e:

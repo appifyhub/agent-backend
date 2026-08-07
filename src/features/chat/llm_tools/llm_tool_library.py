@@ -19,6 +19,7 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images.smart_image_generator import SmartImageGenerator
 from features.integrations.integrations import add_messaging_frequency_warning, resolve_private_chat_id
+from features.social_cards.social_card_models import SocialCardMode
 from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
 from features.support.user_support_service import UserSupportService
 from features.videos.smart_video_generator import SmartVideoGenerator
@@ -28,6 +29,7 @@ from util.config import config
 from util.error_codes import (
     EXTERNAL_EMPTY_RESPONSE,
     INVALID_ASSET_AMOUNT,
+    INVALID_SOCIAL_CARD_MODE,
     PROFILE_CONNECT_FAILED,
 )
 from util.errors import ExternalServiceError, InternalError, ServiceError, ValidationError
@@ -522,30 +524,35 @@ def transfer_credits_to_user(
         return __error(e)
 
 
-def render_social_post(di: DI, url: str) -> str:
+def render_social_post(di: DI, url: str, mode: str | None = None) -> str:
     """
-    Used for extracting and persisting the agent's screenshot/render of a social post.
-    Renders a social network post into a styled, shareable card image.
+    Renders a social network post into a styled, shareable image or video card.
     Supports only X/Twitter links for now.
 
     Args:
         url: [mandatory] The URL of the social media post to render, starting with 'http://' or 'https://'
+        mode: [optional] Output preference: 'image' or 'video'; if omitted, defaults to post contents; on video failure, defaults to image
     """
     try:
+        try:
+            requested_mode = SocialCardMode(mode) if mode is not None else None
+        except ValueError as e:
+            raise ValidationError("Social-card mode must be 'image' or 'video'", INVALID_SOCIAL_CARD_MODE) from e
         social_api_tools: list[ConfiguredTool] = []
         for provider_class in di.social_post_provider_classes():
             api_tool = di.tool_choice_resolver.get_tool(provider_class.tool_type, default_tool_for(provider_class.tool_type))
             if api_tool:
                 social_api_tools.append(api_tool)
         vision_tool = di.tool_choice_resolver.require_tool(SocialCardOrchestrator.VISION_TOOL_TYPE, default_tool_for(SocialCardOrchestrator.VISION_TOOL_TYPE))
-        image_url = di.social_card_orchestrator(social_api_tools, vision_tool).execute(url)
+        result = di.social_card_orchestrator(social_api_tools, vision_tool).execute(url, requested_mode)
         invoker_chat = di.require_invoker_chat()
-        di.platform_bot_sdk().smart_send_photo(
-            media_mode = invoker_chat.media_mode,
-            chat_id = int(invoker_chat.external_id or "-1"),
-            photo_url = image_url,
-            thumbnail = image_url,
-        )
+        chat_id = int(invoker_chat.external_id or "-1")
+        if result.mode == SocialCardMode.VIDEO:
+            di.platform_bot_sdk().smart_send_video(media_mode = invoker_chat.media_mode, chat_id = chat_id, video_url = result.public_url)
+        elif result.mode == SocialCardMode.IMAGE:
+            di.platform_bot_sdk().smart_send_photo(media_mode = invoker_chat.media_mode, chat_id = chat_id, photo_url = result.public_url, thumbnail = result.public_url)
+        else:
+            raise ValidationError(f"Social-card output was '{result.mode}'", INVALID_SOCIAL_CARD_MODE)
         return __success({"next_step": "Confirm to the user that the card has been rendered and sent"})
     except Exception as e:
         return __error(e)

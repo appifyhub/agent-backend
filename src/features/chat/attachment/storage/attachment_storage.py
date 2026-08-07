@@ -1,6 +1,7 @@
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import BinaryIO, ClassVar, Generator, Protocol
 
@@ -27,6 +28,8 @@ class AttachmentStorage(Protocol):
     def owns_uri(self, uri: str | None) -> bool: ...
 
     def put(self, metadata: ChatAttachment, content: bytes) -> str: ...
+
+    def put_file(self, metadata: ChatAttachment, file_path: Path) -> str: ...
 
     def open(self, metadata: ChatAttachment) -> BinaryIO: ...
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 
 
 class SocialMediaKind(StrEnum):
@@ -10,6 +11,12 @@ class SocialMediaKind(StrEnum):
     VIDEO = "video"
     GIF = "gif"
     UNKNOWN = "unknown"
+
+
+class SocialCardMode(StrEnum):
+
+    IMAGE = "image"
+    VIDEO = "video"
 
 
 @dataclass
@@ -30,11 +37,20 @@ class SocialAuthor:
 
 
 @dataclass
+class SocialDynamicMedia:
+    playback_url: str
+    duration_seconds: float | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass
 class SocialMediaItem:
     kind: SocialMediaKind
     url: str | None = None
     preview_url: str | None = None
     alt_text: str | None = None
+    dynamic_media: SocialDynamicMedia | None = None
 
 
 @dataclass
@@ -62,20 +78,64 @@ class SocialPost:
 @dataclass
 class SocialMediaAsset:
     media: SocialMediaItem
-    content: bytes
+    path: Path
 
 
 @dataclass
 class SocialLinkPreviewAsset:
     link_preview: SocialLinkPreview
-    og_image_bytes: bytes | None = None
-    favicon_bytes: bytes | None = None
+    og_image_path: Path | None = None
+    favicon_path: Path | None = None
     short_url: str | None = None
 
 
 @dataclass
 class SocialPostRenderAssets:
-    avatar_bytes: bytes | None = None
+    avatar_path: Path | None = None
     media: list[SocialMediaAsset] = field(default_factory = list)
     link_previews: list[SocialLinkPreviewAsset] = field(default_factory = list)
     embedded_post: SocialPostRenderAssets | None = None
+
+
+@dataclass
+class SocialMediaPlacement:
+    media: SocialMediaItem
+    x: int
+    y: int
+    width: int
+    height: int
+    top_left_radius: int
+    top_right_radius: int
+    bottom_right_radius: int
+    bottom_left_radius: int
+
+
+@dataclass(frozen = True)
+class SocialCardVideoInput:
+    media_path: Path
+    placement: SocialMediaPlacement
+
+
+@dataclass(frozen = True)
+class SocialCardTimelineSegment:
+    source_index: int
+    start_seconds: float
+    duration_seconds: float
+
+    @property
+    def end_seconds(self) -> float:
+        return self.start_seconds + self.duration_seconds
+
+
+@dataclass
+class SocialCardTemplateResult:
+    svg: str
+    width: int
+    height: int
+    media_placements: list[SocialMediaPlacement] = field(default_factory = list)
+
+
+@dataclass
+class SocialCardRenderResult:
+    public_url: str
+    mode: SocialCardMode

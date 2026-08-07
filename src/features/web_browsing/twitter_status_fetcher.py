@@ -34,10 +34,22 @@ class TweetLinkPreview:
 
 
 @dataclass
+class TweetMediaVariant:
+    url: str
+    content_type: str | None
+    bit_rate: int | None
+
+
+@dataclass
 class TweetMediaItem:
     url: str | None
     preview_url: str | None
     media_type: str  # "photo", "animated_gif", "video"
+    variants: list[TweetMediaVariant] = field(default_factory = list)
+    duration_ms: int | None = None
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = None
 
 
 @dataclass
@@ -125,7 +137,7 @@ class TwitterStatusFetcher:
             "expansions": "author_id,attachments.media_keys",
             "user.fields": "name,username,description,profile_image_url",
             "tweet.fields": "lang,text,created_at,note_tweet,entities,referenced_tweets",
-            "media.fields": "url,type,preview_image_url",
+            "media.fields": "url,type,preview_image_url,variants,duration_ms,width,height,alt_text",
         }
 
         sleep(RATE_LIMIT_DELAY_S)
@@ -171,11 +183,25 @@ class TwitterStatusFetcher:
         media_items: list[TweetMediaItem] = []
         for m in includes.get("media") or []:
             media_type = m.get("type") or "photo"
+            variants = [
+                TweetMediaVariant(
+                    url = variant["url"],
+                    content_type = variant.get("content_type") or None,
+                    bit_rate = variant.get("bit_rate") or None,
+                )
+                for variant in (m.get("variants") or [])
+                if isinstance(variant, dict) and variant.get("url")
+            ]
             media_items.append(
                 TweetMediaItem(
                     url = m.get("url") or None,
                     preview_url = m.get("preview_image_url") or None,
                     media_type = media_type,
+                    variants = variants,
+                    duration_ms = m.get("duration_ms") or None,
+                    width = m.get("width") or None,
+                    height = m.get("height") or None,
+                    alt_text = m.get("alt_text") or None,
                 ),
             )
 

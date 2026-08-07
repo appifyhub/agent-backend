@@ -1,5 +1,8 @@
+import io
+import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import UUID
@@ -10,6 +13,11 @@ from features.chat.attachment.storage.uploadcare_attachment_storage import (
     UploadcareAttachmentStorage,
 )
 from util.errors import ExternalServiceError
+
+
+class RawResponse(io.BytesIO):
+
+    decode_content = False
 
 
 class FakeSecret:
@@ -59,6 +67,31 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
         self.assertEqual(result, "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
         self.assertTrue(client.upload.call_args.kwargs["store"])
 
+    def test_put_file_streams_source_with_attachment_filename(self):
+        storage, client = self.__storage()
+        stored_file = SimpleNamespace(cdn_url = "https://cdn-id.ucarecd.net/uuid/", filename = "attachment-id.txt")
+        observed: dict[str, object] = {}
+
+        def upload(stream, store):
+            observed["name"] = stream.name
+            observed["content"] = stream.read()
+            observed["store"] = store
+            return stored_file
+
+        client.upload.side_effect = upload
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir).joinpath("source.txt")
+            source.write_bytes(b"content")
+
+            result = storage.put_file(self.__metadata(extension = "txt"), source)
+
+            self.assertEqual(source.read_bytes(), b"content")
+
+        self.assertEqual(result, "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
+        self.assertEqual(observed["name"], "attachment-id.txt")
+        self.assertEqual(observed["content"], b"content")
+        self.assertTrue(observed["store"])
+
     def test_put_raises_on_upload_failure(self):
         storage, client = self.__storage()
         client.upload.side_effect = RuntimeError("boom")
@@ -83,22 +116,28 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
         metadata = self.__metadata(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
 
         with patch("features.chat.attachment.storage.uploadcare_attachment_storage.requests") as requests_mock:
-            requests_mock.get.return_value = SimpleNamespace(status_code = 200, content = b"cdn bytes")
+            response = SimpleNamespace(status_code = 200, raw = RawResponse(b"cdn bytes"), close = Mock())
+            requests_mock.get.return_value = response
 
             with storage.open(metadata) as stream:
                 self.assertEqual(stream.read(), b"cdn bytes")
 
             self.assertEqual(requests_mock.get.call_args.args[0], metadata.last_url)
+            self.assertTrue(requests_mock.get.call_args.kwargs["stream"])
+            response.close.assert_called_once_with()
 
     def test_open_raises_when_cdn_returns_no_body(self):
         storage, _ = self.__storage()
         metadata = self.__metadata(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
 
         with patch("features.chat.attachment.storage.uploadcare_attachment_storage.requests") as requests_mock:
-            requests_mock.get.return_value = SimpleNamespace(status_code = 200, content = b"")
+            response = SimpleNamespace(status_code = 200, raw = RawResponse(), close = Mock())
+            requests_mock.get.return_value = response
 
             with self.assertRaises(ExternalServiceError):
                 storage.open(metadata)
+
+            response.close.assert_called_once_with()
 
     def test_delete_removes_file_by_cdn_url(self):
         storage, client = self.__storage()
