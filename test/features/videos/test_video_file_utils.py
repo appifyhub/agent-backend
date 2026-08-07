@@ -329,6 +329,27 @@ class VideoFileUtilsTest(unittest.TestCase):
         self.assertFalse(Path(original_path).exists())
         self.assertFalse(Path(prepared_path).exists())
 
+    def test_prepare_remote_video_files_keeps_paths_until_consumer_finishes(self):
+        original_path = self._temp_path(".video")
+        prepared_path = self._temp_path(".mp4")
+        Path(original_path).write_bytes(b"original")
+        Path(prepared_path).write_bytes(b"prepared")
+        metadata = video_file_utils.inspect_video(str(self.compliant_path))
+
+        with patch(
+            "features.videos.video_file_utils.download_video",
+            return_value = original_path,
+        ), patch(
+            "features.videos.video_file_utils.prepare_video",
+            return_value = prepared_path,
+        ), patch("features.videos.video_file_utils.inspect_video", return_value = metadata):
+            with video_file_utils.prepare_remote_video_files("https://example.com/video.mp4") as paths:
+                self.assertEqual(Path(paths[0]).read_bytes(), b"original")
+                self.assertEqual(Path(paths[1]).read_bytes(), b"prepared")
+
+        self.assertFalse(Path(original_path).exists())
+        self.assertFalse(Path(prepared_path).exists())
+
     def test_prepare_video_removes_all_outputs_when_no_attempt_fits(self):
         source = replace(
             video_file_utils.inspect_video(str(self.webm_path)),

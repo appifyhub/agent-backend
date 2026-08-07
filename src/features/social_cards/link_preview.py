@@ -1,6 +1,6 @@
-import io
 import re
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PIL import Image
@@ -9,15 +9,14 @@ from features.images.image_color_utils import relative_luminance
 from features.social_cards.card_layout import PHOTO_CORNER_RADIUS, PHOTO_GAP
 from features.social_cards.card_utils import (
     FONT_NAME,
-    b64_image,
     escape_xml,
-    image_mime,
     rounded_rect_path,
     word_wrap_truncate,
 )
-from features.social_cards.domain import SocialLinkPreviewAsset
+from features.social_cards.social_card_models import SocialLinkPreviewAsset
 from features.social_cards.theme import ThemeColors
 from util import log
+from util.config import config
 
 LINK_ASPECT_W = 3
 LINK_ASPECT_H = 2
@@ -39,17 +38,15 @@ TEXT_LINE_HEIGHT_DOMAIN = 18
 DESC_TOP_GAP = 8
 LINK_PREVIEW_CORNER_RADIUS = 20
 
-_FAVICON_TIMEOUT_S = 3
 _OG_FETCH_TIMEOUT_S = 8
 _OG_HEAD_READ_BYTES = 32 * 1024
-_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"
 _OG_META_RE = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', re.IGNORECASE)
 _OG_META_RE_ALT = re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', re.IGNORECASE)
 
 
 def fetch_og_image_url(page_url: str) -> str | None:
     try:
-        req = urllib.request.Request(page_url, headers = {"User-Agent": _USER_AGENT})
+        req = urllib.request.Request(page_url, headers = {"User-Agent": config.user_agent})
         with urllib.request.urlopen(req, timeout = _OG_FETCH_TIMEOUT_S) as resp:
             head = resp.read(_OG_HEAD_READ_BYTES).decode("utf-8", errors = "ignore")
         match = _OG_META_RE.search(head) or _OG_META_RE_ALT.search(head)
@@ -68,23 +65,22 @@ _FAVICON_LINK_RE = re.compile(
 _HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
 
 
-def fetch_favicon(domain: str, expanded_url: str | None = None) -> bytes | None:
+def find_favicon_urls(domain: str, expanded_url: str | None = None) -> list[str]:
     urls_to_try = []
     if expanded_url:
         urls_to_try.append(expanded_url)
     urls_to_try.append(f"https://{domain}")
+    favicon_urls: list[str] = []
     for page_url in urls_to_try:
-        favicon_url = _find_favicon_url(page_url, domain)
-        if favicon_url:
-            result = _download_favicon(favicon_url)
-            if result:
-                return result
-    return None
+        favicon_url = _find_favicon_url(page_url)
+        if favicon_url and favicon_url not in favicon_urls:
+            favicon_urls.append(favicon_url)
+    return favicon_urls
 
 
-def _find_favicon_url(page_url: str, domain: str) -> str | None:
+def _find_favicon_url(page_url: str) -> str | None:
     try:
-        req = urllib.request.Request(page_url, headers = {"User-Agent": _USER_AGENT})
+        req = urllib.request.Request(page_url, headers = {"User-Agent": config.user_agent})
         with urllib.request.urlopen(req, timeout = _OG_FETCH_TIMEOUT_S) as resp:
             final_url = resp.url
             head = resp.read(_OG_HEAD_READ_BYTES).decode("utf-8", errors = "ignore")
@@ -107,38 +103,30 @@ def _find_favicon_url(page_url: str, domain: str) -> str | None:
     return None
 
 
-def _download_favicon(url: str) -> bytes | None:
+def prepare_favicon(source_path: Path, output_path: Path) -> Path | None:
     try:
-        log.t(f"Downloading favicon from {url}")
-        req = urllib.request.Request(url, headers = {"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, timeout = _FAVICON_TIMEOUT_S) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            if "html" in content_type:
-                return None
-            data = resp.read()
-            if len(data) < 50:
-                return None
-            img = Image.open(io.BytesIO(data))
-            img = img.convert("RGBA")
+        with Image.open(source_path) as source:
+            img = source.convert("RGBA")
             img = img.resize((64, 64), Image.LANCZOS)
-            r, g, b, a = img.split()
+            _, _, _, a = img.split()
             gray = img.convert("LA").split()[0]
             img = Image.merge("RGBA", (gray, gray, gray, a))
-            buf = io.BytesIO()
-            img.save(buf, format = "PNG")
-            return buf.getvalue()
+            img.save(output_path, format = "PNG")
+        return output_path
     except Exception as e:
-        log.t(f"Favicon download failed for {url}: {e}")
+        output_path.unlink(missing_ok = True)
+        log.t(f"Favicon preparation failed for {source_path}: {e}")
         return None
 
 
-def _dominant_color(data: bytes) -> tuple[int, int, int]:
+def _dominant_color(path: Path) -> tuple[int, int, int]:
     try:
-        img = Image.open(io.BytesIO(data)).convert("RGB").resize((32, 32))
-        quantized = img.quantize(colors = 4)
-        palette = quantized.getpalette()
-        if palette:
-            return (palette[0], palette[1], palette[2])
+        with Image.open(path) as source:
+            img = source.convert("RGB").resize((32, 32))
+            quantized = img.quantize(colors = 4)
+            palette = quantized.getpalette()
+            if palette:
+                return (palette[0], palette[1], palette[2])
     except Exception:
         pass
     return (128, 128, 128)
@@ -185,15 +173,15 @@ def render_link_previews(
         domain = preview.domain
         uid = f"lp-{i}"
 
-        if preview_asset.og_image_bytes:
+        if preview_asset.og_image_path:
             d, c, h = _render_with_image(
                 uid, x, cur_y, width, title, description, domain,
-                preview_asset.og_image_bytes, preview_asset.favicon_bytes, theme,
+                preview_asset.og_image_path, preview_asset.favicon_path,
             )
         else:
             d, c, h = _render_without_image(
-                uid, x, cur_y, width, title, description, domain,
-                preview_asset.favicon_bytes, theme,
+                x, cur_y, width, title, description, domain,
+                preview_asset.favicon_path, theme,
             )
 
         defs.extend(d)
@@ -212,9 +200,8 @@ def _render_with_image(
     title: str,
     description: str,
     domain: str,
-    og_image_bytes: bytes,
-    favicon_bytes: bytes | None,
-    theme: ThemeColors,
+    og_image_path: Path,
+    favicon_path: Path | None,
 ) -> tuple[list[str], list[str], int]:
     defs: list[str] = []
     content: list[str] = []
@@ -243,17 +230,16 @@ def _render_with_image(
     defs.append(f'<clipPath id="{box_clip_id}"><path d="{box_path}"/></clipPath>')
 
     # OG image (sharp, full box)
-    img_b64 = b64_image(og_image_bytes, image_mime(og_image_bytes))
     content.append(
         f'<image clip-path="url(#{box_clip_id})" x="{x}" y="{y}" width="{width}" height="{total_h}" '
-        f'href="{img_b64}" preserveAspectRatio="xMidYMid slice"/>',
+        f'href="{escape_xml(str(og_image_path.resolve()))}" preserveAspectRatio="xMidYMid slice"/>',
     )
 
     # Overlay region (bottom of card)
     overlay_actual_h = total_h - (overlay_y - y)
     overlay_path = rounded_rect_path(x, overlay_y, width, overlay_actual_h, 0, 0, R, R)
 
-    dominant = _dominant_color(og_image_bytes)
+    dominant = _dominant_color(og_image_path)
     text_color = _contrast_text_color(dominant)
     overlay_fill = "#000000" if text_color == "#ffffff" else "#ffffff"
 
@@ -269,11 +255,10 @@ def _render_with_image(
     cur_y = overlay_y + pad
     fav_y = cur_y + (header_h - fav_size) // 2
 
-    if favicon_bytes:
-        fav_b64 = b64_image(favicon_bytes, "image/png")
+    if favicon_path:
         content.append(
             f'<image x="{fav_x}" y="{fav_y}" width="{fav_size}" height="{fav_size}" '
-            f'href="{fav_b64}" preserveAspectRatio="xMidYMid slice"/>',
+            f'href="{escape_xml(str(favicon_path.resolve()))}" preserveAspectRatio="xMidYMid slice"/>',
         )
     else:
         globe_cx = fav_x + fav_size // 2
@@ -314,14 +299,13 @@ def _render_with_image(
 
 
 def _render_without_image(
-    uid: str,
     x: int,
     y: int,
     width: int,
     title: str,
     description: str,
     domain: str,
-    favicon_bytes: bytes | None,
+    favicon_path: Path | None,
     theme: ThemeColors,
 ) -> tuple[list[str], list[str], int]:
     content: list[str] = []
@@ -349,11 +333,10 @@ def _render_without_image(
     fav_x = x + pad
     fav_y = cur_y + (header_h - fav_size) // 2
 
-    if favicon_bytes:
-        fav_b64 = b64_image(favicon_bytes, "image/png")
+    if favicon_path:
         content.append(
             f'<image x="{fav_x}" y="{fav_y}" width="{fav_size}" height="{fav_size}" '
-            f'href="{fav_b64}" preserveAspectRatio="xMidYMid slice"/>',
+            f'href="{escape_xml(str(favicon_path.resolve()))}" preserveAspectRatio="xMidYMid slice"/>',
         )
     else:
         globe_cx = fav_x + fav_size // 2

@@ -1,5 +1,4 @@
 import json
-import platform
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -16,9 +15,7 @@ from features.web_browsing.uri_cleanup import simplify_url
 from util import log
 from util.config import config
 
-PLATFORM = f"{platform.python_implementation()}/{platform.python_version()}"
-USER_AGENT = f"Mozilla/5.0 (compatible; TheAgent/1.0; {PLATFORM})"
-DEFAULT_HEADERS = {"User-Agent": USER_AGENT}
+DEFAULT_HEADERS = {"User-Agent": config.user_agent}
 CACHE_PREFIX = "web-fetcher"
 DEFAULT_CACHE_TTL_HTML = timedelta(weeks = 3)
 DEFAULT_CACHE_TTL_JSON = timedelta(minutes = 5)

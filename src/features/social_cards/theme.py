@@ -1,6 +1,6 @@
 import colorsys
-import io
 from dataclasses import dataclass
+from pathlib import Path
 
 from PIL import Image
 
@@ -17,12 +17,12 @@ class ThemeColors:
 
 
 def pick_theme(
-    profile_bytes: bytes | None,
-    media_bytes_list: list[bytes],
+    profile_path: Path | None,
+    media_paths: list[Path],
 ) -> ThemeColors:
-    primary = _dominant_from_combined(media_bytes_list) if media_bytes_list else None
+    primary = _dominant_from_combined(media_paths) if media_paths else None
     if primary is None:
-        primary = _dominant_from_bytes(profile_bytes)
+        primary = _dominant_from_path(profile_path)
     if primary is None:
         return ThemeColors(
             gradient_start = BRAND_GRADIENT_START,
@@ -40,30 +40,29 @@ def pick_theme(
     )
 
 
-def _dominant_from_bytes(data: bytes | None) -> tuple[int, int, int] | None:
-    if not data:
+def _dominant_from_path(path: Path | None) -> tuple[int, int, int] | None:
+    if not path:
         return None
     try:
-        img = Image.open(io.BytesIO(data)).convert("RGB")
-        img = img.resize((64, 64))
-        quantized = img.quantize(colors = 8)
-        palette = quantized.getpalette()
-        if not palette:
-            return None
-        best_rgb = _most_saturated_from_palette(palette, 8)
-        return best_rgb
+        with Image.open(path) as source:
+            img = source.convert("RGB").resize((64, 64))
+            quantized = img.quantize(colors = 8)
+            palette = quantized.getpalette()
+            if not palette:
+                return None
+            return _most_saturated_from_palette(palette, 8)
     except Exception as e:
         log.w("Dominant color extraction failed", e)
         return None
 
 
-def _dominant_from_combined(images: list[bytes]) -> tuple[int, int, int] | None:
+def _dominant_from_combined(paths: list[Path]) -> tuple[int, int, int] | None:
     try:
         strips = []
-        for data in images:
+        for path in paths:
             try:
-                img = Image.open(io.BytesIO(data)).convert("RGB").resize((32, 32))
-                strips.append(img)
+                with Image.open(path) as source:
+                    strips.append(source.convert("RGB").resize((32, 32)))
             except Exception:
                 continue
         if not strips:

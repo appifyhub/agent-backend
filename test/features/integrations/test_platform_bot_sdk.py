@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
@@ -45,12 +46,13 @@ def _make_di() -> DI:
     di.whatsapp_bot_sdk.send_document = Mock(return_value = "document-sent")
     di.whatsapp_bot_sdk.send_video = Mock(return_value = "video-sent")
     di.chat_attachment_service = Mock()
-    di.chat_attachment_service.save.return_value = SimpleNamespace(
+    stored_attachment = SimpleNamespace(
         id = "stored-attachment",
         last_url = "s3://the-agent/chats/chat-id/attachments/stored-attachment",
         extension = "mp4",
         mime_type = "video/mp4",
     )
+    di.chat_attachment_service.save.return_value = stored_attachment
     di.chat_attachment_service.create_public_url.return_value = SimpleNamespace(
         url = _public_attachment_url("stored-attachment"),
         valid_until = 0,
@@ -78,6 +80,20 @@ def _make_temp_file(content: bytes = b"data") -> str:
     tmp.flush()
     tmp.close()
     return tmp.name
+
+
+def _capture_saved_file(di: DI) -> dict[str, object]:
+    captured: dict[str, object] = {}
+
+    def save(*, attachment, file_path, remote_url = None):
+        captured["attachment"] = attachment
+        captured["file_path"] = file_path
+        captured["content"] = Path(file_path).read_bytes()
+        captured["remote_url"] = remote_url
+        return di.chat_attachment_service.save.return_value
+
+    di.chat_attachment_service.save.side_effect = save
+    return captured
 
 
 def _image_bytes(image: Image.Image, image_format: str = "PNG", **kwargs) -> bytes:
@@ -127,6 +143,7 @@ class PlatformBotSDKTest(unittest.TestCase):
 
     def test_send_photo_resizes_and_uploads(self):
         di = _make_di()
+        captured = _capture_saved_file(di)
         prepared_path = _make_temp_file(b"prepared")
         resized_path = _make_temp_file(b"resized")
         sdk = PlatformBotSDK(di = di)
@@ -141,8 +158,8 @@ class PlatformBotSDKTest(unittest.TestCase):
         mock_resize.assert_called_once()
         self.assertEqual(mock_resize.call_args.args[0], prepared_path)
         self.assertEqual(mock_resize.call_args.args[1], TELEGRAM_MAX_PHOTO_SIZE_BYTES)
-        stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
-        self.assertEqual(stored_bytes, b"resized")
+        self.assertEqual(captured["content"], b"resized")
+        self.assertFalse(Path(resized_path).exists())
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
             di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
@@ -174,6 +191,7 @@ class PlatformBotSDKTest(unittest.TestCase):
 
     def test_send_photo_stores_original_when_no_resize_needed(self):
         di = _make_di()
+        captured = _capture_saved_file(di)
         body = _jpeg_bytes()
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
@@ -181,10 +199,9 @@ class PlatformBotSDKTest(unittest.TestCase):
             mock_get.return_value = _mock_response(body = body)
             mock_resize.side_effect = lambda path, max_size_bytes: path
             result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.jpg")
-        stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
-        self.assertEqual(stored_bytes, body)
+        self.assertEqual(captured["content"], body)
         self.assertEqual(
-            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            captured["remote_url"],
             "http://example.com/img.jpg",
         )
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
@@ -218,6 +235,7 @@ class PlatformBotSDKTest(unittest.TestCase):
 
     def test_send_document_does_not_resize(self):
         di = _make_di()
+        captured = _capture_saved_file(di)
         sdk = PlatformBotSDK(di = di)
         with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
                 patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
@@ -229,13 +247,12 @@ class PlatformBotSDKTest(unittest.TestCase):
             result = sdk.send_document(chat_id = 1, document_url = "http://example.com/doc.pdf")
         self.assertIsNone(mock_resize.call_args.args[1])
         mock_prepare.assert_not_called()
-        stored_bytes = di.chat_attachment_service.save.call_args.kwargs["content"]
-        self.assertEqual(stored_bytes, b"document")
-        stored_attachment = di.chat_attachment_service.save.call_args.kwargs["attachment"]
+        self.assertEqual(captured["content"], b"document")
+        stored_attachment = captured["attachment"]
         self.assertIsNone(stored_attachment.last_url)
         self.assertEqual(stored_attachment.mime_type, "application/pdf")
         self.assertEqual(
-            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            captured["remote_url"],
             "http://example.com/doc.pdf",
         )
         di.telegram_bot_sdk.send_document.assert_called_once_with(
@@ -338,6 +355,7 @@ class PlatformBotSDKTest(unittest.TestCase):
 
     def test_prepare_outgoing_video_stores_prepared_media(self):
         di = _make_di()
+        captured = _capture_saved_file(di)
         sdk = PlatformBotSDK(di = di)
         video_context, _, _, _ = self.__video_context(prepared = b"prepared")
 
@@ -355,19 +373,20 @@ class PlatformBotSDKTest(unittest.TestCase):
             max_size_bytes = TELEGRAM_MAX_VIDEO_SIZE_BYTES,
         )
         di.chat_attachment_service.save.assert_called_once()
-        self.assertEqual(di.chat_attachment_service.save.call_args.kwargs["content"], b"prepared")
-        attachment = di.chat_attachment_service.save.call_args.kwargs["attachment"]
+        self.assertEqual(captured["content"], b"prepared")
+        attachment = captured["attachment"]
         self.assertIsNone(attachment.last_url)
         self.assertEqual(attachment.extension, "mp4")
         self.assertIsNone(attachment.mime_type)
         self.assertEqual(
-            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            captured["remote_url"],
             "https://example.com/video.mp4",
         )
         self.assertIs(result, di.chat_attachment_service.save.return_value)
 
     def test_prepare_outgoing_video_uses_url_when_container_is_unknown(self):
         di = _make_di()
+        captured = _capture_saved_file(di)
         sdk = PlatformBotSDK(di = di)
         video_context, _, _, _ = self.__video_context(prepared = b"prepared", container = "unknown")
 
@@ -380,15 +399,16 @@ class PlatformBotSDKTest(unittest.TestCase):
                 public_url = "https://example.com/video.webm",
             )
 
-        attachment = di.chat_attachment_service.save.call_args.kwargs["attachment"]
+        attachment = captured["attachment"]
         self.assertIsNone(attachment.extension)
         self.assertEqual(
-            di.chat_attachment_service.save.call_args.kwargs["remote_url"],
+            captured["remote_url"],
             "https://example.com/video.webm",
         )
 
     def test_prepare_outgoing_video_stores_compliant_media(self):
         di = _make_di()
+        captured = _capture_saved_file(di)
         sdk = PlatformBotSDK(di = di)
         video_context, _, _, _ = self.__video_context()
 
@@ -402,10 +422,7 @@ class PlatformBotSDKTest(unittest.TestCase):
             )
 
         di.chat_attachment_service.save.assert_called_once()
-        self.assertEqual(
-            di.chat_attachment_service.save.call_args.kwargs["content"],
-            b"original",
-        )
+        self.assertEqual(captured["content"], b"original")
 
     def test_prepare_outgoing_video_uses_whatsapp_limit(self):
         di = _make_di()

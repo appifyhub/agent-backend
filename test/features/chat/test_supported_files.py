@@ -5,7 +5,6 @@ from PIL import Image
 
 from features.chat.supported_files import (
     detect_image_format,
-    is_supported_extension,
     is_supported_mime_type,
     resolve_file_type,
 )
@@ -104,17 +103,11 @@ class SupportedFilesTest(unittest.TestCase):
 
     def test_is_supported_mime_type(self):
         self.assertTrue(is_supported_mime_type("image/png"))
+        self.assertTrue(is_supported_mime_type("image/x-icon"))
         self.assertTrue(is_supported_mime_type("audio/ogg; codecs=opus"))
         self.assertTrue(is_supported_mime_type("video/mp4"))
         self.assertFalse(is_supported_mime_type("application/x-custom"))
         self.assertFalse(is_supported_mime_type(None))
-
-    def test_is_supported_extension(self):
-        self.assertTrue(is_supported_extension("png"))
-        self.assertTrue(is_supported_extension("PNG"))
-        self.assertTrue(is_supported_extension("webm"))
-        self.assertFalse(is_supported_extension("unknown"))
-        self.assertFalse(is_supported_extension(None))
 
     def test_detect_image_format(self):
         pattern = [
@@ -146,6 +139,12 @@ class SupportedFilesTest(unittest.TestCase):
                 output = BytesIO()
                 image.save(output, format = encoded_format)
                 self.assertEqual(detect_image_format(output.getvalue()), expected)
+
+    def test_detect_image_format_ico(self):
+        output = BytesIO()
+        Image.new("RGB", (32, 32)).save(output, format = "ICO")
+
+        self.assertEqual(detect_image_format(output.getvalue()), "ico")
 
     def test_detect_image_format_returns_none_for_unknown_content(self):
         self.assertIsNone(detect_image_format(b"unknown content"))

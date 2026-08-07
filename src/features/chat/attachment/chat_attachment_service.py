@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import BinaryIO
 
 import requests
@@ -77,6 +78,7 @@ class ChatAttachmentService:
         content: bytes | None = None,
         remote_url: str | None = None,
         remote_url_fetcher: RemoteUrlFetcher | None = None,
+        file_path: str | Path | None = None,
     ) -> ChatAttachment:
         attachment = self.get(attachment)
 
@@ -86,21 +88,41 @@ class ChatAttachmentService:
             if existing and self.is_own_storage_uri(existing.last_url):
                 return existing
 
-        # second, check if the remote URL points to one of our own attachments
-        if content is None and remote_url:
+        # second, we check for presence of file contents
+        path = Path(file_path) if file_path is not None else None
+        file_size: int | None = None
+        if path is not None:
+            try:
+                file_size = path.stat().st_size
+            except OSError as e:
+                raise ValidationError("Attachment file content must be provided", MISSING_CONTENT) from e
+        has_file_content = bool(file_size)
+        # content given = the user is trying to upload fresh content; no content = we should lookup or fetch
+        if (content is None) and (not has_file_content) and remote_url:
             internal_attachment = self.__find_internal_attachment(remote_url)
             if internal_attachment:
                 return internal_attachment
 
         # next, we prepare content and metadata to the best of our ability
-        remote_content: RemoteAttachmentContent | None = self.__fetch_remote_content(content, remote_url, remote_url_fetcher)
-        remote_mime_type = remote_content.response_mime_type if remote_content else None
-        remote_content_bytes = remote_content.content if remote_content else None
+        remote_mime_type: str | None = None
+        content_header: bytes | None = None
+        remote_content_bytes: bytes | None = None
+        if has_file_content:
+            try:
+                with path.open("rb") as file:
+                    content_header = file.read(32)
+            except OSError as e:
+                raise ValidationError("Attachment file content must be provided", MISSING_CONTENT) from e
+        else:
+            remote_content: RemoteAttachmentContent | None = self.__fetch_remote_content(content, remote_url, remote_url_fetcher)
+            remote_mime_type = remote_content.response_mime_type if remote_content else None
+            remote_content_bytes = remote_content.content if remote_content else None
+            content_header = remote_content_bytes[:32] if remote_content_bytes else None
         mime_type, extension = resolve_file_type(
             mime_type = attachment.mime_type or remote_mime_type,
             extension = attachment.extension,
             uri = remote_url or attachment.last_url or attachment.uri,
-            content = remote_content_bytes,
+            content = content_header,
         )
 
         # next, update the local attachment instance with the latest resolved metadata
@@ -111,14 +133,22 @@ class ChatAttachmentService:
             uploader_user_id = attachment.uploader_user_id or self.__di.invoker.id,
         )
 
-        # next, check if we need to store the media bytes in our storage
-        if remote_content_bytes:
-            previous_our_uri = attachment.uri if self.is_own_storage_uri(attachment.last_url) else None
+        # next, check if we need to store the media content in our storage
+        if has_file_content:
+            previous_known_uri = attachment.uri if self.is_own_storage_uri(attachment.last_url) else None
+            updated_attachment = replace(updated_attachment, size = file_size)
+            stored_uri = self.__di.attachment_storage.put_file(updated_attachment, path)
+            updated_attachment = replace(updated_attachment, last_url = stored_uri)
+            # a changed extension changes the storage key — drop the now-orphaned old object
+            if previous_known_uri and previous_known_uri != updated_attachment.uri:
+                self.__delete_storage_objects([attachment])
+        elif remote_content_bytes:
+            previous_known_uri = attachment.uri if self.is_own_storage_uri(attachment.last_url) else None
             updated_attachment = replace(updated_attachment, size = len(remote_content_bytes))
             stored_uri = self.__di.attachment_storage.put(updated_attachment, remote_content_bytes)
             updated_attachment = replace(updated_attachment, last_url = stored_uri)
             # a changed extension changes the storage key — drop the now-orphaned old object
-            if previous_our_uri and previous_our_uri != updated_attachment.uri:
+            if previous_known_uri and previous_known_uri != updated_attachment.uri:
                 self.__delete_storage_objects([attachment])
 
         # finally, store the updated attachment in our database

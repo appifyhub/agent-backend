@@ -266,7 +266,7 @@ class PlatformBotSDK:
                     uploader_user_id = self.__di.invoker.id,
                     mime_type = response_mime_type,
                 ),
-                content = Path(resized_path).read_bytes(),
+                file_path = resized_path,
                 remote_url = public_url,
             )
             log.t(f"Prepared outgoing attachment '{attachment.id}'")
@@ -297,7 +297,7 @@ class PlatformBotSDK:
                         else None
                     ),
                 ),
-                content = Path(prepared_path).read_bytes(),
+                file_path = prepared_path,
                 remote_url = public_url,
             )
             log.t(f"Prepared outgoing video attachment '{attachment.id}'")
