@@ -12,6 +12,7 @@ from features.external_tools.external_tool_library import (
     IMAGE_GEN_EDIT_GPT_IMAGE_2,
     IMAGE_GEN_EDIT_SEEDREAM_4,
     IMAGE_GEN_EDIT_SEEDREAM_4_5,
+    IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
     IMAGE_GEN_GROK_IMAGINE,
     IMAGE_GEN_GROK_IMAGINE_QUALITY,
     NANO_BANANA,
@@ -35,6 +36,9 @@ ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
     IMAGE_GEN_EDIT_SEEDREAM_4_5.id: {
         "prompt", "image_input", "size", "aspect_ratio",
         "sequential_image_generation", "max_images", "disable_safety_checker",
+    },
+    IMAGE_GEN_EDIT_SEEDREAM_5_PRO.id: {
+        "prompt", "image_input", "size", "aspect_ratio", "output_format",
     },
 }
 
@@ -124,6 +128,10 @@ def map_to_model_parameters(
     elif tool == IMAGE_GEN_EDIT_SEEDREAM_4_5:
         normalized_size = convert_size_to_k(unified_params.size)
         clamped_size = "2K" if normalized_size == "1K" else normalized_size
+        return replace(unified_params, size = clamped_size)
+    elif tool == IMAGE_GEN_EDIT_SEEDREAM_5_PRO:
+        normalized_size = convert_size_to_k(unified_params.size)
+        clamped_size = "2K" if normalized_size == "4K" else normalized_size
         return replace(unified_params, size = clamped_size)
     elif tool == NANO_BANANA:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
