@@ -186,6 +186,28 @@ class ChatAgentTest(unittest.TestCase):
 
         self.assertTrue(self.agent.should_reply())
 
+    def test_should_not_reply_when_bot_mention_is_only_quoted(self):
+        self.chat_config.is_private = False
+        self.chat_config.reply_chance_percent = 0
+
+        for quote_prefix in [">>", ">>>>"]:
+            with self.subTest(quote_prefix = quote_prefix):
+                self.agent._ChatAgent__trigger_message_text = (
+                    f"{quote_prefix} Hello @{self.agent_user.telegram_username}\n\nI agree"
+                )
+
+                self.assertFalse(self.agent.should_reply())
+
+    def test_should_reply_when_unquoted_text_mentions_bot_after_quote(self):
+        self.chat_config.is_private = False
+        self.chat_config.reply_chance_percent = 0
+        self.agent._ChatAgent__trigger_message_text = (
+            f">> Hello @{self.agent_user.telegram_username}\n\n"
+            f"@{self.agent_user.telegram_username} what about this?"
+        )
+
+        self.assertTrue(self.agent.should_reply())
+
     @patch("random.randint")
     def test_should_reply_random_chance(self, mock_randint):
         self.chat_config.is_private = False
@@ -716,6 +738,59 @@ class ChatAgentTest(unittest.TestCase):
             chat_id = self.chat_config.chat_id,
         )
         self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, recent_tagged]
+
+        self.assertTrue(self.agent.should_reply())
+
+    @patch("features.chat.chat_agent.config")
+    def test_should_not_carry_quoted_mention_from_recent_burst_message(self, mock_config):
+        self.chat_config.is_private = False
+        self.chat_config.reply_chance_percent = 0
+        self.agent._ChatAgent__trigger_message_text = "follow up"
+        mock_config.chat_debounce_delay_s = 1.0
+        mock_config.chat_history_depth = 30
+        quoted_tag = ChatMessage(
+            message_id = "msg_001",
+            author_id = self.user.id,
+            sent_at = datetime.now(),
+            text = f">>>> Hello @{self.agent_user.telegram_username}\n\nI agree",
+            chat_id = self.chat_config.chat_id,
+        )
+        current = ChatMessage(
+            message_id = "msg_123",
+            author_id = self.user.id,
+            sent_at = datetime.now(),
+            text = "follow up",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, quoted_tag]
+
+        self.assertFalse(self.agent.should_reply())
+
+    @patch("features.chat.chat_agent.config")
+    def test_should_carry_unquoted_mention_after_quote_from_recent_burst_message(self, mock_config):
+        self.chat_config.is_private = False
+        self.chat_config.reply_chance_percent = 0
+        self.agent._ChatAgent__trigger_message_text = "follow up"
+        mock_config.chat_debounce_delay_s = 1.0
+        mock_config.chat_history_depth = 30
+        directly_tagged = ChatMessage(
+            message_id = "msg_001",
+            author_id = self.user.id,
+            sent_at = datetime.now(),
+            text = (
+                ">> earlier context\n\n"
+                f"@{self.agent_user.telegram_username} what about this?"
+            ),
+            chat_id = self.chat_config.chat_id,
+        )
+        current = ChatMessage(
+            message_id = "msg_123",
+            author_id = self.user.id,
+            sent_at = datetime.now(),
+            text = "follow up",
+            chat_id = self.chat_config.chat_id,
+        )
+        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [current, directly_tagged]
 
         self.assertTrue(self.agent.should_reply())
 
