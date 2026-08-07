@@ -41,6 +41,7 @@ langchain-xai = "*"
 xai-sdk = "*"
 python-docx = "*"
 boto3 = "*"
+ruff = "*"
 
 [dev-packages]
 pytest = "*"

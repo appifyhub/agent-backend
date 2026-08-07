@@ -5,91 +5,64 @@ from features.external_tools.external_tool_library import (
     IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO,
     IMAGE_GEN_EDIT_GPT_IMAGE_2,
     IMAGE_GEN_EDIT_SEEDREAM_4_5,
+    IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
 )
 from features.images import image_api_utils
 
 
 class ImageApiUtilsTest(unittest.TestCase):
 
-    def test_resolve_aspect_ratio_none_for_generation(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, None)
-        self.assertEqual(result, "2:3")
+    def test_resolve_aspect_ratio_omitted_defaults_by_reference_presence(self):
+        self.assertEqual(image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, None), "2:3")
+        self.assertEqual(
+            image_api_utils.resolve_aspect_ratio(
+                IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, None, ["https://example.com/image.png"],
+            ),
+            "match_input_image",
+        )
 
-    def test_resolve_aspect_ratio_none_with_references_ignores_tool_purpose(self):
-        input_urls = ["https://example.com/image.png"]
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, None, input_urls)
-        self.assertEqual(result, "match_input_image")
+    def test_resolve_aspect_ratio_preserves_every_supported_ratio(self):
+        for aspect_ratio in image_api_utils.VALID_ASPECT_RATIOS:
+            with self.subTest(aspect_ratio = aspect_ratio):
+                self.assertEqual(
+                    image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, aspect_ratio),
+                    aspect_ratio,
+                )
 
-    def test_resolve_aspect_ratio_none_for_editing_without_files(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, None)
-        self.assertEqual(result, "2:3")
+    def test_resolve_aspect_ratio_match_input_image_requires_references(self):
+        self.assertEqual(
+            image_api_utils.resolve_aspect_ratio(
+                IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "match_input_image", ["https://example.com/image.png"],
+            ),
+            "match_input_image",
+        )
+        self.assertEqual(
+            image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "match_input_image"),
+            "2:3",
+        )
 
-    def test_resolve_aspect_ratio_valid_ratio(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "1:1")
+    def test_resolve_aspect_ratio_ignores_surrounding_whitespace(self):
+        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "  1 \t:\t 1  ")
         self.assertEqual(result, "1:1")
 
-    def test_resolve_aspect_ratio_valid_ratio_portrait(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "2:3")
-        self.assertEqual(result, "2:3")
+    def test_resolve_aspect_ratio_maps_unsupported_to_closest_supported(self):
+        cases = [("2.1:3", "2:3"), ("3.8:2", "16:9"), ("21:9", "16:9")]
+        for requested, expected in cases:
+            with self.subTest(requested = requested):
+                self.assertEqual(
+                    image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, requested),
+                    expected,
+                )
 
-    def test_resolve_aspect_ratio_16_9(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "16:9")
-        self.assertEqual(result, "16:9")
+    def test_resolve_aspect_ratio_unparseable_falls_back_to_default(self):
+        for requested in ["2x3", "2:3:4", "a:b", "2:0"]:
+            with self.subTest(requested = requested):
+                self.assertEqual(
+                    image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, requested),
+                    "2:3",
+                )
 
-    def test_resolve_aspect_ratio_match_input_image_with_references_ignores_tool_purpose(self):
-        input_urls = ["https://example.com/image.png"]
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "match_input_image", input_urls)
-        self.assertEqual(result, "match_input_image")
-
-    def test_resolve_aspect_ratio_match_input_image_without_files_falls_back(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "match_input_image")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_match_input_image_for_generation_falls_back(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "match_input_image")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_with_spaces(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "2 : 3")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_with_multiple_spaces(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "  1  :  1  ")
-        self.assertEqual(result, "1:1")
-
-    def test_resolve_aspect_ratio_with_tabs(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "1\t:\t1")
-        self.assertEqual(result, "1:1")
-
-    def test_resolve_aspect_ratio_closest_match_slightly_off(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "2.1:3")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_closest_match_between_two(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "3.5:4")
-        self.assertIn(result, ["3:4", "1:1"])
-
-    def test_resolve_aspect_ratio_closest_match_landscape(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "3.8:2")
-        self.assertEqual(result, "16:9")
-
-    def test_resolve_aspect_ratio_invalid_format_no_colon(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "2x3")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_invalid_format_multiple_colons(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "2:3:4")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_invalid_non_numeric(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "a:b")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_zero_division(self):
-        result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "2:0")
-        self.assertEqual(result, "2:3")
-
-    def test_resolve_aspect_ratio_invalid_with_references_uses_input_image_default(self):
+    def test_resolve_aspect_ratio_unparseable_with_references_uses_input_image_default(self):
         input_urls = ["https://example.com/image.png"]
         result = image_api_utils.resolve_aspect_ratio(IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO, "invalid", input_urls)
         self.assertEqual(result, "match_input_image")
@@ -123,10 +96,6 @@ class ImageApiUtilsTest(unittest.TestCase):
 
         self.assertEqual(result.image, input_urls[0])
         self.assertEqual(result.input_image, input_urls[0])
-        self.assertIsNotNone(result.image_input)
-        self.assertIsNotNone(result.input_images)
-        self.assertEqual(len(result.image_input), 2)
-        self.assertEqual(len(result.input_images), 2)
         self.assertEqual(result.image_input, input_urls)
         self.assertEqual(result.input_images, input_urls)
 
@@ -152,6 +121,35 @@ class ImageApiUtilsTest(unittest.TestCase):
         self.assertEqual(set(result.keys()), {
             "prompt", "size", "aspect_ratio", "max_images",
             "disable_safety_checker", "sequential_image_generation", "image_input",
+        })
+
+    def test_map_to_model_parameters_seedream_5_pro_normalizes_size(self):
+        for output_size, expected in [("1K", "1K"), ("2K", "2K"), ("4K", "2K")]:
+            with self.subTest(output_size = output_size):
+                result = image_api_utils.map_to_model_parameters(
+                    IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
+                    prompt = "test",
+                    output_size = output_size,
+                )
+
+                self.assertEqual(result.size, expected)
+
+    def test_filter_replicate_params_seedream_5_pro_uses_exact_schema(self):
+        input_urls = ["https://example.com/one.png", "https://example.com/two.png"]
+        parameters = image_api_utils.map_to_model_parameters(
+            IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
+            prompt = "test",
+            input_urls = input_urls,
+        )
+
+        result = image_api_utils.filter_replicate_params(IMAGE_GEN_EDIT_SEEDREAM_5_PRO, parameters)
+
+        self.assertEqual(result, {
+            "prompt": "test",
+            "aspect_ratio": "match_input_image",
+            "size": "2K",
+            "output_format": "png",
+            "image_input": input_urls,
         })
 
     def test_filter_replicate_params_non_allowlisted_model_passes_through(self):

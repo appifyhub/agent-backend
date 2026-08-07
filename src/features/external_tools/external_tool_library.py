@@ -517,6 +517,19 @@ IMAGE_GEN_EDIT_SEEDREAM_4_5 = ExternalTool(
     max_input_images = 14,
 )
 
+IMAGE_GEN_EDIT_SEEDREAM_5_PRO = ExternalTool(
+    id = "bytedance/seedream-5-pro",
+    name = "ByteDance: SeeDream 5 Pro",
+    provider = REPLICATE,
+    types = [ToolType.images_gen],
+    cost_estimate = CostEstimate(
+        output_image_1k = 4.5,
+        output_image_2k = 9,
+        output_image_4k = 9,
+    ),
+    max_input_images = 10,
+)
+
 IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA = ExternalTool(
     id = "google/nano-banana",
     name = "Google: Nano Banana",
@@ -733,6 +746,7 @@ ALL_EXTERNAL_TOOLS = [
     IMAGE_GEN_EDIT_GPT_IMAGE_2,
     IMAGE_GEN_EDIT_SEEDREAM_4,
     IMAGE_GEN_EDIT_SEEDREAM_4_5,
+    IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2,
