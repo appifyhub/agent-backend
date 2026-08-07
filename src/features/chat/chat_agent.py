@@ -301,14 +301,23 @@ class ChatAgent:
         chat_type = self.__di.require_invoker_chat_type()
         agent_user = resolve_agent_user(chat_type)
         agent_handle = resolve_external_handle(agent_user, chat_type)
-        is_bot_mentioned = bool(agent_handle) and f"@{agent_handle}" in self.__trigger_message_text
+        trigger_message_text = self.__non_quoted_text(self.__trigger_message_text)
+        is_bot_mentioned = bool(agent_handle) and f"@{agent_handle}" in trigger_message_text
         return self.__di.require_invoker_chat().is_private or is_bot_mentioned
+
+    @staticmethod
+    def __non_quoted_text(text: str) -> str:
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(">>")
+        )
 
     def __has_unanswered_bot_mention(self, agent_handle: str | None) -> bool:
         if not agent_handle:
             return False
         mention_token = f"@{agent_handle}"
-        if mention_token in self.__trigger_message_text:
+        if mention_token in self.__non_quoted_text(self.__trigger_message_text):
             return True
         if config.chat_debounce_delay_s <= 0.0:
             return False
@@ -334,9 +343,10 @@ class ChatAgent:
                 return False
             if message.author_id != invoker_user.id:
                 continue
-            if is_known_command(message.text, agent_handle):
+            message_text = self.__non_quoted_text(message.text)
+            if is_known_command(message_text, agent_handle):
                 continue
-            if mention_token in message.text:
+            if mention_token in message_text:
                 return True
         return False
 
