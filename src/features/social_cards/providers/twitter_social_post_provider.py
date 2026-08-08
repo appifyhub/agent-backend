@@ -81,8 +81,8 @@ class TwitterSocialPostProvider:
         return SocialPost(
             platform = TWITTER_PLATFORM,
             author = SocialAuthor(
-                display_name = tweet.user.name,
-                handle = tweet.user.handle,
+                additional_profile_info = tweet.user.name,
+                handle = f"@{tweet.user.handle}",
                 avatar_url = self.__large_profile_image_url(tweet.user.profile_image_url),
                 bio = tweet.user.bio,
             ),

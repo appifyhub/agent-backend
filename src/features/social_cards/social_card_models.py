@@ -29,8 +29,8 @@ class SocialPlatformBrand:
 
 @dataclass
 class SocialAuthor:
-    display_name: str | None
     handle: str
+    additional_profile_info: str | None = None
     avatar_url: str | None = None
     profile_url: str | None = None
     bio: str | None = None
@@ -39,6 +39,7 @@ class SocialAuthor:
 @dataclass
 class SocialDynamicMedia:
     playback_url: str
+    audio_url: str | None = None
     duration_seconds: float | None = None
     width: int | None = None
     height: int | None = None
@@ -68,6 +69,7 @@ class SocialPost:
     author: SocialAuthor
     text: str
     source_url: str
+    title: str | None = None
     language: str | None = None
     created_at: str | None = None
     media: list[SocialMediaItem] = field(default_factory = list)

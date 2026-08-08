@@ -18,7 +18,7 @@ def render(
     output_path: Path,
     short_url: str | None = None,
 ) -> SocialCardTemplateResult:
-    card_width = card_width_from_text(post.text)
+    card_width = card_width_from_text(post.text, post.title)
     template = build_svg(
         post = post,
         theme = theme,
