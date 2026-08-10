@@ -55,5 +55,11 @@ if [ -z "$SCHEMA_NAME" ]; then
     exit 1
 fi
 
+pipenv run python tools/db_wait_for_ready.py
+if [ $? -ne 0 ]; then
+    echoerr "Exiting..." -n >&2
+    exit 1
+fi
+
 echoinfo "Running the schema migration generator..." -n
 pipenv run alembic revision --autogenerate -m "$SCHEMA_NAME"

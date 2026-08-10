@@ -15,15 +15,17 @@ FOOTER_OPACITY = 0.45
 FONT_SIZE_NAME = 22
 FONT_SIZE_DATE = 16
 FONT_SIZE_BODY = 26
+FONT_SIZE_TITLE = 30
 FONT_SIZE_FOOTER = 16
 LINE_HEIGHT_BODY = 32  # pixels per line in body text
+LINE_HEIGHT_TITLE = 36  # pixels per line in title text
 DROP_SHADOW_BLUR = 10
 DROP_SHADOW_DY = 6
 DROP_SHADOW_OPACITY = 0.30
 
 
-def card_width_from_text(text: str) -> int:
-    length = len(text)
+def card_width_from_text(text: str, title: str | None = None) -> int:
+    length = len(text) + len(title or "")
     if length <= 500:
         return 800
     if length <= 1000:

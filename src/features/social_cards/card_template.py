@@ -22,8 +22,10 @@ from features.social_cards.card_layout import (
     FONT_SIZE_DATE,
     FONT_SIZE_FOOTER,
     FONT_SIZE_NAME,
+    FONT_SIZE_TITLE,
     FOOTER_OPACITY,
     LINE_HEIGHT_BODY,
+    LINE_HEIGHT_TITLE,
     LOGO_CIRCLE_R,
     LOGO_SIZE,
     PHOTO_CORNER_RADIUS,
@@ -261,18 +263,18 @@ def build_svg(
     def _name_segments(text: str) -> list[tuple[str, str, str, bool]]:
         return [(sub, theme.text_color, "", is_emoji) for sub, is_emoji in emoji_split(text) if sub]
 
-    if post.author.display_name:
+    if post.author.additional_profile_info:
         name_elems, name_end_x = render_text_segments(
-            _name_segments(post.author.display_name), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
+            _name_segments(post.author.additional_profile_info), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
         )
         content.extend(name_elems)
         handle_elems, _ = render_text_segments(
-            _name_segments(f" (@{post.author.handle})"), name_end_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 400,
+            _name_segments(f" ({post.author.handle})"), name_end_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 400,
         )
         content.extend(handle_elems)
     else:
         handle_elems, _ = render_text_segments(
-            _name_segments(f"@{post.author.handle}"), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
+            _name_segments(post.author.handle), name_x, name_y, FONT_SIZE_NAME, theme.text_color, weight = 700,
         )
         content.extend(handle_elems)
     dt_str = _format_datetime(post.created_at)
@@ -337,9 +339,21 @@ def build_svg(
         )
         y += CARD_SECTION_GAP
 
+    # Post title (bolded, larger, above body)
+    if post.title and post.title.strip():
+        title_lines = _word_wrap(post.title, inner_w, FONT_SIZE_TITLE)
+        for i, ln in enumerate(title_lines):
+            line_y = y + FONT_SIZE_TITLE + i * LINE_HEIGHT_TITLE
+            segments = _line_to_segments(ln, theme.text_color, accent)
+            if not segments:
+                continue
+            line_elems, _ = render_text_segments(segments, body_x, line_y, FONT_SIZE_TITLE, theme.text_color, weight = 700)
+            content.extend(line_elems)
+        y += len(title_lines) * LINE_HEIGHT_TITLE + CARD_SECTION_GAP
+
     # Post body with colored tokens
-    lines = _word_wrap(post.text, inner_w, FONT_SIZE_BODY)
-    if lines:
+    if post.text and post.text.strip():
+        lines = _word_wrap(post.text, inner_w, FONT_SIZE_BODY)
         for i, ln in enumerate(lines):
             line_y = y + FONT_SIZE_BODY + i * LINE_HEIGHT_BODY
             segments = _line_to_segments(ln, theme.text_color, accent)

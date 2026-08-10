@@ -286,7 +286,8 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         self.assertIn("Photo description", result)
         # noinspection PyUnresolvedReferences
         self.mock_di.computer_vision_analyzer.assert_called_once()
-        self.assertEqual(self.mock_di.computer_vision_analyzer.call_args.kwargs["image_mime_type"], "image/jpeg")
+        self.assertEqual(self.mock_di.computer_vision_analyzer.call_args.kwargs["image_mime_types"], ["image/jpeg"])
+        self.assertEqual(self.mock_di.computer_vision_analyzer.call_args.kwargs["image_urls"], ["https://example.com/photo.jpg"])
 
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
