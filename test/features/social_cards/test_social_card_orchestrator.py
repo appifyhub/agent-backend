@@ -46,8 +46,8 @@ def _make_post(with_media: bool = False) -> SocialPost:
             logo_dark_key = "x_logo_dark",
         ),
         author = SocialAuthor(
-            display_name = "Test User",
-            handle = "testuser",
+            additional_profile_info = "Test User",
+            handle = "@testuser",
         ),
         text = "Hello world",
         source_url = "https://x.com/user/status/123456789",

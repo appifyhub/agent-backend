@@ -88,6 +88,14 @@ class ChatAgentTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.chat_langchain_model = Mock(return_value = Mock(spec = BaseChatModel))
 
+        # setup platform SDK and settings controller for error routing
+        self.mock_platform_sdk = Mock()
+        self.mock_di.platform_bot_sdk = Mock(return_value = self.mock_platform_sdk)
+        self.mock_settings_link = Mock()
+        self.mock_settings_link.settings_link = "https://example.com/settings"
+        self.mock_di.settings_controller = Mock()
+        self.mock_di.settings_controller.create_settings_link = Mock(return_value = self.mock_settings_link)
+
         # Setup method return values
         self.mock_di.llm_tool_library.bind_tools.return_value = Mock(spec = Runnable)
         # noinspection PyPropertyAccess
@@ -160,7 +168,9 @@ class ChatAgentTest(unittest.TestCase):
         result = self.agent.process_commands()
         self.assertTrue(result.is_handled)
         self.assertIsNotNone(result.reply)
-        self.assertIn("Failed to process command.", result.reply.content)
+        self.assertEqual(result.reply.content, "🤯")
+        self.mock_platform_sdk.send_text_message.assert_called_once()
+        self.mock_platform_sdk.send_button_link.assert_called_once()
 
     def test_process_commands_success(self):
         self.mock_di.command_processor.execute.return_value = CommandProcessor.Result(
@@ -316,7 +326,9 @@ class ChatAgentTest(unittest.TestCase):
         )
 
         result = bot_no_key.execute()
-        self.assertIn("Not configured", result.content)
+        self.assertEqual(result.content, "🤯")
+        self.mock_platform_sdk.send_text_message.assert_called_once()
+        self.assertIn("Not configured", self.mock_platform_sdk.send_text_message.call_args[0][1])
 
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
@@ -432,9 +444,10 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
 
         result = self.agent.execute()
-        self.assertIn("🤯", result.content)
-        self.assertIn("Test error", result.content)
-        self.assertIn("/settings", result.content)
+        self.assertEqual(result.content, "🤯")
+        self.mock_platform_sdk.send_text_message.assert_called_once()
+        self.assertIn("Test error", self.mock_platform_sdk.send_text_message.call_args[0][1])
+        self.mock_platform_sdk.send_button_link.assert_called_once()
 
     @patch("features.chat.chat_agent.config")
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
@@ -460,11 +473,13 @@ class ChatAgentTest(unittest.TestCase):
 
         result = self.agent.execute()
 
-        # The OverflowError should be caught and converted to an AIMessage with error content
+        # error is routed to private chat, originating chat gets emoji only
         self.assertIsInstance(result, AIMessage)
-        self.assertIn("⚠️", result.content)  # InternalError emoji
-        self.assertIn("Reached max iterations", result.content)
-        self.assertIn("2", result.content)  # Should include the max iterations count
+        self.assertEqual(result.content, "⚠️")
+        self.mock_platform_sdk.send_text_message.assert_called_once()
+        sent_text = self.mock_platform_sdk.send_text_message.call_args[0][1]
+        self.assertIn("Reached max iterations", sent_text)
+        self.assertIn("2", sent_text)
 
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
@@ -481,7 +496,8 @@ class ChatAgentTest(unittest.TestCase):
 
         result = self.agent.execute()
         self.assertIsNotNone(result)
-        self.assertIn("waitlist", result.content.lower())
+        self.assertEqual(result.content, "🔒")
+        self.assertIn("waitlist", self.mock_platform_sdk.send_text_message.call_args[0][1].lower())
 
     @patch("features.chat.chat_agent.ChatAgent.process_commands")
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
@@ -516,7 +532,8 @@ class ChatAgentTest(unittest.TestCase):
 
         result = self.agent.execute()
         self.assertIsNotNone(result)
-        self.assertIn("policies", result.content.lower())
+        self.assertEqual(result.content, "🔒")
+        self.assertIn("policies", self.mock_platform_sdk.send_text_message.call_args[0][1].lower())
 
     @patch("features.chat.chat_agent.config")
     def test_execute_rolls_back_before_debounce_sleep_and_after_query(self, mock_config):
@@ -1300,3 +1317,67 @@ class ChatAgentTest(unittest.TestCase):
         result = self.agent.execute()
 
         self.assertIsNone(result)
+
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_error_routes_to_private_chat_with_settings_link(self, mock_should_reply, mock_process_commands):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(
+            is_handled = False,
+            reply = None,
+        )
+        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
+            "Some auth error",
+            WAITLIST_ACCOUNT_NOT_ACTIVE,
+        )
+
+        result = self.agent.execute()
+        self.assertEqual(result.content, "🔒")
+        sent_text = self.mock_platform_sdk.send_text_message.call_args[0][1]
+        sent_chat = self.mock_platform_sdk.send_text_message.call_args[0][0]
+        self.assertEqual(sent_chat, "test_chat_id")
+        self.assertIn("🔒", sent_text)
+        self.assertIn("Some auth error", sent_text)
+        self.mock_platform_sdk.send_button_link.assert_called_once_with(
+            "test_chat_id",
+            "https://example.com/settings",
+        )
+
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_error_falls_back_to_inline_when_no_private_chat(self, mock_should_reply, mock_process_commands):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(
+            is_handled = False,
+            reply = None,
+        )
+        self.user.telegram_chat_id = None
+        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
+            "Some auth error",
+            WAITLIST_ACCOUNT_NOT_ACTIVE,
+        )
+
+        result = self.agent.execute()
+        self.assertIn("Some auth error", result.content)
+        self.assertIn("Check settings", result.content)
+        self.mock_platform_sdk.send_text_message.assert_not_called()
+        self.mock_platform_sdk.send_button_link.assert_not_called()
+
+    @patch("features.chat.chat_agent.ChatAgent.process_commands")
+    @patch("features.chat.chat_agent.ChatAgent.should_reply")
+    def test_error_routing_swallows_private_chat_delivery_failure(self, mock_should_reply, mock_process_commands):
+        mock_should_reply.return_value = True
+        mock_process_commands.return_value = ChatAgent.CommandHandlingResult(
+            is_handled = False,
+            reply = None,
+        )
+        self.mock_platform_sdk.send_text_message.side_effect = Exception("Network error")
+        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
+            "Some auth error",
+            WAITLIST_ACCOUNT_NOT_ACTIVE,
+        )
+
+        result = self.agent.execute()
+        self.assertIn("Some auth error", result.content)
+        self.assertIn("Check settings", result.content)
+        self.mock_platform_sdk.send_button_link.assert_not_called()

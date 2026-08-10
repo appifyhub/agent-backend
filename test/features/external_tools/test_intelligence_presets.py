@@ -3,7 +3,7 @@ from dataclasses import fields
 
 from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import (
-    IMAGE_GEN_EDIT_FLUX_2_PRO,
+    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
     VIDEO_GEN_SEEDANCE_2_0_FAST,
@@ -115,7 +115,7 @@ class IntelligencePresetsTest(unittest.TestCase):
         self.assertEqual(default_tool_for(ToolType.videos_gen), VIDEO_GEN_SEEDANCE_2_0_FAST)
 
     def test_image_generation_default(self):
-        self.assertEqual(default_tool_for(ToolType.images_gen), IMAGE_GEN_EDIT_FLUX_2_PRO)
+        self.assertEqual(default_tool_for(ToolType.images_gen), IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO)
 
     def test_default_tool_for_deprecated_raises(self):
         with self.assertRaises(InternalError) as context:

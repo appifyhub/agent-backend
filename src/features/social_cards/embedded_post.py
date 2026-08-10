@@ -105,7 +105,7 @@ def render_embedded_post(
     # Name
     name_x = av_x + EMBED_AVATAR_SIZE + EMBED_AVATAR_GAP
     name_y = cur_y + (EMBED_AVATAR_SIZE + EMBED_NAME_FONT_SIZE) // 2 - 2
-    display_name = post.author.display_name or f"@{post.author.handle}"
+    display_name = post.author.additional_profile_info or post.author.handle
     max_name_w = inner_w - EMBED_AVATAR_SIZE - EMBED_AVATAR_GAP
     name_lines = word_wrap_truncate(display_name, max_name_w, EMBED_NAME_FONT_SIZE, 1)
     name_segments = [(sub, theme.text_color, "", is_emoji) for sub, is_emoji in emoji_split(name_lines[0]) if sub]
