@@ -16,7 +16,7 @@ from features.chat.message.formatted_chat_message import ATTACHMENT_PLACEHOLDER_
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
-from features.integrations.integrations import resolve_agent_user, resolve_external_handle
+from features.integrations.integrations import resolve_agent_user, resolve_external_handle, resolve_private_chat_id
 from util import log
 from util.config import config
 from util.error_codes import (
@@ -131,6 +131,21 @@ class ChatAgent:
             return int(message.message_id) > int(self.__trigger_message_id)
         return True
 
+    def __route_error_to_user(self, error_text: str, emoji: str = "🤯") -> AIMessage:
+        fallback = AIMessage(prompt_resolvers.simple_chat_error(error_text, emoji = emoji))
+        try:
+            chat_type = self.__di.require_invoker_chat_type()
+            private_chat_id = resolve_private_chat_id(self.__di.invoker, chat_type)
+            if not private_chat_id:
+                return fallback
+            self.__di.platform_bot_sdk().send_text_message(private_chat_id, f"{emoji}\n\n{error_text}")
+            settings_link = self.__di.settings_controller.create_settings_link().settings_link
+            self.__di.platform_bot_sdk().send_button_link(private_chat_id, settings_link)
+            return AIMessage(emoji)
+        except Exception as e:
+            log.w("Failed to route error to private chat", e)
+            return fallback
+
     def execute(self) -> AIMessage | None:
         log.t(f"Starting chat completion for '{self.__last_message.content}'")
 
@@ -157,16 +172,14 @@ class ChatAgent:
         try:
             self.__di.authorization_service.require_user_is_chat_ready(self.__di.invoker)
         except ServiceError as e:
-            return AIMessage(prompt_resolvers.simple_chat_error(str(e), emoji = e.emoji))
+            return self.__route_error_to_user(str(e), emoji = e.emoji)
         finally:
             self.__di.rollback_db_session()
 
         # handle access control before doing any LLM processing
         if not self.__configured_tool:
             log.w(f"No configured tool found for #{self.__di.invoker.id.hex}, skipping LLM processing")
-            message = prompt_resolvers.simple_chat_error("Not configured.")
-            answer = AIMessage(message)
-            return answer
+            return self.__route_error_to_user("Not configured.")
 
         # prepare the LLM model and connected tools
         progress_notifier = self.__di.chat_progress_notifier(self.__trigger_message_id)
@@ -219,13 +232,11 @@ class ChatAgent:
                     raise NotFoundError("Couldn't find tools to invoke!", TOOL_NOT_FOUND)
         except ServiceError as e:
             log.e("Chat completion failed (recognized error)", e)
-            message = prompt_resolvers.simple_chat_error(str(e), emoji = e.emoji)
-            return AIMessage(message)
+            return self.__route_error_to_user(str(e), emoji = e.emoji)
         except Exception as e:
             log.e("Chat completion failed (unrecognized error)", e)
             emoji = e.emoji if isinstance(e, ServiceError) else "🤯"
-            message = prompt_resolvers.simple_chat_error(str(e), emoji = emoji)
-            return AIMessage(message)
+            return self.__route_error_to_user(str(e), emoji = emoji)
         finally:
             progress_notifier.stop()
 
@@ -234,21 +245,21 @@ class ChatAgent:
             result = self.__di.command_processor.execute(self.__trigger_message_text)
         except ServiceError as e:
             log.e("Command processing failed (recognized error)", e)
-            message = prompt_resolvers.simple_chat_error(str(e), emoji = e.emoji)
-            return ChatAgent.CommandHandlingResult(is_handled = True, reply = AIMessage(message))
+            message = self.__route_error_to_user(str(e), emoji = e.emoji)
+            return ChatAgent.CommandHandlingResult(is_handled = True, reply = message)
         log.d(f"Command processing result is {result.status}")
         if result.status == "success":
             log.t("Command processed successfully, skipping LLM processing")
             return ChatAgent.CommandHandlingResult(is_handled = True, reply = None)
         if result.status == "failed":
             log.w("Command processing failed, replying with error message")
-            message = prompt_resolvers.simple_chat_error(result.error_message or "Failed to process command.")
-            return ChatAgent.CommandHandlingResult(is_handled = True, reply = AIMessage(message))
+            message = self.__route_error_to_user(result.error_message or "Failed to process command.")
+            return ChatAgent.CommandHandlingResult(is_handled = True, reply = message)
         if result.status == "ignored":
             log.t("No valid command found, continuing with normal processing")
             return ChatAgent.CommandHandlingResult(is_handled = False, reply = None)
-        message = prompt_resolvers.simple_chat_error("Confused with processing command.")
-        return ChatAgent.CommandHandlingResult(is_handled = True, reply = AIMessage(message))
+        message = self.__route_error_to_user("Confused with processing command.")
+        return ChatAgent.CommandHandlingResult(is_handled = True, reply = message)
 
     @classmethod
     def __remove_attachment_placeholder_content(cls, message: AIMessage) -> None:

@@ -55,5 +55,26 @@ if [ -z "$SCHEMA_NAME" ]; then
     exit 1
 fi
 
+DB_HOST="${POSTGRES_HOST:-localhost}"
+DB_PORT=5432
+DB_USER="${POSTGRES_USER:-root}"
+MAX_RETRIES=7
+RETRY_INTERVAL=5
+RETRIES=0
+
+echoinfo "Waiting for database to be ready..." -n
+while [ "$RETRIES" -lt "$MAX_RETRIES" ]; do
+    if pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -q 2>/dev/null; then
+        break
+    fi
+    RETRIES=$((RETRIES + 1))
+    echowarn "Database not ready (attempt $RETRIES/$MAX_RETRIES). Retrying in ${RETRY_INTERVAL}s..."
+    sleep "$RETRY_INTERVAL"
+done
+if [ "$RETRIES" -eq "$MAX_RETRIES" ]; then
+    echoerr "Database did not become ready after $MAX_RETRIES attempts." -n >&2
+    exit 1
+fi
+
 echoinfo "Running the schema migration generator..." -n
 pipenv run alembic revision --autogenerate -m "$SCHEMA_NAME"
