@@ -6,7 +6,14 @@ import pytest
 from PIL import Image
 
 from features.social_cards import card_renderer, card_template, video_card_compositor
-from features.social_cards.card_layout import CARD_INNER_PAD, CARD_OUTER_PAD, PHOTO_CORNER_RADIUS
+from features.social_cards.card_layout import (
+    CARD_INNER_PAD,
+    CARD_OUTER_PAD,
+    FONT_SIZE_BODY,
+    FONT_SIZE_TITLE,
+    PHOTO_CORNER_RADIUS,
+    card_width_from_text,
+)
 from features.social_cards.link_preview import prepare_favicon
 from features.social_cards.social_card_models import (
     SocialAuthor,
@@ -45,7 +52,7 @@ def _brand() -> SocialPlatformBrand:
 def _post() -> SocialPost:
     return SocialPost(
         platform = _brand(),
-        author = SocialAuthor(display_name = "Milos", handle = "milos"),
+        author = SocialAuthor(additional_profile_info = "Milos", handle = "@milos"),
         text = "hello world",
         source_url = "https://x.com/milos/status/1",
     )
@@ -182,14 +189,14 @@ def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path
     )
     embedded_post = SocialPost(
         platform = _brand(),
-        author = SocialAuthor(display_name = "Other", handle = "other"),
+        author = SocialAuthor(additional_profile_info = "Other", handle = "@other"),
         text = "embedded",
         source_url = "https://x.com/other/status/2",
     )
 
     post = SocialPost(
         platform = _brand(),
-        author = SocialAuthor(display_name = "Milos", handle = "milos", avatar_url = "https://example.com/avatar.jpg"),
+        author = SocialAuthor(additional_profile_info = "Milos", handle = "@milos", avatar_url = "https://example.com/avatar.jpg"),
         text = "hello world",
         source_url = "https://x.com/milos/status/1",
         media = [media],
@@ -203,7 +210,7 @@ def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path
         embedded_post = SocialPostRenderAssets(avatar_path = tmp_path / "embedded-avatar.png"),
     )
 
-    assert post.author.handle == "milos"
+    assert post.author.handle == "@milos"
     assert post.media[0].kind == SocialMediaKind.IMAGE
     assert post.link_previews[0].domain == "example.com"
     assert post.embedded_post is embedded_post
@@ -277,6 +284,83 @@ def test_card_template_consumes_neutral_social_post(monkeypatch: pytest.MonkeyPa
 
     assert "hello world" in result.svg
     assert "x.com/milos/status/1" in result.svg
+
+
+def test_titled_post_renders_bold_title_above_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    post = _post()
+    post.title = "Breaking News"
+
+    result = card_template.build_svg(
+        post = post,
+        theme = _theme(),
+        card_width = 800,
+        assets = SocialPostRenderAssets(),
+        short_url = post.source_url,
+    )
+
+    assert f'font-size="{FONT_SIZE_TITLE}"' in result.svg
+    assert "Breaking News" in result.svg
+    title_index = result.svg.index("Breaking News")
+    body_index = result.svg.index("hello world")
+    assert title_index < body_index
+
+
+def test_title_wraps_across_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    post = _post()
+    post.title = " ".join(["extraordinarily-long-title-word"] * 40)
+
+    result = card_template.build_svg(
+        post = post,
+        theme = _theme(),
+        card_width = 800,
+        assets = SocialPostRenderAssets(),
+        short_url = post.source_url,
+    )
+
+    assert result.svg.count(f'font-size="{FONT_SIZE_TITLE}"') > 1
+
+
+def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    post = _post()
+    post.title = "Just a title"
+    post.text = ""
+
+    result = card_template.build_svg(
+        post = post,
+        theme = _theme(),
+        card_width = 800,
+        assets = SocialPostRenderAssets(),
+        short_url = post.source_url,
+    )
+
+    assert "Just a title" in result.svg
+    assert f'font-size="{FONT_SIZE_BODY}"' not in result.svg
+
+
+def test_untitled_post_renders_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    post = _post()
+
+    result = card_template.build_svg(
+        post = post,
+        theme = _theme(),
+        card_width = 800,
+        assets = SocialPostRenderAssets(),
+        short_url = post.source_url,
+    )
+
+    assert post.title is None
+    assert f'font-size="{FONT_SIZE_TITLE}"' not in result.svg
+    assert "hello world" in result.svg
+
+
+def test_card_width_from_text_includes_title_length() -> None:
+    body = "x" * 400
+    assert card_width_from_text(body) == 800
+    assert card_width_from_text(body, "y" * 200) == 1000
 
 
 def test_card_renderer_resolves_local_image_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -18,5 +18,11 @@ if [ "$1" != "-y" ]; then
     fi
 fi
 
+pipenv run python tools/db_wait_for_ready.py
+if [ $? -ne 0 ]; then
+    echoerr "ERROR:    Exiting..." -n >&2
+    exit 1
+fi
+
 echoinfo "INFO:     Running the database upgrade..." -n
 pipenv run alembic upgrade head

@@ -349,9 +349,9 @@ class TwitterStatusFetcher:
                     mime_type = resolve_file_type(uri = url)[0] or "image/png"
                     analyzer = self.__di.computer_vision_analyzer(
                         job_id = f"tweet-{self.__tweet_id}",
-                        image_mime_type = str(mime_type),
+                        image_mime_types = [str(mime_type)],
                         configured_tool = self.__vision_tool,
-                        image_url = url,
+                        image_urls = [url],
                         additional_context = f"[[ Tweet / X Post ]]\n\n{additional_context}",
                     )
                     description = analyzer.execute()
