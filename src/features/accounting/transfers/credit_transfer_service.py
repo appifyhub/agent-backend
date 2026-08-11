@@ -10,6 +10,7 @@ from features.announcements.sys_announcements_service import SysAnnouncementsSer
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import TRANSFER_TOOL
 from features.external_tools.intelligence_presets import default_tool_for
+from features.integrations.integration_config import THE_AGENT
 from features.integrations.integrations import (
     format_handle,
     lookup_user_by_handle,
@@ -76,20 +77,89 @@ class CreditTransferService:
             raise InternalError(f"Credit transfer failed: {e}", TRANSFER_FAILED) from e
 
         # update usage records to reflect this transfer
-        self.__create_usage_records(sender_user, receiver_user, amount, note, started_at)
+        self.__create_transfer_record(sender_user, receiver_user, amount, note, started_at)
         log.i(f"Transfer completed: {sender_user.id} -> {receiver_user.id}, amount = {amount}")
 
         # and finally notify the participants
         self.__try_to_notify_sender(sender_user, recipient_handle, chat_type, amount)
         self.__try_to_notify_receiver(receiver_user, sender_user, chat_type, amount, note)
 
-    def __create_usage_records(
+    def grant_credits(
+        self,
+        recipient: User | UUID,
+        amount: float,
+        commit: bool,
+        note: str | None = None,
+    ) -> User:
+        recipient_id = recipient if isinstance(recipient, UUID) else recipient.id
+        if recipient_id is None:
+            raise NotFoundError("Grant recipient has not been persisted", USER_NOT_FOUND)
+
+        started_at = datetime.now(timezone.utc)
+        log.d(f"Granting {amount} credits to {recipient_id}...")
+
+        def mint_agent_credits(agent_user: User, recipient_user: User) -> tuple[User, User]:
+            return replace(agent_user, credit_balance = agent_user.credit_balance + amount), recipient_user
+
+        def apply_transfer(agent_user: User, recipient_user: User) -> tuple[User, User]:
+            return (
+                replace(agent_user, credit_balance = agent_user.credit_balance - amount),
+                replace(recipient_user, credit_balance = recipient_user.credit_balance + amount),
+            )
+
+        try:
+            # first we mint the credits for The Agent's account
+            self.__di.user_repo.update_locked_pair(
+                first_id = THE_AGENT.id,
+                second_id = recipient_id,
+                update_fn = mint_agent_credits,
+                commit = False,
+            )
+            # then we transfer them to the granted user
+            updated_agent, updated_recipient = self.__di.user_repo.update_locked_pair(
+                first_id = THE_AGENT.id,
+                second_id = recipient_id,
+                update_fn = apply_transfer,
+                commit = False,
+            )
+            # and finally, keep a record of the grant for bookkeeping purposes
+            self.__create_transfer_record(
+                sender_user = updated_agent,
+                receiver_user = updated_recipient,
+                amount = amount,
+                note = note,
+                started_at = started_at,
+                commit = False,
+            )
+            if commit:
+                self.__di.db.commit()
+        except ServiceError:
+            self.__di.db.rollback()
+            raise
+        except Exception as e:
+            self.__di.db.rollback()
+            raise InternalError(f"Credit grant failed for recipient {recipient_id}: {e}", TRANSFER_FAILED) from e
+
+        if commit:
+            self.notify_grant(updated_recipient, amount, note)
+        return updated_recipient
+
+    def notify_grant(self, recipient: User, amount: float, note: str | None = None):
+        log.i(f"Granted {amount} credits to {recipient.id}")
+        message = f"You have been granted {amount} credits"
+        if note:
+            message += f" for \"{note}\""
+        message += ". Enjoy!"
+        self.__try_to_send_notification(recipient, message)
+
+    def __create_transfer_record(
         self,
         sender_user: User,
         receiver_user: User,
         amount: float,
         note: str | None,
         started_at: datetime,
+        commit: bool = True,
     ):
         sender_info = user_to_participant(sender_user)
         receiver_info = user_to_participant(receiver_user)
@@ -119,7 +189,7 @@ class CreditTransferService:
                 counterpart = receiver_info,
             ),
         )
-        self.__di.usage_record_repo.create(record)
+        self.__di.usage_record_repo.create(record, commit = commit)
 
     def __validate_transfer(
         self,

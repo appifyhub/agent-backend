@@ -2,10 +2,11 @@ import base64
 import json
 import unittest
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, PropertyMock, patch
 from uuid import UUID
 
+from db.sql_util import SQLUtil
 from pydantic import SecretStr
 
 from api.authorization_service import AuthorizationService
@@ -34,16 +35,17 @@ from features.external_tools.external_tool_library import (
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
 )
+from features.integrations.integration_config import THE_AGENT
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
 from features.users.user_repo import UserRepository
-from util.config import ConfiguredProduct
+from util.config import ConfiguredProduct, config
 from util.error_codes import (
     NOT_CHAT_ADMIN,
-    POLICY_ACCEPTANCE_REVOCATION_FORBIDDEN,
+    POLICY_ACCEPTANCE_REQUIRED,
     WAITLIST_ACCOUNT_NOT_ACTIVE,
 )
-from util.errors import AuthorizationError, ValidationError
+from util.errors import AuthorizationError, InternalError, ValidationError
 from util.functions import mask_secret
 
 
@@ -92,6 +94,7 @@ class SettingsControllerTest(unittest.TestCase):
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
             group = UserDB.Group.developer,
             created_at = datetime.now().date(),
+            are_policies_accepted = True,
         )
         self.chat_config = ChatConfigDomain(
             chat_id = UUID(int = 1),
@@ -179,6 +182,31 @@ class SettingsControllerTest(unittest.TestCase):
             mock_shortener.execute.return_value = long_url
             return mock_shortener
         self.mock_di.url_shortener = MagicMock(side_effect = mock_url_shortener)
+
+        # Mock locked settings read, persistence, and generic credit grant
+        self.applied_settings_user: User | None = None
+
+        def _get_locked_pair_side_effect(first_id, second_id):
+            return THE_AGENT, self.mock_authorization_service.authorize_for_user.return_value
+
+        self.mock_user_repo.get_locked_pair.side_effect = _get_locked_pair_side_effect
+
+        def _save_user_side_effect(user, commit = True):
+            self.applied_settings_user = user
+            return user
+
+        self.mock_user_repo.save.side_effect = _save_user_side_effect
+
+        def _grant_credits_side_effect(recipient, amount, note = None, *, commit):
+            self.assertFalse(commit)
+            updated = replace(recipient, credit_balance = recipient.credit_balance + amount)
+            self.applied_settings_user = updated
+            return updated
+
+        self.mock_credit_transfer_service = MagicMock()
+        self.mock_credit_transfer_service.grant_credits.side_effect = _grant_credits_side_effect
+        # noinspection PyPropertyAccess
+        self.mock_di.credit_transfer_service = self.mock_credit_transfer_service
 
     @staticmethod
     def create_admin_member(telegram_user, is_manager = True):
@@ -337,7 +365,19 @@ class SettingsControllerTest(unittest.TestCase):
         with self.assertRaises(ValidationError) as context:
             controller.save_user_settings(self.invoker_user.id.hex, payload)
 
-        self.assertEqual(context.exception.error_code, POLICY_ACCEPTANCE_REVOCATION_FORBIDDEN)
+        self.assertEqual(context.exception.error_code, POLICY_ACCEPTANCE_REQUIRED)
+
+    def test_save_user_settings_requires_policy_acceptance_before_other_changes(self):
+        unaccepted_user = replace(self.invoker_user, are_policies_accepted = False)
+        self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
+
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(full_name = "New Name")
+        with self.assertRaises(ValidationError) as context:
+            controller.save_user_settings(unaccepted_user.id.hex, payload)
+
+        self.assertEqual(context.exception.error_code, POLICY_ACCEPTANCE_REQUIRED)
+        self.mock_user_repo.save.assert_not_called()
 
     def test_save_user_settings_waitlisted_activation_when_capacity_available(self):
         waitlisted_user = replace(
@@ -354,7 +394,8 @@ class SettingsControllerTest(unittest.TestCase):
         controller.save_user_settings(waitlisted_user.id.hex, payload)
 
         self.mock_authorization_service.require_waitlisted_user_can_activate.assert_called_once_with(waitlisted_user)
-        saved_payload = self.mock_user_repo.save.call_args.args[0]
+        self.mock_credit_transfer_service.grant_credits.assert_called_once()
+        saved_payload = self.applied_settings_user
         self.assertFalse(saved_payload.is_on_waitlist)
         self.assertFalse(saved_payload.is_invited_to_start)
         self.assertTrue(saved_payload.are_policies_accepted)
@@ -379,6 +420,181 @@ class SettingsControllerTest(unittest.TestCase):
             controller.save_user_settings(waitlisted_user.id.hex, payload)
 
         self.assertEqual(context.exception.error_code, WAITLIST_ACCOUNT_NOT_ACTIVE)
+        self.mock_user_repo.save.assert_not_called()
+        self.mock_credit_transfer_service.grant_credits.assert_not_called()
+        self.mock_di.db.rollback.assert_called_once()
+
+    def test_save_user_settings_accepts_eula_first_time_grants_welcome_credits(self):
+        unaccepted_user = replace(self.invoker_user, are_policies_accepted = False)
+        self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
+
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(are_policies_accepted = True)
+        controller.save_user_settings(unaccepted_user.id.hex, payload)
+
+        expected_recipient = replace(unaccepted_user, are_policies_accepted = True)
+        self.mock_credit_transfer_service.grant_credits.assert_called_once_with(
+            recipient = expected_recipient,
+            amount = config.welcome_credit_grant_amount,
+            note = "Welcome",
+            commit = False,
+        )
+        self.mock_user_repo.get_locked_pair.assert_called_once_with(THE_AGENT.id, unaccepted_user.id)
+        self.mock_user_repo.save.assert_called_once_with(expected_recipient, commit = False)
+        self.mock_di.db.commit.assert_called_once()
+        self.mock_credit_transfer_service.notify_grant.assert_called_once_with(
+            replace(expected_recipient, credit_balance = config.welcome_credit_grant_amount),
+            config.welcome_credit_grant_amount,
+            "Welcome",
+        )
+
+    def test_save_user_settings_acceptance_at_eligibility_boundary_grants_welcome_credits(self):
+        unaccepted_user = replace(
+            self.invoker_user,
+            are_policies_accepted = False,
+            created_at = date.today() - timedelta(days = config.welcome_credit_grant_eligibility_days),
+        )
+        self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
+
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(are_policies_accepted = True)
+        controller.save_user_settings(unaccepted_user.id.hex, payload)
+
+        self.mock_credit_transfer_service.grant_credits.assert_called_once()
+        self.mock_di.db.commit.assert_called_once()
+
+    def test_save_user_settings_repeated_acceptance_no_additional_grant(self):
+        already_accepted_user = replace(self.invoker_user, are_policies_accepted = True)
+        self.mock_authorization_service.authorize_for_user.return_value = already_accepted_user
+
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(are_policies_accepted = True)
+        controller.save_user_settings(already_accepted_user.id.hex, payload)
+
+        self.mock_credit_transfer_service.grant_credits.assert_not_called()
+        self.mock_di.db.commit.assert_called_once()
+
+    def test_save_user_settings_uses_locked_eula_state_for_grant_eligibility(self):
+        stale_user = replace(self.invoker_user, are_policies_accepted = False)
+        persisted_user = replace(stale_user, are_policies_accepted = True)
+        self.mock_authorization_service.authorize_for_user.return_value = stale_user
+        self.mock_user_repo.get_locked_pair.side_effect = None
+        self.mock_user_repo.get_locked_pair.return_value = THE_AGENT, persisted_user
+
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(are_policies_accepted = True)
+        controller.save_user_settings(stale_user.id.hex, payload)
+
+        self.mock_credit_transfer_service.grant_credits.assert_not_called()
+        self.mock_di.db.commit.assert_called_once()
+
+    def test_save_user_settings_acceptance_outside_window_no_grant(self):
+        unaccepted_user = replace(
+            self.invoker_user,
+            are_policies_accepted = False,
+            created_at = date.today() - timedelta(days = config.welcome_credit_grant_eligibility_days + 1),
+        )
+        self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
+
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(are_policies_accepted = True)
+        controller.save_user_settings(unaccepted_user.id.hex, payload)
+
+        self.mock_credit_transfer_service.grant_credits.assert_not_called()
+        self.mock_di.db.commit.assert_called_once()
+
+    def test_save_user_settings_without_eula_acceptance_does_not_invoke_grant(self):
+        controller = SettingsController(self.mock_di)
+        payload = UserSettingsPayload(full_name = "New Name")
+        controller.save_user_settings(self.invoker_user.id.hex, payload)
+
+        self.mock_credit_transfer_service.grant_credits.assert_not_called()
+        self.mock_di.db.commit.assert_not_called()
+        self.mock_user_repo.save.assert_called_once()
+
+    def test_save_user_settings_eula_acceptance_persists_welcome_grant(self):
+        sql = SQLUtil()
+        self.addCleanup(sql.end_session)
+        db = sql.get_session()
+
+        agent_user = sql.user_repo().save(replace(THE_AGENT, credit_balance = 0.0))
+        recipient = sql.user_repo().save(
+            User(
+                full_name = "New User",
+                telegram_username = "new_user",
+                telegram_user_id = 555,
+                telegram_chat_id = "555",
+                group = UserDB.Group.standard,
+                created_at = date.today(),
+                credit_balance = 0.0,
+                are_policies_accepted = False,
+            ),
+        )
+
+        controller = SettingsController(DI(db = db, invoker_id = recipient.id.hex))
+        controller.save_user_settings(
+            recipient.id.hex,
+            UserSettingsPayload(are_policies_accepted = True),
+        )
+
+        reloaded_recipient = sql.user_repo().get(recipient.id)
+        reloaded_agent = sql.user_repo().get(agent_user.id)
+        records = sql.usage_record_repo().get_by_user(agent_user.id)
+        self.assertTrue(reloaded_recipient.are_policies_accepted)
+        self.assertEqual(reloaded_recipient.credit_balance, config.welcome_credit_grant_amount)
+        self.assertEqual(reloaded_agent.credit_balance, 0.0)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].total_cost_credits, config.welcome_credit_grant_amount)
+        self.assertEqual(records[0].note, "Welcome")
+
+    def test_save_user_settings_eula_acceptance_rolls_back_on_persistence_failure(self):
+        sql = SQLUtil()
+        self.addCleanup(sql.end_session)
+        db = sql.get_session()
+
+        agent_user = sql.user_repo().save(replace(THE_AGENT, credit_balance = 0.0))
+        recipient = sql.user_repo().save(
+            User(
+                full_name = "New User",
+                telegram_username = "new_user",
+                telegram_user_id = 555,
+                telegram_chat_id = "555",
+                group = UserDB.Group.standard,
+                created_at = date.today(),
+                credit_balance = 0.0,
+                are_policies_accepted = False,
+            ),
+        )
+
+        class _FailingUsageRecordRepo:
+
+            def __init__(self, real_repo):
+                self.__real = real_repo
+
+            def create(self, record, commit = True):
+                raise RuntimeError("simulated persistence failure")
+
+            def __getattr__(self, name):
+                return getattr(self.__real, name)
+
+        di = DI(db = db, invoker_id = recipient.id.hex)
+        real_usage_record_repo = di.usage_record_repo
+        # noinspection PyProtectedMember
+        di._usage_record_repo = _FailingUsageRecordRepo(real_usage_record_repo)
+
+        controller = SettingsController(di)
+        payload = UserSettingsPayload(are_policies_accepted = True)
+
+        with self.assertRaises(InternalError):
+            controller.save_user_settings(recipient.id.hex, payload)
+
+        db.rollback()
+        reloaded_recipient = sql.user_repo().get(recipient.id)
+        reloaded_agent = sql.user_repo().get(agent_user.id)
+        self.assertFalse(reloaded_recipient.are_policies_accepted)
+        self.assertEqual(reloaded_recipient.credit_balance, 0.0)
+        self.assertEqual(reloaded_agent.credit_balance, 0.0)
+        self.assertEqual(len(sql.usage_record_repo().get_by_user(agent_user.id)), 0)
 
     def test_save_chat_settings_failure_language_mismatch(self):
         controller = SettingsController(self.mock_di)
