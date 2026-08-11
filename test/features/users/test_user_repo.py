@@ -211,6 +211,30 @@ class UserRepositoryTest(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             self.repo.update_locked(uuid4(), lambda user: user)
 
+    def test_update_locked_defers_commit_when_requested(self):
+        created = self.repo.save(self.__user(connect_key = "LOCK-DEFER-01", credit_balance = 10.0))
+
+        updated = self.repo.update_locked(
+            created.id,
+            lambda user: replace(user, credit_balance = 25.0),
+            commit = False,
+        )
+
+        self.assertEqual(updated.credit_balance, 25.0)
+
+        self.sql.get_session().rollback()
+
+        self.assertEqual(self.repo.get(created.id).credit_balance, 10.0)
+
+    def test_get_locked_pair_returns_users_in_requested_order(self):
+        first = self.repo.save(self.__user(connect_key = "PAIR-GET-001"))
+        second = self.repo.save(self.__user(connect_key = "PAIR-GET-002"))
+
+        locked_second, locked_first = self.repo.get_locked_pair(second.id, first.id)
+
+        self.assertEqual(locked_second.id, second.id)
+        self.assertEqual(locked_first.id, first.id)
+
     def test_update_locked_pair_updates_users_in_requested_order(self):
         first = self.repo.save(self.__user(connect_key = "PAIR-KEY-001", credit_balance = 100.0))
         second = self.repo.save(self.__user(connect_key = "PAIR-KEY-002", credit_balance = 25.0))
@@ -230,6 +254,24 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(updated_first.credit_balance, 140.0)
         self.assertEqual(self.repo.get(second.id).credit_balance, -15.0)
         self.assertEqual(self.repo.get(first.id).credit_balance, 140.0)
+
+    def test_update_locked_pair_defers_commit_when_requested(self):
+        first = self.repo.save(self.__user(connect_key = "PAIR-DEFER-001", credit_balance = 100.0))
+        second = self.repo.save(self.__user(connect_key = "PAIR-DEFER-002", credit_balance = 25.0))
+
+        self.repo.update_locked_pair(
+            first.id,
+            second.id,
+            lambda sender, receiver: (
+                replace(sender, credit_balance = 60.0),
+                replace(receiver, credit_balance = 65.0),
+            ),
+            commit = False,
+        )
+        self.sql.get_session().rollback()
+
+        self.assertEqual(self.repo.get(first.id).credit_balance, 100.0)
+        self.assertEqual(self.repo.get(second.id).credit_balance, 25.0)
 
     def test_update_locked_pair_raises_when_missing(self):
         existing = self.repo.save(self.__user(connect_key = "PAIR-MISSING"))

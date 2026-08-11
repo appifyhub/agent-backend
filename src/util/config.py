@@ -69,6 +69,8 @@ class Config(metaclass = Singleton):
     url_shortener_base_url: str
     version: str
     usage_maintenance_fee_credits: float
+    welcome_credit_grant_amount: float
+    welcome_credit_grant_eligibility_days: int
     products_config_path: str
     products: dict[str, ConfiguredProduct]
     logos_config_path: str
@@ -182,6 +184,8 @@ class Config(metaclass = Singleton):
         def_url_shortener_base_url: str = "https://urls.appifyhub.com",
         def_version: str = "dev",
         def_usage_maintenance_fee_credits: float = 0.0,
+        def_welcome_credit_grant_amount: float = 500.0,
+        def_welcome_credit_grant_eligibility_days: int = 7,
         def_products_config_path: str = "config/products.yaml",
         def_logos_config_path: str = "config/logos.yaml",
         def_fonts_dir: str = "src/assets/fonts",
@@ -264,6 +268,8 @@ class Config(metaclass = Singleton):
         self.url_shortener_base_url = self.__env("URL_SHORTENER_BASE_URL", lambda: def_url_shortener_base_url)
         self.version = self.__env("VERSION", lambda: def_version)
         self.usage_maintenance_fee_credits = float(self.__env("USAGE_MAINTENANCE_FEE_CREDITS", lambda: str(def_usage_maintenance_fee_credits)))
+        self.welcome_credit_grant_amount = float(self.__env("WELCOME_CREDIT_GRANT_AMOUNT", lambda: str(def_welcome_credit_grant_amount)))
+        self.welcome_credit_grant_eligibility_days = int(self.__env("WELCOME_CREDIT_GRANT_ELIGIBILITY_DAYS", lambda: str(def_welcome_credit_grant_eligibility_days)))
         self.products_config_path = self.__env("PRODUCTS_CONFIG_PATH", lambda: def_products_config_path)
         self.products = self.__load_products()
         self.logos_config_path = self.__env("LOGOS_CONFIG_PATH", lambda: def_logos_config_path)

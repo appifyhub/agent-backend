@@ -80,6 +80,22 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(persisted.output_video_size, "1k")
         self.assertEqual(persisted.output_video_duration_seconds, 5)
 
+    def test_create_defers_commit_when_requested(self):
+        record = self._create_record()
+
+        self.repo.create(record, commit = False)
+
+        self.sql.get_session().rollback()
+        self.assertEqual(len(self.repo.get_by_user(self.user.id)), 0)
+
+    def test_create_deferred_commit_persists_with_caller_commit(self):
+        record = self._create_record()
+
+        self.repo.create(record, commit = False)
+        self.sql.get_session().commit()
+
+        self.assertEqual(len(self.repo.get_by_user(self.user.id)), 1)
+
     def test_get(self):
         record = self._create_record()
         self.repo.create(record)
