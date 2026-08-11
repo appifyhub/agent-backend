@@ -78,6 +78,10 @@ class UserRepository:
             return self.get_by_whatsapp_phone_number(remote_data.whatsapp_phone_number.get_secret_value())
         return None
 
+    def get_locked_pair(self, first_id: UUID, second_id: UUID) -> tuple[User, User]:
+        first, second = self.__get_locked_db_pair(first_id, second_id)
+        return domain(first), domain(second)
+
     def save(self, user: User, commit: bool = True) -> User:
         existing: UserDB | None = None
         if user.id is not None:
@@ -95,13 +99,15 @@ class UserRepository:
 
         db_model = db(user)
         self._db.add(db_model)
+
         self._db.flush()
         if commit:
             self._db.commit()
         self._db.refresh(db_model)
+
         return domain(db_model)
 
-    def update_locked(self, user_id: UUID, update_fn: Callable[[User], User]) -> User:
+    def update_locked(self, user_id: UUID, update_fn: Callable[[User], User], commit: bool = True) -> User:
         db_model = self._db.query(UserDB).filter(
             UserDB.id == user_id,
         ).with_for_update().first()
@@ -110,7 +116,11 @@ class UserRepository:
 
         updated = update_fn(domain(db_model))
         apply_to_db_model(updated, db_model)
-        self._db.commit()
+
+        self._db.flush()
+        if commit:
+            self._db.commit()
+
         self._db.refresh(db_model)
         return domain(db_model)
 
@@ -119,7 +129,22 @@ class UserRepository:
         first_id: UUID,
         second_id: UUID,
         update_fn: Callable[[User, User], tuple[User, User]],
+        commit: bool = True,
     ) -> tuple[User, User]:
+        first, second = self.__get_locked_db_pair(first_id, second_id)
+        updated_first, updated_second = update_fn(domain(first), domain(second))
+        apply_to_db_model(updated_first, first)
+        apply_to_db_model(updated_second, second)
+
+        self._db.flush()
+        if commit:
+            self._db.commit()
+
+        self._db.refresh(first)
+        self._db.refresh(second)
+        return domain(first), domain(second)
+
+    def __get_locked_db_pair(self, first_id: UUID, second_id: UUID) -> tuple[UserDB, UserDB]:
         # rows are locked in UUID order to avoid deadlocks
         lock_order = sorted([first_id, second_id])
 
@@ -133,18 +158,10 @@ class UserRepository:
         if first is None or second is None:
             raise NotFoundError("User not found", USER_NOT_FOUND)
 
-        # locks might have come out of order, but callbacks receive caller order; let's check which is which
+        # locks might have come out of order, but callbacks need the original order; let's check which is which
         mapped_first = first if first.id == first_id else second
         mapped_second = second if second.id == second_id else first
-
-        updated_first, updated_second = update_fn(domain(mapped_first), domain(mapped_second))
-        apply_to_db_model(updated_first, mapped_first)
-        apply_to_db_model(updated_second, mapped_second)
-
-        self._db.commit()
-        self._db.refresh(mapped_first)
-        self._db.refresh(mapped_second)
-        return domain(mapped_first), domain(mapped_second)
+        return mapped_first, mapped_second
 
     def delete(self, user_id: UUID, commit: bool = True) -> User | None:
         db_model = self._db.query(UserDB).filter(
@@ -154,6 +171,7 @@ class UserRepository:
             return None
         snapshot = domain(db_model)
         self._db.delete(db_model)
+
         self._db.flush()
         if commit:
             self._db.commit()

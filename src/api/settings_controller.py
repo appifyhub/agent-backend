@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Literal, TypeAlias, get_args
 from uuid import UUID
 
@@ -22,6 +22,7 @@ from features.chat.membership.chat_membership import ChatMembership
 from features.external_tools.external_tool_library import ALL_EXTERNAL_TOOLS
 from features.external_tools.external_tool_provider_library import ALL_PROVIDERS
 from features.external_tools.intelligence_presets import get_all_presets
+from features.integrations.integration_config import THE_AGENT
 from features.integrations.integrations import is_own_chat, resolve_agent_user, resolve_external_handle, resolve_external_id
 from features.users.user import User
 from util import log
@@ -36,9 +37,10 @@ from util.error_codes import (
     INVALID_TOOL_CHOICE,
     MISSING_CHAT_CONTEXT,
     NO_PRIVATE_CHAT,
-    POLICY_ACCEPTANCE_REVOCATION_FORBIDDEN,
+    POLICY_ACCEPTANCE_REQUIRED,
+    USER_UPDATE_FAILED,
 )
-from util.errors import AuthorizationError, ConfigurationError, ValidationError
+from util.errors import AuthorizationError, ConfigurationError, InternalError, ServiceError, ValidationError
 
 SettingsType: TypeAlias = Annotated[str, Literal["user", "chat", "intelligence"]]
 InvokerType: TypeAlias = Annotated[str, Literal["creator", "administrator"]]
@@ -290,29 +292,66 @@ class SettingsController:
         log.d(f"Saving user settings for user '{user_id_hex}'")
         user = self.__di.authorization_service.authorize_for_user(self.__di.invoker, user_id_hex)
 
-        # validate tool choices
+        # validate the given tool choices
         all_tool_ids = {tool.id for tool in ALL_EXTERNAL_TOOLS}
         for key, value in payload.model_dump().items():
             if key.startswith("tool_choice_") and value and (value not in all_tool_ids):
                 raise ValidationError(f"Invalid tool choice '{value}' for '{key}'. Tool is not recognized.", INVALID_TOOL_CHOICE)
 
-        if payload.are_policies_accepted is False:
-            raise ValidationError(
-                "Policy acceptance cannot be revoked once accepted",
-                POLICY_ACCEPTANCE_REVOCATION_FORBIDDEN,
-            )
-        should_activate_waitlisted_user = (
-            payload.are_policies_accepted is True and
-            user.is_on_waitlist
-        )
-        if should_activate_waitlisted_user:
-            self.__di.authorization_service.require_waitlisted_user_can_activate(user)
+        # policies must be accepted before any settings changes (and cannot be revoked)
+        if (
+            (user.are_policies_accepted is False and payload.are_policies_accepted is None)
+            or payload.are_policies_accepted is False
+        ):
+            raise ValidationError("Policy acceptance is required before updating settings and cannot be revoked", POLICY_ACCEPTANCE_REQUIRED)  # ruff: ignore[line-too-long]
 
-        updated_user = apply_to_domain(payload, user)
-        if should_activate_waitlisted_user:
-            updated_user = replace(updated_user, is_on_waitlist = False, is_invited_to_start = False)
-        self.__di.user_repo.save(updated_user)
+        if payload.are_policies_accepted is None:
+            updated_user = apply_to_domain(payload, user)
+            self.__di.user_repo.save(updated_user)
+            log.i("User settings saved")
+            return
+
+        try:
+            # now the policies are set to true (maybe a change, maybe as-as from before)
+            _, locked_user = self.__di.user_repo.get_locked_pair(THE_AGENT.id, user.id)
+            should_activate_waitlisted_user = (locked_user.are_policies_accepted is False) and locked_user.is_on_waitlist
+            if should_activate_waitlisted_user:
+                self.__di.authorization_service.require_waitlisted_user_can_activate(locked_user)
+
+            updated_user = apply_to_domain(payload, locked_user)
+            if should_activate_waitlisted_user:
+                updated_user = replace(updated_user, is_on_waitlist = False, is_invited_to_start = False)
+            updated_user = self.__di.user_repo.save(updated_user, commit = False)
+
+            should_grant_welcome_credits = self.__should_grant_welcome_credits(locked_user, updated_user)
+            if should_grant_welcome_credits:
+                updated_user = self.__di.credit_transfer_service.grant_credits(
+                    recipient = updated_user,
+                    amount = config.welcome_credit_grant_amount,
+                    note = "Welcome",
+                    commit = False,
+                )
+            self.__di.db.commit()
+
+            if should_grant_welcome_credits:
+                self.__di.credit_transfer_service.notify_grant(updated_user, config.welcome_credit_grant_amount, "Welcome")
+        except ServiceError:
+            self.__di.db.rollback()
+            raise
+        except Exception as e:
+            self.__di.db.rollback()
+            raise InternalError(f"Failed to save user settings for '{user_id_hex}': {e}", USER_UPDATE_FAILED) from e
+
         log.i("User settings saved")
+
+    @staticmethod
+    def __should_grant_welcome_credits(current_user: User, updated_user: User) -> bool:
+        return (
+            current_user.are_policies_accepted is False
+            and updated_user.are_policies_accepted is True
+            and current_user.created_at is not None
+            and (date.today() - current_user.created_at).days <= config.welcome_credit_grant_eligibility_days
+        )
 
     def __is_sponsored(self, user_id: UUID) -> bool:
         return bool(self.__di.sponsorship_repo.get_all_by_receiver(user_id))

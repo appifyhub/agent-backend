@@ -22,10 +22,14 @@ class UsageRecordRepository:
         db_model = self._db.query(UsageRecordDB).filter(UsageRecordDB.id == record_id).first()
         return domain(db_model)
 
-    def create(self, record: UsageRecord) -> UsageRecord:
+    def create(self, record: UsageRecord, commit: bool = True) -> UsageRecord:
         db_model = db(record)
         self._db.add(db_model)
-        self._db.commit()
+
+        self._db.flush()
+        if commit:
+            self._db.commit()
+
         self._db.refresh(db_model)
         return domain(db_model)
 
