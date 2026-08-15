@@ -15,13 +15,14 @@ from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
 from features.chat.telegram.model.attachment.document import Document
+from features.chat.telegram.model.attachment.photo_size import PhotoSize
 from features.chat.telegram.model.attachment.video import Video
 from features.chat.telegram.model.chat import Chat
 from features.chat.telegram.model.message import Message
 from features.chat.telegram.model.text_quote import TextQuote
 from features.chat.telegram.model.update import Update
 from features.chat.telegram.model.user import User as TelegramUser
-from features.chat.telegram.telegram_chat_inbound_service import TelegramChatInboundService
+from features.chat.telegram.telegram_chat_inbound_service import TELEGRAM_MAX_DOWNLOAD_FILE_SIZE_BYTES, TelegramChatInboundService
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import resolve_agent_user
 from features.users.user import User
@@ -218,6 +219,38 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.attachments[0].external_id, "video1")
         self.assertIsNone(result.attachments[0].mime_type)
         self.mock_di.telegram_bot_api.download_file.assert_called_once_with("video1")
+
+    def test_ingest_message_with_oversized_photo_skips_attachment_download(self):
+        message = Message(
+            chat = Chat(id = 1, type = "private"),
+            message_id = 10,
+            date = int(datetime.now().timestamp()),
+            caption = "Oversized photo caption",
+            photo = [
+                PhotoSize(
+                    file_id = "photo-too-large",
+                    file_unique_id = "unique-photo",
+                    width = 4096,
+                    height = 4096,
+                    file_size = TELEGRAM_MAX_DOWNLOAD_FILE_SIZE_BYTES + 1,
+                ),
+            ],
+            **{
+                "from": TelegramUser(
+                    id = 1,
+                    first_name = "New User",
+                    username = "username",
+                    is_bot = False,
+                ),
+            },
+        )
+
+        result = self.resolver.ingest_message(message)
+
+        self.assertEqual(result.raw_message_text, "Oversized photo caption")
+        self.assertEqual(result.attachments, [])
+        self.assertEqual(result.message.text, "Oversized photo caption")
+        self.mock_di.telegram_bot_api.download_file.assert_not_called()
 
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
