@@ -24,6 +24,8 @@ from util.config import config
 from util.error_codes import MEDIA_DOWNLOAD_FAILED, PLATFORM_MAPPING_FAILED
 from util.errors import ExternalServiceError, InternalError
 
+TELEGRAM_MAX_DOWNLOAD_FILE_SIZE_BYTES = 20 * 1024 * 1024
+
 
 class TelegramChatInboundService:
 
@@ -65,14 +67,14 @@ class TelegramChatInboundService:
             if mapped_attachments := mapper.map_attachments(message):
                 if stored_author is None:
                     raise InternalError("Telegram attachment cannot be stored without a message author", PLATFORM_MAPPING_FAILED)
-                stored_attachments = [
-                    self.store_attachment(
+                for attachment in mapped_attachments:
+                    stored_attachment = self.store_attachment(
                         mapped_data = attachment,
                         chat_id = stored_chat.chat_id,
                         uploader_user_id = stored_author.id,
                     )
-                    for attachment in mapped_attachments
-                ]
+                    if stored_attachment:
+                        stored_attachments.append(stored_attachment)
 
         # finally we map, format, and store the message
         mapped_message = mapper.map_message(message)
@@ -143,9 +145,12 @@ class TelegramChatInboundService:
         mapped_data: ChatAttachmentRemoteData,
         chat_id: UUID,
         uploader_user_id: UUID,
-    ) -> ChatAttachment:
+    ) -> ChatAttachment | None:
         log.t(f"  Storing chat message attachment: {mapped_data}")
         attachment = from_remote_data_attachment(mapped_data, chat_id, uploader_user_id)
+        if attachment.size and attachment.size > TELEGRAM_MAX_DOWNLOAD_FILE_SIZE_BYTES:
+            log.w("  Skipping Telegram attachment '{attachment.external_id}' because it is too large to download: {attachment.size} bytes")  # ruff: ignore[line-too-long]
+            return None
         content = self.__di.telegram_bot_api.download_file(attachment.external_id)
         if not content:
             raise ExternalServiceError(f"Couldn't download Telegram file '{attachment.external_id}'", MEDIA_DOWNLOAD_FAILED)
