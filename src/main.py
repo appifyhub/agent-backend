@@ -588,7 +588,9 @@ if __name__ == "__main__":
         reload = False
         # and run the database migrations
         print("INFO:     Running database migrations...")
-        subprocess.run(["./tools/db_apply_migration", "-y"], check = True)
+        migration_env = os.environ.copy()
+        migration_env.pop("PYTHONPATH", None)
+        subprocess.run(["./tools/db_apply_migration", "-y"], check = True, env = migration_env)
         print("INFO:     Launching in production mode...")
     uvicorn_log_level = "debug" if config.log_level == "local" else config.log_level
 

@@ -85,11 +85,11 @@ Once the environment has been configured, you can run the main code.
 
 You can use the pre-built scripts located in the `tools` directory. Those are easy-to-use, single-shot Shell executables that require no developer setup.
 
-To install dependencies and run the service in production mode:
+To install dependencies and exercise the production startup path locally (without an OTLP Collector):
 
 ```bash
 pipenv install
-pipenv run python src/main.py
+OTEL_SDK_DISABLED=true pipenv run python tools/run_instrumented.py
 ```
 
 To install dependencies and run the service in development mode:
@@ -98,6 +98,39 @@ To install dependencies and run the service in development mode:
 pipenv install --dev
 pipenv run python src/main.py --dev
 ```
+
+#### OpenTelemetry
+
+The production container starts through `tools/run_instrumented.py`, which reads the application version from `pyproject.toml`, adds it to the OpenTelemetry resource as `service.version`, and then launches `opentelemetry-instrument` before importing the application. The published image defaults `OTEL_SDK_DISABLED=true`, so self-hosted instances do not require a Collector. Enable telemetry only when a reachable OTLP Collector is configured.
+
+Real Kubernetes deployments could use:
+
+```bash
+OTEL_SDK_DISABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-...-svc.cluster.local:4318
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_SERVICE_NAME=your-service-name-here
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=<environment>
+```
+
+The image also provides bounded batch and exporter defaults through standard OpenTelemetry variables. Every default can be overridden at deployment time:
+
+| Variable | Image default | Purpose |
+| --- | --- | --- |
+| `OTEL_SDK_DISABLED` | `true` | Enables or disables all SDK telemetry |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Trace exporter |
+| `OTEL_METRICS_EXPORTER` | `otlp` | Metrics exporter |
+| `OTEL_LOGS_EXPORTER` | `none` | Prevents duplicate log export; Kubernetes collects stdout |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP transport |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | `5000` | Export timeout in milliseconds |
+| `OTEL_BSP_MAX_QUEUE_SIZE` | `512` | Maximum queued spans |
+| `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `128` | Maximum spans per export batch |
+| `OTEL_BSP_SCHEDULE_DELAY` | `5000` | Trace batch interval in milliseconds |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric export interval in milliseconds |
+| `OTEL_METRIC_EXPORT_TIMEOUT` | `5000` | Metric export timeout in milliseconds |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Default trace sampling policy |
+
+Automatic instrumentation provides technical request, dependency and runtime telemetry. Product metrics such as users, credits, model tokens or business events require explicit domain definitions and are not emitted automatically.
 
 To run lint checks and auto-fix them:
 
