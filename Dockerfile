@@ -19,5 +19,19 @@ RUN pipenv install --deploy --ignore-pipfile --verbose \
     && find /usr/local/lib/python3.12 -type f -name "*.pyc" -delete \
     && rm -rf /root/.cache/pip /root/.cache/pipenv
 
+ENV OTEL_SDK_DISABLED=true \
+    OTEL_TRACES_EXPORTER=otlp \
+    OTEL_METRICS_EXPORTER=otlp \
+    OTEL_LOGS_EXPORTER=none \
+    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+    OTEL_EXPORTER_OTLP_TIMEOUT=5000 \
+    OTEL_BSP_MAX_QUEUE_SIZE=512 \
+    OTEL_BSP_MAX_EXPORT_BATCH_SIZE=128 \
+    OTEL_BSP_SCHEDULE_DELAY=5000 \
+    OTEL_METRIC_EXPORT_INTERVAL=60000 \
+    OTEL_METRIC_EXPORT_TIMEOUT=5000 \
+    OTEL_TRACES_SAMPLER=parentbased_always_on \
+    OTEL_PYTHON_LOG_CORRELATION=true
+
 # Set the entrypoint command
-CMD ["pipenv", "run", "python", "src/main.py"]
+CMD ["pipenv", "run", "python", "tools/run_instrumented.py"]

@@ -1,8 +1,11 @@
+import json
+import os
 import sys
 import traceback
+from datetime import UTC, datetime
 from typing import Any
 
-from uvicorn.server import logger
+from opentelemetry import trace
 
 from util.config import config
 from util.errors import ServiceError
@@ -60,41 +63,50 @@ def _format_args(*args: Any) -> tuple[str, list[Exception]]:
     return "\n ├─ ".join(formatted_parts), exceptions
 
 
+def _structured_record(level: str, message: str, exceptions: list[Exception]) -> str:
+    record: dict[str, Any] = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "severity": "ERROR" if exceptions else level,
+        "message": _scrub_secrets(message),
+        "logger": "application",
+        "service.name": os.getenv("OTEL_SERVICE_NAME", "the-agent"),
+        "service.version": config.version,
+    }
+
+    if exceptions:
+        record["exceptions"] = [
+            {
+                "type": type(exception).__name__,
+                "message": _scrub_secrets(str(exception)),
+                "stacktrace": _scrub_secrets("".join(traceback.format_exception(exception)).strip()),
+            }
+            for exception in exceptions
+        ]
+
+    span_context = trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        record["trace_id"] = format(span_context.trace_id, "032x")
+        record["span_id"] = format(span_context.span_id, "016x")
+
+    return json.dumps(record, ensure_ascii = False, separators = (",", ":"))
+
+
 def _log_message(level: str, message: str, exceptions: list[Exception]):
     if not _should_log(level) and not exceptions:
         return
 
     message = _scrub_secrets(message)
 
-    # for uvicorn, use the uvicorn logger
     if config.log_level != "local":
         try:
-            # log the base message only if it should be logged
-            if _should_log(level):
-                match level:
-                    case "TRACE" | "DEBUG":
-                        logger.debug(message)
-                    case "INFO":
-                        logger.info(message)
-                    case "WARN":
-                        logger.warning(message)
-                    case "ERROR":
-                        logger.error(message)
-            # log the exceptions (message + traceback)
-            for exception in exceptions:
-                logger.error(f"Message: {_scrub_secrets(str(exception))}")
-                if trace := exception.__traceback__:
-                    trace_lines = traceback.format_tb(trace)
-                    indented_trace = "".join(trace_lines).strip()
-                    logger.error(f"Details:\n └─ {indented_trace}")
+            print(_structured_record(level, message, exceptions), flush = True)
         except Exception:
-            # fallback to local printing if uvicorn logger fails
             if _should_log(level):
                 print(f"[{level[0]}] {message}")
             for exception in exceptions:
                 print(f" ‼  Message: {_scrub_secrets(str(exception))}", file = sys.stderr)
-                if trace := exception.__traceback__:
-                    trace_lines = traceback.format_tb(trace)
+                if trace_value := exception.__traceback__:
+                    trace_lines = traceback.format_tb(trace_value)
                     indented_trace = "".join(trace_lines).strip()
                     print(indented_trace, file = sys.stderr)
         return
