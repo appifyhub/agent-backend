@@ -61,6 +61,8 @@ if TYPE_CHECKING:
     from features.chat.membership.chat_membership_repo import ChatMembershipRepository
     from features.chat.membership.chat_membership_service import ChatMembershipService
     from features.chat.message.chat_message_repo import ChatMessageRepository
+    from features.chat.message_burst_repo import ChatMessageBurstRepository
+    from features.chat.message_burst_service import MessageBurstService
     from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
     from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
     from features.chat.telegram.telegram_chat_inbound_service import TelegramChatInboundService
@@ -124,6 +126,7 @@ class DI:
     _chat_membership_repo: "ChatMembershipRepository | None"
     _chat_membership_service: "ChatMembershipService | None"
     _chat_message_repo: "ChatMessageRepository | None"
+    _chat_message_burst_repo: "ChatMessageBurstRepository | None"
     _chat_attachment_repo: "ChatAttachmentRepository | None"
     _sponsorship_repo: "SponsorshipRepository | None"
     _tools_cache_repo: "ToolsCacheRepository | None"
@@ -132,6 +135,7 @@ class DI:
     _purchase_record_repo: "PurchaseRecordRepository | None"
     # Services
     _cleanup_service: "CleanupService | None"
+    _message_burst_service: "MessageBurstService | None"
     _chat_attachment_service: "ChatAttachmentService | None"
     _attachment_storage: "AttachmentStorage | None"
     _sponsorship_service: "SponsorshipService | None"
@@ -187,6 +191,7 @@ class DI:
         self._chat_membership_repo = None
         self._chat_membership_service = None
         self._chat_message_repo = None
+        self._chat_message_burst_repo = None
         self._chat_attachment_repo = None
         self._sponsorship_repo = None
         self._tools_cache_repo = None
@@ -195,6 +200,7 @@ class DI:
         self._purchase_record_repo = None
         # Services
         self._cleanup_service = None
+        self._message_burst_service = None
         self._chat_attachment_service = None
         self._attachment_storage = None
         self._sponsorship_service = None
@@ -397,6 +403,13 @@ class DI:
         return self._chat_message_repo
 
     @property
+    def chat_message_burst_repo(self) -> "ChatMessageBurstRepository":
+        if self._chat_message_burst_repo is None:
+            from features.chat.message_burst_repo import ChatMessageBurstRepository
+            self._chat_message_burst_repo = ChatMessageBurstRepository(self.db)
+        return self._chat_message_burst_repo
+
+    @property
     def chat_attachment_repo(self) -> "ChatAttachmentRepository":
         if self._chat_attachment_repo is None:
             from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
@@ -446,6 +459,13 @@ class DI:
             from features.cleanup.cleanup_service import CleanupService
             self._cleanup_service = CleanupService(self)
         return self._cleanup_service
+
+    @property
+    def message_burst_service(self) -> "MessageBurstService":
+        if self._message_burst_service is None:
+            from features.chat.message_burst_service import MessageBurstService
+            self._message_burst_service = MessageBurstService(self)
+        return self._message_burst_service
 
     @property
     def chat_attachment_service(self) -> "ChatAttachmentService":
@@ -827,11 +847,21 @@ class DI:
         self,
         trigger_message_text: str,
         trigger_message_id: str,
-        trigger_message_sent_at: datetime,
+        cutoff_sent_at: datetime,
+        cutoff_ingestion_order: int,
+        explicitly_addressed: bool,
         configured_tool: ConfiguredTool | None,
     ) -> "ChatAgent":
         from features.chat.chat_agent import ChatAgent
-        return ChatAgent(trigger_message_text, trigger_message_id, trigger_message_sent_at, configured_tool, self)
+        return ChatAgent(
+            trigger_message_text = trigger_message_text,
+            trigger_message_id = trigger_message_id,
+            configured_tool = configured_tool,
+            di = self,
+            cutoff_sent_at = cutoff_sent_at,
+            cutoff_ingestion_order = cutoff_ingestion_order,
+            explicitly_addressed = explicitly_addressed,
+        )
 
     def web_fetcher(
         self,

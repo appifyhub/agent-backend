@@ -1,11 +1,14 @@
 import unittest
 from datetime import datetime, timedelta
+from itertools import count
 from unittest.mock import MagicMock, Mock, patch
 
 from db.sql_util import SQLUtil
 from pydantic import SecretStr
+from sqlalchemy import Connection, event
 
 from db.model.chat_config import ChatConfigDB
+from db.model.chat_message import ChatMessageDB
 from db.model.user import UserDB
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
@@ -30,6 +33,26 @@ from features.users.user_remote_data import UserRemoteData
 from util.config import config
 from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
+
+_ingestion_order = count(1)
+
+
+def _assign_sqlite_ingestion_order(
+    _mapper,
+    connection: Connection,
+    target: ChatMessageDB,
+) -> None:
+    if connection.dialect.name != "sqlite" or target.ingestion_order is not None:
+        return
+    target.ingestion_order = next(_ingestion_order)
+
+
+def setUpModule() -> None:
+    event.listen(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
+
+
+def tearDownModule() -> None:
+    event.remove(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
 
 
 class TelegramChatInboundServiceTest(unittest.TestCase):
@@ -515,6 +538,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         result = self.resolver.store_message(mapped_data, formatted_text, chat.chat_id, None)
         saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
 
+        assert result is not None
         self.assertEqual(result, saved_message)
         self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)

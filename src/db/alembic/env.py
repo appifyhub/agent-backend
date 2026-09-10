@@ -20,6 +20,9 @@ from db.model.chat_membership import ChatMembershipDB  # used by alembic  # noqa
 from db.model.chat_message import ChatMessageDB  # used by alembic  # noqa: F401
 
 # noinspection PyUnresolvedReferences
+from db.model.chat_message_burst import ChatMessageBurstDB  # used by alembic  # noqa: F401
+
+# noinspection PyUnresolvedReferences
 from db.model.price_alert import PriceAlertDB  # used by alembic  # noqa: F401
 
 # noinspection PyUnresolvedReferences

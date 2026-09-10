@@ -11,6 +11,7 @@ class CleanupServiceTest(unittest.TestCase):
         attachments_deleted = 0,
         orphaned_attachments_deleted = 0,
         messages_deleted = 0,
+        message_bursts_deleted = 0,
         cache_cleared = 0,
         usage_deleted = 0,
         alerts_deleted = 0,
@@ -20,6 +21,7 @@ class CleanupServiceTest(unittest.TestCase):
         di.chat_attachment_service.cleanup_old_attachments.return_value = attachments_deleted
         di.chat_attachment_service.cleanup_orphaned_attachments.return_value = orphaned_attachments_deleted
         di.chat_message_repo.delete_older_than.return_value = messages_deleted
+        di.chat_message_burst_repo.delete_older_than.return_value = message_bursts_deleted
         di.tools_cache_repo.delete_expired.return_value = cache_cleared
         di.usage_record_repo.delete_older_than.return_value = usage_deleted
         di.price_alert_repo.delete_stale.return_value = alerts_deleted
@@ -32,6 +34,7 @@ class CleanupServiceTest(unittest.TestCase):
             attachments_deleted = 5,
             orphaned_attachments_deleted = 2,
             messages_deleted = 10,
+            message_bursts_deleted = 4,
             cache_cleared = 3,
             usage_deleted = 7,
             alerts_deleted = 2,
@@ -44,6 +47,7 @@ class CleanupServiceTest(unittest.TestCase):
         self.assertEqual(result.attachments_deleted, 5)
         self.assertEqual(result.orphaned_attachments_deleted, 2)
         self.assertEqual(result.messages_deleted, 10)
+        self.assertEqual(result.message_bursts_deleted, 4)
         self.assertEqual(result.cache_entries_cleared, 3)
         self.assertEqual(result.usage_records_deleted, 7)
         self.assertEqual(result.price_alerts_deleted, 2)

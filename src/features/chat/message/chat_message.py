@@ -12,3 +12,4 @@ class ChatMessage:
     author_id: UUID | None = None
     sent_at: datetime = field(default_factory = datetime.now)
     is_temporary: bool = False
+    ingestion_order: int | None = None

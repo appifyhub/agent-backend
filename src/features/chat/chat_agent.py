@@ -1,5 +1,4 @@
 import random
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
@@ -10,7 +9,6 @@ from langchain_core.runnables import Runnable
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.command_processor import is_known_command
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.formatted_chat_message import ATTACHMENT_PLACEHOLDER_REGEX
 from features.external_tools.configured_tool import ConfiguredTool
@@ -18,7 +16,6 @@ from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle, resolve_private_chat_id
 from util import log
-from util.config import config
 from util.error_codes import (
     LLM_UNEXPECTED_RESPONSE,
     NOT_CHAT_MEMBER,
@@ -42,8 +39,7 @@ class ChatAgent:
 
     __messages: list[BaseMessage]
     __trigger_message_text: str  # excludes the resolver formatting
-    __trigger_message_id: str
-    __trigger_message_sent_at: datetime
+    __explicitly_addressed: bool
     __configured_tool: ConfiguredTool | None
     __max_iterations: int
     __di: DI
@@ -52,7 +48,9 @@ class ChatAgent:
         self,
         trigger_message_text: str,
         trigger_message_id: str,
-        trigger_message_sent_at: datetime,
+        cutoff_sent_at: datetime,
+        cutoff_ingestion_order: int,
+        explicitly_addressed: bool,
         configured_tool: ConfiguredTool | None,
         di: DI,
     ):
@@ -65,7 +63,7 @@ class ChatAgent:
         # initialize the basic properties
         self.__trigger_message_text = trigger_message_text
         self.__trigger_message_id = trigger_message_id
-        self.__trigger_message_sent_at = trigger_message_sent_at
+        self.__explicitly_addressed = explicitly_addressed
         self.__max_iterations = invoker_membership.max_iterations
         self.__configured_tool = configured_tool
         self.__di = di
@@ -74,6 +72,8 @@ class ChatAgent:
         past_messages = di.chat_message_repo.get_latest_by_chat(
             chat_id = target_chat.chat_id,
             limit = invoker_membership.max_chat_history_depth,
+            cutoff_sent_at = cutoff_sent_at,
+            cutoff_ingestion_order = cutoff_ingestion_order,
         )
         langchain_messages = [self.__map_to_langchain(di, message, chat_type) for message in past_messages][::-1]
         system_prompt = prompt_resolvers.chat(
@@ -102,35 +102,6 @@ class ChatAgent:
     def __last_message(self) -> BaseMessage:
         return self.__messages[-1]
 
-    def __is_superseded_by_newer_invoker_message(self) -> bool:
-        if config.chat_debounce_delay_s <= 0.0:
-            return False
-        self.__di.rollback_db_session()  # we release the DB before sleeping
-        time.sleep(config.chat_debounce_delay_s)
-        chat_id = self.__di.require_invoker_chat().chat_id
-        # iterate newest-to-oldest, skipping messages from other authors, to find the
-        # most recent message from this invoker - only the same author messages form a burst
-        try:
-            recent_messages = self.__di.chat_message_repo.get_latest_by_chat(chat_id, limit = 10)
-            for message in recent_messages:
-                if message.author_id == self.__di.invoker.id and self.__is_newer_message(message):
-                    log.d(f"Message burst detected: skipping message '{self.__trigger_message_id}'")
-                    return True
-            return False
-        finally:
-            self.__di.rollback_db_session()
-
-    def __is_newer_message(self, message: ChatMessage) -> bool:
-        if message.sent_at > self.__trigger_message_sent_at:
-            return True
-        if message.sent_at < self.__trigger_message_sent_at:
-            return False
-        if message.message_id == self.__trigger_message_id:
-            return False
-        if message.message_id.isdigit() and self.__trigger_message_id.isdigit():
-            return int(message.message_id) > int(self.__trigger_message_id)
-        return True
-
     def __route_error_to_user(self, error_text: str, emoji: str = "🤯") -> AIMessage:
         fallback = AIMessage(prompt_resolvers.simple_chat_error(error_text, emoji = emoji))
         try:
@@ -153,18 +124,6 @@ class ChatAgent:
         if not self.__is_dispatchable():
             return None
 
-        # commands run eagerly when the bot is directly addressed, so a later
-        # message in the same burst does not swallow the command
-        if self.__is_addressable():
-            command_handling = self.process_commands()
-            if command_handling.is_handled:
-                return command_handling.reply
-
-        # burst gate: only the latest message in a burst reaches LLM processing
-        if self.__is_superseded_by_newer_invoker_message():
-            return None
-
-        # full reply decision runs on the burst winner with burst-aware mention
         if not self.should_reply():
             return None
 
@@ -308,64 +267,7 @@ class ChatAgent:
         is_not_recursive = invoker_handle != agent_handle
         return has_content and is_not_recursive
 
-    def __is_addressable(self) -> bool:
-        chat_type = self.__di.require_invoker_chat_type()
-        agent_user = resolve_agent_user(chat_type)
-        agent_handle = resolve_external_handle(agent_user, chat_type)
-        trigger_message_text = self.__non_quoted_text(self.__trigger_message_text)
-        is_bot_mentioned = bool(agent_handle) and f"@{agent_handle}" in trigger_message_text
-        return self.__di.require_invoker_chat().is_private or is_bot_mentioned
-
-    @staticmethod
-    def __non_quoted_text(text: str) -> str:
-        return "\n".join(
-            line
-            for line in text.splitlines()
-            if not line.lstrip().startswith(">>")
-        )
-
-    def __has_unanswered_bot_mention(self, agent_handle: str | None) -> bool:
-        if not agent_handle:
-            return False
-        mention_token = f"@{agent_handle}"
-        if mention_token in self.__non_quoted_text(self.__trigger_message_text):
-            return True
-        if config.chat_debounce_delay_s <= 0.0:
-            return False
-        invoker_user = self.__di.invoker
-        invoker_chat = self.__di.require_invoker_chat()
-        chat_type = self.__di.require_invoker_chat_type()
-        agent_user = resolve_agent_user(chat_type)
-        agent_user_id = agent_user.id if agent_user else None
-        recent_messages = self.__di.chat_message_repo.get_latest_by_chat(
-            chat_id = invoker_chat.chat_id,
-            limit = config.chat_history_depth,
-        )
-        # walk back through recent messages from the same invoker looking for an
-        # unanswered @mention. a bot reply is the only true chain-break (it means
-        # the prior mention was already answered). messages from other users are
-        # simply skipped — they don't answer the mention and don't break the chain.
-        # known commands are self-contained — their @-tag is syntax, not conversation —
-        # so we skip them rather than treating their tag as a pending mention.
-        for message in recent_messages:
-            if message.message_id == self.__trigger_message_id:
-                continue
-            if message.author_id == agent_user_id:
-                return False
-            if message.author_id != invoker_user.id:
-                continue
-            message_text = self.__non_quoted_text(message.text)
-            if is_known_command(message_text, agent_handle):
-                continue
-            if mention_token in message_text:
-                return True
-        return False
-
     def should_reply(self) -> bool:
-        chat_type = self.__di.require_invoker_chat_type()
-        agent_user = resolve_agent_user(chat_type)
-        agent_handle = resolve_external_handle(agent_user, chat_type)
-        is_bot_mentioned = self.__has_unanswered_bot_mention(agent_handle)
         invoker_chat = self.__di.require_invoker_chat()
         if invoker_chat.reply_chance_percent == 100:
             should_reply_at_random = True
@@ -374,13 +276,15 @@ class ChatAgent:
         else:
             should_reply_at_random = random.randint(0, 100) <= invoker_chat.reply_chance_percent
         should_reply = (
-            invoker_chat.is_private or is_bot_mentioned or should_reply_at_random
+            invoker_chat.is_private
+            or self.__explicitly_addressed
+            or should_reply_at_random
         )
         log.d(
             f"Reply decision: {'REPLYING' if should_reply else 'NOT REPLYING'}. Conditions:\n"
-            f"  · is_private_chat  = {invoker_chat.is_private}\n"
-            f"  · is_bot_mentioned = {is_bot_mentioned}\n"
-            f"  · reply_at_random  = {should_reply_at_random}\n"
-            f"  · reply_chance     = {invoker_chat.reply_chance_percent}%",
+            f"  · is_private_chat       = {invoker_chat.is_private}\n"
+            f"  · explicitly_addressed  = {self.__explicitly_addressed}\n"
+            f"  · reply_at_random       = {should_reply_at_random}\n"
+            f"  · reply_chance          = {invoker_chat.reply_chance_percent}%",
         )
         return should_reply

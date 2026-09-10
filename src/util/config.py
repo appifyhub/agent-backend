@@ -55,7 +55,7 @@ class Config(metaclass = Singleton):
     whatsapp_phone_number_id: str
     whatsapp_bot_phone_number: str
     chat_history_depth: int
-    chat_debounce_delay_s: float
+    chat_burst_quiet_period_s: float
     cleanup_message_retention_days: int
     cleanup_price_alert_staleness_days: int
     cleanup_sponsorship_staleness_days: int
@@ -170,7 +170,7 @@ class Config(metaclass = Singleton):
         def_whatsapp_phone_number_id: str = "invalid",
         def_whatsapp_bot_phone_number: str = "11234567890",
         def_chat_history_depth: int = 30,
-        def_chat_debounce_delay_s: float = 1.0,
+        def_chat_burst_quiet_period_s: float = 1.0,
         def_cleanup_message_retention_days: int = 30,
         def_cleanup_price_alert_staleness_days: int = 360,
         def_cleanup_sponsorship_staleness_days: int = 30,
@@ -254,7 +254,7 @@ class Config(metaclass = Singleton):
         self.whatsapp_phone_number_id = self.__env("WHATSAPP_PHONE_NUMBER_ID", lambda: def_whatsapp_phone_number_id)
         self.whatsapp_bot_phone_number = self.__env("WHATSAPP_BOT_PHONE_NUMBER", lambda: def_whatsapp_bot_phone_number)
         self.chat_history_depth = int(self.__env("CHAT_HISTORY_DEPTH", lambda: str(def_chat_history_depth)))
-        self.chat_debounce_delay_s = float(self.__env("CHAT_DEBOUNCE_DELAY_S", lambda: str(def_chat_debounce_delay_s)))
+        self.chat_burst_quiet_period_s = float(self.__env("CHAT_BURST_QUIET_PERIOD_S", lambda: str(def_chat_burst_quiet_period_s)))
         self.cleanup_message_retention_days = int(self.__env("CLEANUP_MESSAGE_RETENTION_DAYS", lambda: str(def_cleanup_message_retention_days)))
         self.cleanup_price_alert_staleness_days = int(self.__env("CLEANUP_PRICE_ALERT_STALENESS_DAYS", lambda: str(def_cleanup_price_alert_staleness_days)))
         self.cleanup_sponsorship_staleness_days = int(self.__env("CLEANUP_SPONSORSHIP_STALENESS_DAYS", lambda: str(def_cleanup_sponsorship_staleness_days)))

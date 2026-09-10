@@ -11,6 +11,7 @@ def domain(db_model: ChatMessageDB | None) -> ChatMessage | None:
         return None
 
     return ChatMessage(
+        ingestion_order = db_model.ingestion_order,
         chat_id = db_model.chat_id,
         message_id = db_model.message_id,
         author_id = db_model.author_id,
@@ -25,6 +26,7 @@ def db(domain_model: ChatMessage | None) -> ChatMessageDB | None:
         return None
 
     return ChatMessageDB(
+        ingestion_order = domain_model.ingestion_order,
         chat_id = domain_model.chat_id,
         message_id = domain_model.message_id,
         author_id = domain_model.author_id,
