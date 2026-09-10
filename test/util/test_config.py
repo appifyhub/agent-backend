@@ -53,7 +53,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.whatsapp_phone_number_id, "invalid")
         self.assertEqual(config.whatsapp_bot_phone_number, "11234567890")
         self.assertEqual(config.chat_history_depth, 30)
-        self.assertEqual(config.chat_burst_quiet_period_s, 0.5)
+        self.assertEqual(config.chat_burst_quiet_period_s, 1.0)
         self.assertEqual(config.cleanup_message_retention_days, 30)
         self.assertEqual(config.cleanup_price_alert_staleness_days, 360)
         self.assertEqual(config.cleanup_sponsorship_staleness_days, 30)

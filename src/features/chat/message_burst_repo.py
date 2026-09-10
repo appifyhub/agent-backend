@@ -27,7 +27,7 @@ class ChatMessageBurstRepository:
         if message.author_id is None or message.ingestion_order is None:
             raise InternalError("Stored burst messages require an author and ingestion order", UNEXPECTED_ERROR)
 
-        database_now = self._db.execute(select(func.now())).scalar_one()
+        database_now = self._db.execute(select(func.now())).scalar_one().replace(tzinfo = None)
         process_after = database_now + timedelta(seconds = quiet_period_s)
         insert_statement = insert(ChatMessageBurstDB).values(
             chat_id = message.chat_id,
@@ -83,7 +83,7 @@ class ChatMessageBurstRepository:
         self,
         scheduled: ScheduledChatMessageBurst,
     ) -> ClaimedChatMessageBurst | None:
-        database_now = self._db.execute(select(func.now())).scalar_one()
+        database_now = self._db.execute(select(func.now())).scalar_one().replace(tzinfo = None)
         statement = update(ChatMessageBurstDB).where(
             ChatMessageBurstDB.chat_id == scheduled.chat_id,
             ChatMessageBurstDB.author_id == scheduled.author_id,
@@ -115,7 +115,7 @@ class ChatMessageBurstRepository:
         self,
         claimed: ClaimedChatMessageBurst,
     ) -> ScheduledChatMessageBurst | None:
-        database_now = self._db.execute(select(func.now())).scalar_one()
+        database_now = self._db.execute(select(func.now())).scalar_one().replace(tzinfo = None)
         completed = self._db.execute(
             delete(ChatMessageBurstDB).where(
                 ChatMessageBurstDB.chat_id == claimed.chat_id,

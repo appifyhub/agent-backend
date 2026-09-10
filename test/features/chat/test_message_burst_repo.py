@@ -1,5 +1,8 @@
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import Mock
+from uuid import UUID
 
 from db.sql_util import SQLUtil
 
@@ -8,6 +11,7 @@ from db.model.chat_message_burst import ChatMessageBurstDB
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_repo import ChatMessageRepository
+from features.chat.message_burst import ClaimedChatMessageBurst, ScheduledChatMessageBurst
 from features.chat.message_burst_repo import ChatMessageBurstRepository
 from features.users.user import User
 
@@ -110,6 +114,40 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         self.assertEqual(boundary_count, 0)
         self.assertEqual(deleted_count, 1)
         self.assertEqual(self.sql.get_session().query(ChatMessageBurstDB).count(), 0)
+
+    def test_finalize_normalizes_timezone_aware_database_time(self):
+        database_now = datetime(2026, 1, 2, 12, 0, 0, tzinfo = timezone.utc)
+        queued = SimpleNamespace(
+            message_count = 2,
+            process_after = datetime(2026, 1, 2, 12, 0, 0, 250000),
+        )
+        db = Mock()
+        db.execute.side_effect = [
+            Mock(scalar_one = Mock(return_value = database_now)),
+            Mock(one_or_none = Mock(return_value = None)),
+            Mock(one_or_none = Mock(return_value = queued)),
+        ]
+        repository = ChatMessageBurstRepository(db)
+        claim = ClaimedChatMessageBurst(
+            chat_id = UUID(int = 1),
+            author_id = UUID(int = 2),
+            message_count = 1,
+            last_message_sent_at = datetime(2026, 1, 2, 12, 0, 0),
+            last_message_ingestion_order = 1,
+            is_addressed = False,
+        )
+
+        result = repository.finalize(claim)
+
+        self.assertEqual(
+            result,
+            ScheduledChatMessageBurst(
+                chat_id = claim.chat_id,
+                author_id = claim.author_id,
+                message_count = 2,
+                wait_seconds = 0.25,
+            ),
+        )
 
     def test_new_message_count_supersedes_old_schedule_before_claim(self):
         chat = self._create_chat("chat1")
