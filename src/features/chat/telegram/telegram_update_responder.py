@@ -1,110 +1,83 @@
-from datetime import datetime
-from time import sleep
-
-from langchain_core.messages import AIMessage
+import asyncio
+from dataclasses import dataclass
 
 from db.sql import get_detached_session
 from di.di import DI
-from features.chat.chat_agent import ChatAgent
-from features.chat.ingested_chat_message import IngestedChatMessage
-from features.chat.message.chat_message import ChatMessage
+from features.chat.command_processor import is_known_command
+from features.chat.message_burst import ScheduledChatMessageBurst
 from features.chat.telegram.model.update import Update
-from features.external_tools.intelligence_presets import default_tool_for
-from features.integrations import prompt_resolvers
-from features.integrations.integrations import format_reaction_response, is_reaction_response, resolve_agent_user
+from features.integrations.integrations import resolve_agent_user, resolve_external_handle
 from util import log
 from util.config import config
-from util.errors import ServiceError
-from util.functions import parse_ai_message_content, silent
 
 
-def respond_to_update(update: Update) -> bool:
+@dataclass(frozen = True, kw_only = True)
+class _IngressOutcome:
+    scheduled_burst: ScheduledChatMessageBurst | None = None
+    processed: bool = False
+
+
+async def respond_to_update(update: Update) -> bool:
+    outcome = await asyncio.to_thread(_ingest_update, update)
+    if outcome.scheduled_burst is None:
+        return outcome.processed
+    return await _process_scheduled_burst(outcome.scheduled_burst)
+
+
+async def _process_scheduled_burst(
+    scheduled: ScheduledChatMessageBurst,
+) -> bool:
+    di = DI(
+        invoker_id = scheduled.author_id.hex,
+        invoker_chat_id = scheduled.chat_id.hex,
+    )
+    return await di.message_burst_service.process_after_quiet_period(
+        scheduled = scheduled,
+    )
+
+
+def _ingest_update(update: Update) -> _IngressOutcome:
     if config.log_telegram_update:
         log.t(f"Received a Telegram update: `{update}`")
 
     with get_detached_session() as db:
         di = DI(db)
-
-        resolved_domain_data: IngestedChatMessage | None = None
-        should_notify_of_errors = False
         try:
             # store and map to domain models (throws in case of error)
             resolved_domain_data = di.telegram_chat_inbound_service.ingest_update(update)
             if not resolved_domain_data:
                 log.d("No Telegram response needed (update ignored)")
-                return False
-            if not resolved_domain_data.author:
+                return _IngressOutcome()
+            # filter out messages without authors
+            if not resolved_domain_data.author or resolved_domain_data.author.id is None:
                 log.d("Not responding to messages without author")
-                return False
+                return _IngressOutcome()
+
             di.inject_invoker(resolved_domain_data.author)
             di.inject_invoker_chat(resolved_domain_data.chat)
-
-            # process the update using LLM; get instead of require to allow the first message to be sent
-            tool = di.tool_choice_resolver.get_tool(ChatAgent.TOOL_TYPE, default_tool_for(ChatAgent.TOOL_TYPE))
-            chat_agent = di.chat_agent(
-                trigger_message_text = resolved_domain_data.raw_message_text,
-                trigger_message_id = resolved_domain_data.message.message_id,
-                trigger_message_sent_at = resolved_domain_data.message.sent_at,
-                configured_tool = tool,
+            agent_handle = resolve_external_handle(
+                resolve_agent_user(resolved_domain_data.chat.chat_type),
+                resolved_domain_data.chat.chat_type,
             )
-            answer = chat_agent.execute()
-            if not answer or not answer.content:
-                log.d("No LLM response needed (command handled or no reply required)")
-                return False
-            di.rollback_db_session()
-
-            # send and store the response[s]
-            sent_messages: int = 0
-            agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
-            as_reaction = parse_ai_message_content(answer)
-            if is_reaction_response(as_reaction, resolved_domain_data.chat.chat_type):
-                di.chat_message_repo.save(
-                    ChatMessage(
-                        chat_id = resolved_domain_data.chat.chat_id,
-                        message_id = f"reaction:{resolved_domain_data.message.message_id}",
-                        author_id = agent.id,
-                        sent_at = datetime.now(),
-                        text = format_reaction_response(as_reaction),
+            if is_known_command(resolved_domain_data.raw_message_text, agent_handle):
+                return _IngressOutcome(
+                    processed = di.message_burst_service.process_message(
+                        resolved_domain_data,
+                        command_only = True,
                     ),
                 )
-                di.rollback_db_session()
-                silent(di.platform_bot_sdk().set_reaction)(
-                    str(resolved_domain_data.chat.external_id),
-                    resolved_domain_data.message.message_id,
-                    as_reaction,
-                )
-                log.i(f"Reacted to message {resolved_domain_data.message.message_id} with {as_reaction}")
-            else:
-                domain_messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
-                for message in domain_messages:
-                    should_notify_of_errors = True
-                    di.telegram_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
-                    di.rollback_db_session()
-                    sleep(0.1)
-                    sent_messages += 1
 
-            log.t(f"Finished responding to updates. \n[{agent.full_name}]: {answer.content}")
-            log.i(f"Sent {sent_messages} messages")
-            return True
+            scheduled_burst = di.message_burst_service.record(
+                message = resolved_domain_data.message,
+                is_addressed = (
+                    resolved_domain_data.chat.is_private
+                    or di.message_burst_service.is_explicitly_addressed(
+                        resolved_domain_data.raw_message_text,
+                        resolved_domain_data.chat.chat_type,
+                    )
+                ),
+            )
+            return _IngressOutcome(scheduled_burst = scheduled_burst)
         except Exception as e:
             log.e(f"Failed to ingest: {update}", e)
-            if should_notify_of_errors and resolved_domain_data:
-                di.rollback_db_session()
-                __notify_of_errors(di, resolved_domain_data, e)
-            return False
-
-
-@silent
-def __notify_of_errors(
-    di: DI,
-    resolved_domain_data: IngestedChatMessage,
-    error: Exception,
-):
-    emoji = error.emoji if isinstance(error, ServiceError) else "🤯"
-    answer = AIMessage(prompt_resolvers.simple_chat_error(str(error), emoji = emoji))
-    messages = di.domain_langchain_mapper.map_bot_message_to_storage(resolved_domain_data.chat, answer)
-    for message in messages:
-        di.telegram_bot_sdk.send_text_message(resolved_domain_data.chat, message.text)
-        di.rollback_db_session()
-        sleep(0.1)
-    log.t("Replied with the error")
+            return _IngressOutcome()

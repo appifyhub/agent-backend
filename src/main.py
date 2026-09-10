@@ -78,6 +78,7 @@ async def lifespan(owner: FastAPI):
 app = FastAPI(
     docs_url = None,
     redoc_url = None,
+    openapi_url = None,
     title = "The Agent's API",
     description = "This is the API service for The Agent.",
     debug = config.log_level in ["local", "trace", "debug"],

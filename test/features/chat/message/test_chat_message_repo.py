@@ -1,15 +1,38 @@
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta
+from itertools import count
 
 from db.sql_util import SQLUtil
+from sqlalchemy import Connection, event
 
 from db.model.chat_config import ChatConfigDB
+from db.model.chat_message import ChatMessageDB
 from db.model.user import UserDB
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
 from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.users.user import User
+
+_ingestion_order = count(1)
+
+
+def _assign_sqlite_ingestion_order(
+    _mapper,
+    connection: Connection,
+    target: ChatMessageDB,
+) -> None:
+    if connection.dialect.name != "sqlite" or target.ingestion_order is not None:
+        return
+    target.ingestion_order = next(_ingestion_order)
+
+
+def setUpModule() -> None:
+    event.listen(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
+
+
+def tearDownModule() -> None:
+    event.remove(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
 
 
 class ChatMessageRepositoryTest(unittest.TestCase):
@@ -50,7 +73,8 @@ class ChatMessageRepositoryTest(unittest.TestCase):
 
         result = self.repo.save(message)
 
-        self.assertEqual(result, message)
+        self.assertEqual(result, replace(message, ingestion_order = result.ingestion_order))
+        self.assertIsNotNone(result.ingestion_order)
 
     def test_get_uses_composite_identity(self):
         first_chat = self._create_chat("chat1")
@@ -267,3 +291,30 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repo.get(chat.chat_id, "old"))
         self.assertIsNotNone(self.repo.get(chat.chat_id, "boundary"))
         self.assertIsNotNone(self.repo.get(chat.chat_id, "new"))
+
+    def test_equal_timestamps_use_ingestion_order_for_history_cutoff(self):
+        chat = self._create_chat("chat1")
+        sent_at = datetime(2026, 1, 2, 12, 0, 0)
+        first = self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "first",
+            sent_at = sent_at,
+            text = "First",
+        ))
+        second = self.repo.save(ChatMessage(
+            chat_id = chat.chat_id,
+            message_id = "second",
+            sent_at = sent_at,
+            text = "Second",
+        ))
+
+        latest = self.repo.get_latest_by_chat(chat.chat_id)
+        through_first = self.repo.get_latest_by_chat(
+            chat.chat_id,
+            cutoff_sent_at = first.sent_at,
+            cutoff_ingestion_order = first.ingestion_order,
+        )
+
+        self.assertEqual([message.message_id for message in latest], ["second", "first"])
+        self.assertEqual([message.message_id for message in through_first], ["first"])
+        self.assertGreater(second.ingestion_order, first.ingestion_order)

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import desc
+from sqlalchemy import and_, desc, or_
 from sqlalchemy.orm import Session
 
 from db.model.chat_message import ChatMessageDB
@@ -41,12 +41,38 @@ class ChatMessageRepository:
         skip: int = 0,
         limit: int = 100,
         include_temporary: bool = False,
+        cutoff_sent_at: datetime | None = None,
+        cutoff_ingestion_order: int | None = None,
     ) -> list[ChatMessage]:
         query = self._db.query(ChatMessageDB).filter(ChatMessageDB.chat_id == chat_id)
         if not include_temporary:
             query = query.filter(ChatMessageDB.is_temporary.is_(False))
-        db_models = query.order_by(desc(ChatMessageDB.sent_at)).offset(skip).limit(limit).all()
+        if cutoff_sent_at is not None and cutoff_ingestion_order is not None:
+            query = query.filter(
+                or_(
+                    ChatMessageDB.sent_at < cutoff_sent_at,
+                    and_(
+                        ChatMessageDB.sent_at == cutoff_sent_at,
+                        ChatMessageDB.ingestion_order <= cutoff_ingestion_order,
+                    ),
+                ),
+            )
+        db_models = query.order_by(
+            desc(ChatMessageDB.sent_at),
+            desc(ChatMessageDB.ingestion_order),
+        ).offset(skip).limit(limit).all()
         return [domain(db_model) for db_model in db_models if db_model is not None]
+
+    def get_by_ingestion_order(
+        self,
+        chat_id: UUID,
+        ingestion_order: int,
+    ) -> ChatMessage | None:
+        db_model = self._db.query(ChatMessageDB).filter(
+            ChatMessageDB.chat_id == chat_id,
+            ChatMessageDB.ingestion_order == ingestion_order,
+        ).first()
+        return domain(db_model)
 
     def save(self, message: ChatMessage) -> ChatMessage:
         existing = self._db.query(ChatMessageDB).filter(

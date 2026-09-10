@@ -10,6 +10,7 @@ class CleanupResult:
     attachments_deleted: int = field(default = 0)
     orphaned_attachments_deleted: int = field(default = 0)
     messages_deleted: int = field(default = 0)
+    message_bursts_deleted: int = field(default = 0)
     cache_entries_cleared: int = field(default = 0)
     usage_records_deleted: int = field(default = 0)
     price_alerts_deleted: int = field(default = 0)
@@ -35,6 +36,12 @@ class CleanupService:
             log.i(f"  Cleanup phase 1C: deleted {result.orphaned_attachments_deleted} orphaned attachments")
         except Exception as e:
             log.e(f"  Cleanup phase 1 (messages / attachments) failed: {e}")
+
+        try:
+            result.message_bursts_deleted = self.__di.chat_message_burst_repo.delete_older_than(message_cutoff)
+            log.i(f"  Cleanup phase 1D: deleted {result.message_bursts_deleted} message bursts")
+        except Exception as e:
+            log.e(f"  Cleanup phase 1D (message bursts) failed: {e}")
 
         try:
             result.cache_entries_cleared = self.__di.tools_cache_repo.delete_expired()

@@ -1,6 +1,7 @@
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta
+from itertools import count
 from uuid import UUID
 
 from db.sql_util import SQLUtil
@@ -22,6 +23,7 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
         self.sql = SQLUtil()
         self.repo = self.sql.chat_attachment_repo()
         self.uploader = self.sql.user_repo().save(User(full_name = "Uploader"))
+        self.message_order = count(1)
 
     def tearDown(self):
         self.sql.end_session()
@@ -41,6 +43,7 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
         self.sql.chat_message_repo().save(ChatMessage(
             chat_id = chat_id,
             message_id = message_id,
+            ingestion_order = next(self.message_order),
             sent_at = sent_at or datetime.now(),
             text = message_id,
         ))
