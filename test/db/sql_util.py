@@ -7,6 +7,7 @@ from features.chat.attachment.chat_attachment_repo import ChatAttachmentReposito
 from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
 from features.chat.message.chat_message_repo import ChatMessageRepository
+from features.chat.message_burst_repo import ChatMessageBurstRepository
 from features.currencies.price_alert_repo import PriceAlertRepository
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
@@ -56,6 +57,11 @@ class SQLUtil:
         if not self.__is_session_active:
             self.start_session()
         return ChatMessageRepository(self.__session)
+
+    def chat_message_burst_repo(self) -> ChatMessageBurstRepository:
+        if not self.__is_session_active:
+            self.start_session()
+        return ChatMessageBurstRepository(self.__session)
 
     def chat_attachment_repo(self) -> ChatAttachmentRepository:
         if not self.__is_session_active:

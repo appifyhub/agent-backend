@@ -23,6 +23,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.db_model = ChatMessageDB(
             chat_id = self.chat_id,
             message_id = "message1",
+            ingestion_order = 7,
             author_id = self.author_id,
             sent_at = self.sent_at,
             text = "Hello",
@@ -31,6 +32,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.domain_model = ChatMessage(
             chat_id = self.chat_id,
             message_id = "message1",
+            ingestion_order = 7,
             author_id = self.author_id,
             sent_at = self.sent_at,
             text = "Hello",
@@ -54,6 +56,7 @@ class ChatMessageMapperTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.chat_id, self.domain_model.chat_id)
         self.assertEqual(result.message_id, self.domain_model.message_id)
+        self.assertEqual(result.ingestion_order, self.domain_model.ingestion_order)
         self.assertEqual(result.author_id, self.domain_model.author_id)
         self.assertEqual(result.sent_at, self.domain_model.sent_at)
         self.assertEqual(result.text, self.domain_model.text)
@@ -78,6 +81,7 @@ class ChatMessageMapperTest(unittest.TestCase):
 
         self.assertEqual(self.db_model.chat_id, self.chat_id)
         self.assertEqual(self.db_model.message_id, "message1")
+        self.assertEqual(self.db_model.ingestion_order, self.domain_model.ingestion_order)
         self.assertIsNone(self.db_model.author_id)
         self.assertEqual(self.db_model.sent_at, domain_model.sent_at)
         self.assertEqual(self.db_model.text, domain_model.text)
@@ -94,6 +98,7 @@ class ChatMessageMapperTest(unittest.TestCase):
 
         self.assertEqual(result.chat_id, self.chat_id)
         self.assertEqual(result.message_id, remote_data.message_id)
+        self.assertIsNone(result.ingestion_order)
         self.assertEqual(result.author_id, self.author_id)
         self.assertEqual(result.sent_at, remote_data.sent_at)
         self.assertEqual(result.text, remote_data.text)
@@ -111,6 +116,7 @@ class ChatMessageMapperTest(unittest.TestCase):
 
         self.assertEqual(result.chat_id, self.domain_model.chat_id)
         self.assertEqual(result.message_id, self.domain_model.message_id)
+        self.assertEqual(result.ingestion_order, self.domain_model.ingestion_order)
         self.assertEqual(result.author_id, new_author_id)
         self.assertEqual(result.sent_at, remote_data.sent_at)
         self.assertEqual(result.text, remote_data.text)
@@ -126,5 +132,6 @@ class ChatMessageMapperTest(unittest.TestCase):
         result = apply_remote_data(self.domain_model, remote_data, None)
 
         self.assertEqual(result.author_id, self.domain_model.author_id)
+        self.assertEqual(result.ingestion_order, self.domain_model.ingestion_order)
         self.assertEqual(result.sent_at, remote_data.sent_at)
         self.assertEqual(result.text, remote_data.text)
