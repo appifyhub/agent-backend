@@ -2,7 +2,7 @@
 
 ### Python
 
-In Python, I want you to use the latest type syntax (`type | None`) instead of `Optional`. I also want you to use a single space (`=`) around the equals sign (`=`) in function argument calls. It's important to use double quotation marks (`"`) instead of single quotations (`'`). And finally, we want to always use trailing commas in multi-line function declarations and calls. There's never a reason to write `unittest.main()` manually, we have a script for running tests. Never use inline imports inside of functions (use file header even in tests), and always use `from ... import ...` syntax at the top of the file.
+In Python, I want you to use the latest type syntax (`type | None`) instead of `Optional`. I also want you to use a single space (`=`) around the equals sign (`=`) in function argument calls. It's important to use double quotation marks (`"`) instead of single quotations (`'`). And finally, we want to always use trailing commas in multi-line function declarations and calls. Always run tests with `pipenv run pytest -v`; never write `unittest.main()` manually. Never mock or manually construct data, database, domain, or API model objects in tests; add or update the corresponding factory in `test/stubs/` and use the stub instead. Never use inline imports inside of functions (use file header even in tests), and always use `from ... import ...` syntax at the top of the file.
 
 ### Comments
 
