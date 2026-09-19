@@ -2,12 +2,12 @@ import unittest
 from dataclasses import replace
 from uuid import UUID, uuid4
 
+import stubs
 from db.sql_util import SQLUtil
 from pydantic import SecretStr
 
 from db.model.user import UserDB
 from features.users.user import User
-from features.users.user_remote_data import UserRemoteData
 from features.users.user_repo import UserRepository
 from util.errors import NotFoundError
 
@@ -25,7 +25,12 @@ class UserRepositoryTest(unittest.TestCase):
         self.sql.end_session()
 
     def test_save_creates_user_and_generates_id_created_at_and_connect_key(self):
-        user = User(full_name = "Test User")
+        user = stubs.domain.user(
+            id = None,
+            created_at = None,
+            full_name = "Test User",
+            credit_balance = 0.0,
+        )
 
         result = self.repo.save(user)
 
@@ -37,7 +42,9 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(result.group, UserDB.Group.standard)
 
     def test_save_persists_secret_and_tool_choice_fields(self):
-        user = self.__user(
+        user = stubs.domain.user(
+            id = None,
+            created_at = None,
             connect_key = "SECRET-KEY-0001",
             about_me = SecretStr("about"),
             custom_prompt = SecretStr("prompt"),
@@ -74,7 +81,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(fetched.tool_choice_api_stock_quote, "quote")
 
     def test_get_returns_saved_user(self):
-        created = self.repo.save(self.__user(connect_key = "GET-USER-0001"))
+        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "GET-USER-0001"))
 
         result = self.repo.get(created.id)
 
@@ -89,8 +96,19 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_all_and_count(self):
-        first = self.repo.save(self.__user(connect_key = "GET-ALL-0001"))
-        second = self.repo.save(self.__user(connect_key = "GET-ALL-0002"))
+        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "GET-ALL-0001"))
+        second = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "GET-ALL-0002",
+                telegram_username = None,
+                telegram_chat_id = None,
+                telegram_user_id = None,
+                whatsapp_user_id = None,
+                whatsapp_phone_number = None,
+            ),
+        )
 
         results = self.repo.get_all()
 
@@ -98,13 +116,17 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual([result.id for result in results], [first.id, second.id])
 
     def test_platform_lookup_methods(self):
-        user = self.repo.save(self.__user(
-            connect_key = "LOOKUP-KEY-01",
-            telegram_username = "lookup-telegram",
-            telegram_user_id = 1001,
-            whatsapp_user_id = "lookup-wa",
-            whatsapp_phone_number = SecretStr("15550002222"),
-        ))
+        user = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "LOOKUP-KEY-01",
+                telegram_username = "lookup-telegram",
+                telegram_user_id = 1001,
+                whatsapp_user_id = "lookup-wa",
+                whatsapp_phone_number = SecretStr("15550002222"),
+            ),
+        )
 
         self.assertEqual(self.repo.get_by_telegram_user_id(1001).id, user.id)
         self.assertEqual(self.repo.get_by_telegram_username("lookup-telegram").id, user.id)
@@ -113,17 +135,28 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get_by_connect_key("LOOKUP-KEY-01").id, user.id)
 
     def test_get_by_remote_data_prefers_telegram_user_id_then_username(self):
-        by_id = self.repo.save(self.__user(
-            connect_key = "REMOTE-TG-001",
-            telegram_username = "old-username",
-            telegram_user_id = 2001,
-        ))
-        self.repo.save(self.__user(
-            connect_key = "REMOTE-TG-002",
-            telegram_username = "remote-username",
-            telegram_user_id = 2002,
-        ))
-        remote_data = UserRemoteData(
+        by_id = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "REMOTE-TG-001",
+                telegram_username = "old-username",
+                telegram_user_id = 2001,
+            ),
+        )
+        self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "REMOTE-TG-002",
+                telegram_username = "remote-username",
+                telegram_user_id = 2002,
+                telegram_chat_id = None,
+                whatsapp_user_id = None,
+                whatsapp_phone_number = None,
+            ),
+        )
+        remote_data = stubs.domain.user_remote_data(
             telegram_user_id = 2001,
             telegram_username = "remote-username",
         )
@@ -133,12 +166,16 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(result.id, by_id.id)
 
     def test_get_by_remote_data_falls_back_to_whatsapp_phone_number(self):
-        user = self.repo.save(self.__user(
-            connect_key = "REMOTE-WA-001",
-            whatsapp_user_id = None,
-            whatsapp_phone_number = SecretStr("15550003333"),
-        ))
-        remote_data = UserRemoteData(
+        user = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "REMOTE-WA-001",
+                whatsapp_user_id = None,
+                whatsapp_phone_number = SecretStr("15550003333"),
+            ),
+        )
+        remote_data = stubs.domain.user_remote_data(
             whatsapp_user_id = None,
             whatsapp_phone_number = SecretStr("15550003333"),
         )
@@ -148,11 +185,15 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(result.id, user.id)
 
     def test_save_updates_existing_user_and_preserves_id_and_created_at(self):
-        created = self.repo.save(self.__user(
-            connect_key = "UPDATE-KEY-001",
-            full_name = "Original",
-            about_me = SecretStr("about"),
-        ))
+        created = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "UPDATE-KEY-001",
+                full_name = "Original",
+                about_me = SecretStr("about"),
+            ),
+        )
         replacement = replace(
             created,
             full_name = "Updated",
@@ -176,14 +217,20 @@ class UserRepositoryTest(unittest.TestCase):
     def test_save_with_unknown_id_inserts_user_with_supplied_id(self):
         user_id = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 
-        result = self.repo.save(self.__user(id = user_id, connect_key = "INSERT-ID-001"))
+        result = self.repo.save(
+            stubs.domain.user(
+                id = user_id,
+                created_at = None,
+                connect_key = "INSERT-ID-001",
+            ),
+        )
 
         self.assertEqual(result.id, user_id)
         self.assertIsNotNone(result.created_at)
         self.assertEqual(self.repo.get(user_id).connect_key, "INSERT-ID-001")
 
     def test_delete_user(self):
-        created = self.repo.save(self.__user(connect_key = "DELETE-KEY-01"))
+        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "DELETE-KEY-01"))
 
         result = self.repo.delete(created.id)
 
@@ -197,7 +244,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_update_locked_updates_user(self):
-        created = self.repo.save(self.__user(connect_key = "LOCKED-KEY-01", credit_balance = 10.0))
+        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "LOCKED-KEY-01", credit_balance = 10.0))
 
         result = self.repo.update_locked(
             created.id,
@@ -212,7 +259,7 @@ class UserRepositoryTest(unittest.TestCase):
             self.repo.update_locked(uuid4(), lambda user: user)
 
     def test_update_locked_defers_commit_when_requested(self):
-        created = self.repo.save(self.__user(connect_key = "LOCK-DEFER-01", credit_balance = 10.0))
+        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "LOCK-DEFER-01", credit_balance = 10.0))
 
         updated = self.repo.update_locked(
             created.id,
@@ -227,8 +274,19 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(created.id).credit_balance, 10.0)
 
     def test_get_locked_pair_returns_users_in_requested_order(self):
-        first = self.repo.save(self.__user(connect_key = "PAIR-GET-001"))
-        second = self.repo.save(self.__user(connect_key = "PAIR-GET-002"))
+        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-GET-001"))
+        second = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "PAIR-GET-002",
+                telegram_username = None,
+                telegram_chat_id = None,
+                telegram_user_id = None,
+                whatsapp_user_id = None,
+                whatsapp_phone_number = None,
+            ),
+        )
 
         locked_second, locked_first = self.repo.get_locked_pair(second.id, first.id)
 
@@ -236,8 +294,20 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(locked_first.id, first.id)
 
     def test_update_locked_pair_updates_users_in_requested_order(self):
-        first = self.repo.save(self.__user(connect_key = "PAIR-KEY-001", credit_balance = 100.0))
-        second = self.repo.save(self.__user(connect_key = "PAIR-KEY-002", credit_balance = 25.0))
+        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-KEY-001", credit_balance = 100.0))
+        second = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "PAIR-KEY-002",
+                telegram_username = None,
+                telegram_chat_id = None,
+                telegram_user_id = None,
+                whatsapp_user_id = None,
+                whatsapp_phone_number = None,
+                credit_balance = 25.0,
+            ),
+        )
         seen_ids: list[UUID] = []
 
         def transfer(sender: User, receiver: User) -> tuple[User, User]:
@@ -256,8 +326,20 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(first.id).credit_balance, 140.0)
 
     def test_update_locked_pair_defers_commit_when_requested(self):
-        first = self.repo.save(self.__user(connect_key = "PAIR-DEFER-001", credit_balance = 100.0))
-        second = self.repo.save(self.__user(connect_key = "PAIR-DEFER-002", credit_balance = 25.0))
+        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-DEFER-001", credit_balance = 100.0))
+        second = self.repo.save(
+            stubs.domain.user(
+                id = None,
+                created_at = None,
+                connect_key = "PAIR-DEFER-002",
+                telegram_username = None,
+                telegram_chat_id = None,
+                telegram_user_id = None,
+                whatsapp_user_id = None,
+                whatsapp_phone_number = None,
+                credit_balance = 25.0,
+            ),
+        )
 
         self.repo.update_locked_pair(
             first.id,
@@ -274,59 +356,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(second.id).credit_balance, 25.0)
 
     def test_update_locked_pair_raises_when_missing(self):
-        existing = self.repo.save(self.__user(connect_key = "PAIR-MISSING"))
+        existing = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-MISSING"))
 
         with self.assertRaises(NotFoundError):
             self.repo.update_locked_pair(existing.id, uuid4(), lambda first, second: (first, second))
-
-    def __user(
-        self,
-        connect_key: str,
-        id: UUID | None = None,
-        full_name: str | None = "Test User",
-        about_me: SecretStr | None = None,
-        custom_prompt: SecretStr | None = None,
-        telegram_username: str | None = None,
-        telegram_chat_id: str | None = None,
-        telegram_user_id: int | None = None,
-        whatsapp_user_id: str | None = None,
-        whatsapp_phone_number: SecretStr | None = None,
-        open_ai_key: SecretStr | None = None,
-        anthropic_key: SecretStr | None = None,
-        google_ai_key: SecretStr | None = None,
-        perplexity_key: SecretStr | None = None,
-        replicate_key: SecretStr | None = None,
-        rapid_api_key: SecretStr | None = None,
-        coinmarketcap_key: SecretStr | None = None,
-        twelve_data_api_key: SecretStr | None = None,
-        x_key: SecretStr | None = None,
-        x_ai_key: SecretStr | None = None,
-        tool_choice_api_stock_quote: str | None = None,
-        credit_balance: float = 0.0,
-        group: UserDB.Group = UserDB.Group.standard,
-    ) -> User:
-        return User(
-            id = id,
-            full_name = full_name,
-            about_me = about_me,
-            custom_prompt = custom_prompt,
-            telegram_username = telegram_username,
-            telegram_chat_id = telegram_chat_id,
-            telegram_user_id = telegram_user_id,
-            whatsapp_user_id = whatsapp_user_id,
-            whatsapp_phone_number = whatsapp_phone_number,
-            open_ai_key = open_ai_key,
-            anthropic_key = anthropic_key,
-            google_ai_key = google_ai_key,
-            perplexity_key = perplexity_key,
-            replicate_key = replicate_key,
-            rapid_api_key = rapid_api_key,
-            coinmarketcap_key = coinmarketcap_key,
-            twelve_data_api_key = twelve_data_api_key,
-            x_key = x_key,
-            x_ai_key = x_ai_key,
-            tool_choice_api_stock_quote = tool_choice_api_stock_quote,
-            credit_balance = credit_balance,
-            connect_key = connect_key,
-            group = group,
-        )
