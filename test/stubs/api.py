@@ -4,6 +4,8 @@ from api.model.chat_config_payload import ChatConfigPayload
 from api.model.chat_config_response import ChatConfigResponse
 from api.model.chat_settings_payload import ChatSettingsPayload
 from api.model.chat_settings_response import ChatSettingsResponse
+from api.model.release_output_payload import ReleaseOutputPayload
+from api.model.settings_link_response import SettingsLinkResponse
 from api.model.user_chat_config_payload import UserChatConfigPayload
 from api.model.user_chat_config_response import UserChatConfigResponse
 from api.model.user_settings_payload import UserSettingsPayload
@@ -45,7 +47,7 @@ def user_settings_payload(**overrides: Any) -> UserSettingsPayload:
 
 def user_settings_response(**overrides: Any) -> UserSettingsResponse:
     defaults = {
-        "id": "11111111-1111-4111-8111-111111111111",
+        "id": "11111111-1111-4111-8111-a11111111111",
         "created_at": "2026-01-15",
         "full_name": "Mark Johnson",
         "about_me": "Software engineer and Python enthusiast.",
@@ -101,7 +103,7 @@ def chat_config_payload(**overrides: Any) -> ChatConfigPayload:
 
 def chat_config_response(**overrides: Any) -> ChatConfigResponse:
     defaults = {
-        "chat_id": "22222222-2222-4222-8222-222222222222",
+        "chat_id": "22222222-2222-4222-8222-b22222222222",
         "title": "Mark Johnson's Chat",
         "platform": "telegram",
         "language_name": "English",
@@ -154,3 +156,17 @@ def chat_settings_response(**overrides: Any) -> ChatSettingsResponse:
     if "user_chat_config" not in overrides:
         defaults["user_chat_config"] = user_chat_config_response()
     return ChatSettingsResponse(**(defaults | overrides))
+
+
+def release_output_payload(**overrides: Any) -> ReleaseOutputPayload:
+    defaults = {
+        "release_output_b64": "eyJyZWxlYXNlIjoidGVzdCJ9",
+    }
+    return ReleaseOutputPayload(**(defaults | overrides))
+
+
+def settings_link_response(**overrides: Any) -> SettingsLinkResponse:
+    defaults = {
+        "settings_link": "https://example.com/settings",
+    }
+    return SettingsLinkResponse(**(defaults | overrides))

@@ -1,8 +1,8 @@
 import unittest
 from uuid import UUID
 
-from db.model.chat_membership import ChatMembershipDB
-from features.chat.membership.chat_membership import ChatMembership
+import stubs
+
 from features.chat.membership.chat_membership_mapper import db, domain
 
 
@@ -22,7 +22,7 @@ class ChatMembershipMapperTest(unittest.TestCase):
         self.assertIsNone(db(None))
 
     def test_domain_maps_all_fields(self):
-        db_model = ChatMembershipDB(
+        db_model = stubs.db.chat_membership_db(
             user_id = self.user_id,
             chat_id = self.chat_id,
             is_admin = True,
@@ -40,7 +40,7 @@ class ChatMembershipMapperTest(unittest.TestCase):
         self.assertTrue(result.use_custom_prompt)
 
     def test_db_maps_all_fields(self):
-        domain_model = ChatMembership(
+        domain_model = stubs.domain.chat_membership(
             user_id = self.user_id,
             chat_id = self.chat_id,
             is_admin = False,
@@ -58,7 +58,7 @@ class ChatMembershipMapperTest(unittest.TestCase):
         self.assertFalse(result.use_custom_prompt)
 
     def test_roundtrip_domain_to_db_to_domain(self):
-        original = ChatMembership(
+        original = stubs.domain.chat_membership(
             user_id = self.user_id,
             chat_id = self.chat_id,
             is_admin = True,

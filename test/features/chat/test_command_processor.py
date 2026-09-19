@@ -1,12 +1,11 @@
 import unittest
-from datetime import datetime
 from unittest.mock import MagicMock, Mock
 from uuid import UUID
 
-from api.model.settings_link_response import SettingsLinkResponse
+import stubs
+
 from api.settings_controller import SettingsController
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
 from di.di import DI
 from features.chat.command_processor import (
     COMMAND_CONNECT,
@@ -16,7 +15,6 @@ from features.chat.command_processor import (
     CommandProcessor,
     is_known_command,
 )
-from features.chat.config.chat_config import ChatConfig
 from features.connect.profile_connect_service import ProfileConnectService
 from features.integrations.integrations import resolve_agent_user
 from features.integrations.platform_bot_sdk import PlatformBotSDK
@@ -27,23 +25,19 @@ from util.error_codes import UNEXPECTED_ERROR
 
 class CommandProcessorTest(unittest.TestCase):
 
-    user: User
-    chat: ChatConfig
     agent_user: User
     mock_di: DI
     processor: CommandProcessor
 
     def setUp(self):
-        self.user = User(
+        user = stubs.domain.user(
             id = UUID(int = 1),
             full_name = "Test User",
             telegram_username = "test_username",
             telegram_chat_id = "test_chat_id",
             telegram_user_id = 1,
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
-        self.chat = ChatConfig(
+        chat = stubs.domain.chat_config(
             chat_id = UUID(int = 2),
             external_id = "test_chat_id",
             is_private = True,
@@ -57,9 +51,9 @@ class CommandProcessorTest(unittest.TestCase):
         # Create mock DI with all required dependencies
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
-        self.mock_di.invoker = self.user
+        self.mock_di.invoker = user
         # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat = self.chat
+        self.mock_di.invoker_chat = chat
         # noinspection PyPropertyAccess
         self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
         # noinspection PyPropertyAccess
@@ -78,7 +72,7 @@ class CommandProcessorTest(unittest.TestCase):
 
         # Setup default return values
         self.mock_di.sponsorship_service.accept_sponsorship.return_value = False
-        self.mock_di.settings_controller.create_settings_link.return_value = SettingsLinkResponse(
+        self.mock_di.settings_controller.create_settings_link.return_value = stubs.api.settings_link_response(
             settings_link = "https://example.com/settings?token=abc123",
         )
         self.mock_di.settings_controller.create_help_link.return_value = "https://example.com/features?token=abc123"
@@ -133,12 +127,12 @@ class CommandProcessorTest(unittest.TestCase):
         result = self.processor.execute(f"/{COMMAND_START}")
         self.assertEqual(result.status, "success")
         # noinspection PyUnresolvedReferences
-        self.mock_di.sponsorship_service.accept_sponsorship.assert_called_once_with(self.user)
+        self.mock_di.sponsorship_service.accept_sponsorship.assert_called_once_with(self.mock_di.invoker)
         # noinspection PyUnresolvedReferences
         self.mock_di.settings_controller.create_settings_link.assert_called_once()
         # noinspection PyUnresolvedReferences
         self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.user.telegram_chat_id,
+            self.mock_di.invoker.telegram_chat_id,
             "https://example.com/settings?token=abc123",
         )
 
@@ -148,7 +142,7 @@ class CommandProcessorTest(unittest.TestCase):
         result = self.processor.execute(f"/{COMMAND_START}")
         self.assertEqual(result.status, "success")
         # noinspection PyUnresolvedReferences
-        self.mock_di.sponsorship_service.accept_sponsorship.assert_called_once_with(self.user)
+        self.mock_di.sponsorship_service.accept_sponsorship.assert_called_once_with(self.mock_di.invoker)
         # noinspection PyUnresolvedReferences
         self.mock_di.settings_controller.create_settings_link.assert_not_called()
         # noinspection PyUnresolvedReferences
@@ -163,7 +157,7 @@ class CommandProcessorTest(unittest.TestCase):
         self.mock_di.settings_controller.create_settings_link.assert_called_once()
         # noinspection PyUnresolvedReferences
         self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.user.telegram_chat_id,
+            self.mock_di.invoker.telegram_chat_id,
             "https://example.com/settings?token=abc123",
         )
 
@@ -248,7 +242,7 @@ class CommandProcessorTest(unittest.TestCase):
         self.mock_di.settings_controller.create_help_link.assert_called_once()
         # noinspection PyUnresolvedReferences
         self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.user.telegram_chat_id,
+            self.mock_di.invoker.telegram_chat_id,
             "https://example.com/features?token=abc123",
         )
 
@@ -284,7 +278,7 @@ class CommandProcessorTest(unittest.TestCase):
         self.mock_di.settings_controller.create_settings_link.assert_called_once()
         # noinspection PyUnresolvedReferences
         self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.user.telegram_chat_id,
+            self.mock_di.invoker.telegram_chat_id,
             "https://example.com/settings?token=abc123",
         )
 
@@ -300,12 +294,12 @@ class CommandProcessorTest(unittest.TestCase):
         self.assertEqual(result.status, "success")
         # noinspection PyUnresolvedReferences
         self.mock_di.profile_connect_service.connect_profiles.assert_called_once_with(
-            self.user,
+            self.mock_di.invoker,
             "ABCD-EFGH-JKLM",
         )
         # noinspection PyUnresolvedReferences
         self.mock_platform_sdk.send_text_message.assert_called_once_with(
-            self.user.telegram_chat_id,
+            self.mock_di.invoker.telegram_chat_id,
             "✅",
         )
 

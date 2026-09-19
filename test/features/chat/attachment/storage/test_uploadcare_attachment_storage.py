@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from uuid import UUID
 
-from features.chat.attachment.chat_attachment import ChatAttachment
+import stubs
+
 from features.chat.attachment.storage.uploadcare_attachment_storage import (
     UPLOADCARE_PUBLIC_URL_TTL_SECONDS,
     UploadcareAttachmentStorage,
@@ -62,7 +62,7 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
         stored_file = SimpleNamespace(cdn_url = "https://cdn-id.ucarecd.net/uuid/", filename = "attachment-id.txt")
         client.upload.return_value = stored_file
 
-        result = storage.put(self.__metadata(extension = "txt"), b"content")
+        result = storage.put(stubs.domain.chat_attachment(id = "attachment-id", extension = "txt"), b"content")
 
         self.assertEqual(result, "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
         self.assertTrue(client.upload.call_args.kwargs["store"])
@@ -83,7 +83,7 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
             source = Path(temp_dir).joinpath("source.txt")
             source.write_bytes(b"content")
 
-            result = storage.put_file(self.__metadata(extension = "txt"), source)
+            result = storage.put_file(stubs.domain.chat_attachment(id = "attachment-id", extension = "txt"), source)
 
             self.assertEqual(source.read_bytes(), b"content")
 
@@ -97,7 +97,7 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
         client.upload.side_effect = RuntimeError("boom")
 
         with self.assertRaises(ExternalServiceError):
-            storage.put(self.__metadata(extension = "txt"), b"content")
+            storage.put(stubs.domain.chat_attachment(id = "attachment-id", extension = "txt"), b"content")
 
     def test_put_raises_when_upload_returns_no_public_url(self):
         for stored_file in [
@@ -109,11 +109,11 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
                 client.upload.return_value = stored_file
 
                 with self.assertRaises(ExternalServiceError):
-                    storage.put(self.__metadata(extension = "txt"), b"content")
+                    storage.put(stubs.domain.chat_attachment(id = "attachment-id", extension = "txt"), b"content")
 
     def test_open_fetches_cdn_bytes(self):
         storage, _ = self.__storage()
-        metadata = self.__metadata(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
+        metadata = stubs.domain.chat_attachment(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
 
         with patch("features.chat.attachment.storage.uploadcare_attachment_storage.requests") as requests_mock:
             response = SimpleNamespace(status_code = 200, raw = RawResponse(b"cdn bytes"), close = Mock())
@@ -128,7 +128,7 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
 
     def test_open_raises_when_cdn_returns_no_body(self):
         storage, _ = self.__storage()
-        metadata = self.__metadata(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
+        metadata = stubs.domain.chat_attachment(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
 
         with patch("features.chat.attachment.storage.uploadcare_attachment_storage.requests") as requests_mock:
             response = SimpleNamespace(status_code = 200, raw = RawResponse(), close = Mock())
@@ -143,7 +143,7 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
         storage, client = self.__storage()
         file_handle = Mock()
         client.file.return_value = file_handle
-        metadata = self.__metadata(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
+        metadata = stubs.domain.chat_attachment(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
 
         storage.delete(metadata)
 
@@ -152,7 +152,7 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
 
     def test_public_attachment_returns_stored_cdn_url_and_ttl(self):
         storage, _ = self.__storage()
-        metadata = self.__metadata(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
+        metadata = stubs.domain.chat_attachment(last_url = "https://cdn-id.ucarecd.net/uuid/attachment-id.txt")
 
         min_valid_until = int((datetime.now() + timedelta(seconds = UPLOADCARE_PUBLIC_URL_TTL_SECONDS)).timestamp())
         result = storage.public_attachment_for(metadata)
@@ -178,17 +178,4 @@ class UploadcareAttachmentStorageTest(unittest.TestCase):
             uploadcare_private_key = FakeSecret("" if missing_field == "uploadcare_private_key" else "private"),
             uploadcare_cdn_id = "" if missing_field == "uploadcare_cdn_id" else "cdn-id",
             web_timeout_s = 10,
-        )
-
-    def __metadata(
-        self,
-        extension: str | None = None,
-        last_url: str | None = None,
-    ) -> ChatAttachment:
-        return ChatAttachment(
-            chat_id = UUID("11111111-1111-1111-1111-111111111111"),
-            uploader_user_id = UUID(int = 9),
-            id = "attachment-id",
-            extension = extension,
-            last_url = last_url,
         )

@@ -4,11 +4,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from uuid import UUID
 
+import stubs
 from botocore.exceptions import ClientError
 
-from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.s3_attachment_storage import S3_ADDRESSING_STYLE, S3AttachmentStorage
 from features.chat.attachment.storage.s3_client import S3Client
 
@@ -81,7 +80,7 @@ class S3AttachmentStorageTest(unittest.TestCase):
 
     def test_owns_uri_recognizes_own_bucket_locator(self):
         storage = self.__storage(FakeS3Client())
-        metadata = self.__metadata()
+        metadata = stubs.domain.chat_attachment()
 
         self.assertTrue(storage.owns_uri(f"s3://the-agent/{metadata.uri}"))
         self.assertFalse(storage.owns_uri("s3://other-bucket/chats/x"))
@@ -142,7 +141,7 @@ class S3AttachmentStorageTest(unittest.TestCase):
         client = FakeS3Client()
         client.get_object_response = {"Body": io.BytesIO(b"stored content")}
         storage = self.__storage(client)
-        metadata = self.__metadata(mime_type = "text/plain")
+        metadata = stubs.domain.chat_attachment(mime_type = "text/plain")
 
         storage.put(metadata, b"stored content")
         stream = storage.open(metadata)
@@ -169,7 +168,7 @@ class S3AttachmentStorageTest(unittest.TestCase):
     def test_put_omits_content_type_when_canonical_mime_type_is_missing(self):
         client = FakeS3Client()
         storage = self.__storage(client)
-        metadata = self.__metadata(extension = "png")
+        metadata = stubs.domain.chat_attachment(mime_type = None, extension = "png")
 
         storage.put(metadata, b"stored content")
 
@@ -190,7 +189,7 @@ class S3AttachmentStorageTest(unittest.TestCase):
     def test_put_file_uploads_path_with_content_type(self):
         client = FakeS3Client()
         storage = self.__storage(client)
-        metadata = self.__metadata(mime_type = "video/mp4", extension = "mp4")
+        metadata = stubs.domain.chat_attachment(mime_type = "video/mp4", extension = "mp4")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("source.mp4")
@@ -226,18 +225,4 @@ class S3AttachmentStorageTest(unittest.TestCase):
             s3_bucket = "" if missing_field == "s3_bucket" else "the-agent",
             s3_access_key = FakeSecret("" if missing_field == "s3_access_key" else "access"),
             s3_secret_key = FakeSecret("" if missing_field == "s3_secret_key" else "secret"),
-        )
-
-    def __metadata(
-        self,
-        mime_type: str | None = None,
-        extension: str | None = None,
-    ) -> ChatAttachment:
-        return ChatAttachment(
-            chat_id = UUID("11111111-1111-1111-1111-111111111111"),
-            uploader_user_id = UUID(int = 9),
-            message_id = "message-id",
-            id = "attachment-id",
-            mime_type = mime_type,
-            extension = extension,
         )

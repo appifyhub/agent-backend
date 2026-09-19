@@ -4,6 +4,7 @@ from uuid import UUID
 
 from db.model.chat_attachment import ChatAttachmentDB
 from db.model.chat_config import ChatConfigDB
+from db.model.chat_membership import ChatMembershipDB
 from db.model.chat_message import ChatMessageDB
 from db.model.chat_message_burst import ChatMessageBurstDB
 from db.model.user import UserDB
@@ -11,7 +12,7 @@ from db.model.user import UserDB
 
 def user_db(**overrides: Any) -> UserDB:
     defaults = {
-        "id": UUID("11111111-1111-4111-8111-111111111111"),
+        "id": UUID("11111111-1111-4111-8111-a11111111111"),
         "created_at": date(2026, 1, 15),
         "full_name": "Mark Johnson",
         "about_me": "Software engineer and Python enthusiast.",
@@ -56,8 +57,8 @@ def user_db(**overrides: Any) -> UserDB:
 
 def chat_message_db(**overrides: Any) -> ChatMessageDB:
     defaults = {
-        "chat_id": UUID("22222222-2222-4222-8222-222222222222"),
-        "author_id": UUID("11111111-1111-4111-8111-111111111111"),
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "author_id": UUID("11111111-1111-4111-8111-a11111111111"),
         "message_id": "message-123",
         "sent_at": datetime(2026, 1, 15, 12, 0, 0),
         "text": "Hello from Mark Johnson.",
@@ -69,7 +70,7 @@ def chat_message_db(**overrides: Any) -> ChatMessageDB:
 
 def chat_config_db(**overrides: Any) -> ChatConfigDB:
     defaults = {
-        "chat_id": UUID("22222222-2222-4222-8222-222222222222"),
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
         "external_id": "telegram-chat-123",
         "language_iso_code": "en",
         "language_name": "English",
@@ -87,9 +88,9 @@ def chat_attachment_db(**overrides: Any) -> ChatAttachmentDB:
     defaults = {
         "id": "attachment-123",
         "external_id": "telegram-file-123",
-        "chat_id": UUID("22222222-2222-4222-8222-222222222222"),
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
         "message_id": "message-123",
-        "uploader_user_id": UUID("11111111-1111-4111-8111-111111111111"),
+        "uploader_user_id": UUID("11111111-1111-4111-8111-a11111111111"),
         "created_at": datetime(2026, 1, 15, 12, 0, 0),
         "size": 245_760,
         "last_url": "https://example.com/attachments/photo.jpg",
@@ -99,10 +100,24 @@ def chat_attachment_db(**overrides: Any) -> ChatAttachmentDB:
     return ChatAttachmentDB(**(defaults | overrides))
 
 
+def chat_membership_db(**overrides: Any) -> ChatMembershipDB:
+    defaults = {
+        "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "is_admin": False,
+        "use_about_me": True,
+        "use_custom_prompt": True,
+        "max_output_tokens": 3_500,
+        "max_chat_history_depth": 30,
+        "max_iterations": 20,
+    }
+    return ChatMembershipDB(**(defaults | overrides))
+
+
 def chat_message_burst_db(**overrides: Any) -> ChatMessageBurstDB:
     defaults = {
-        "chat_id": UUID("22222222-2222-4222-8222-222222222222"),
-        "author_id": UUID("11111111-1111-4111-8111-111111111111"),
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "author_id": UUID("11111111-1111-4111-8111-a11111111111"),
         "message_count": 3,
         "process_after": datetime(2026, 1, 15, 12, 0, 2),
         "last_message_sent_at": datetime(2026, 1, 15, 12, 0, 0),

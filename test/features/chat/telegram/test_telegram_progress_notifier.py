@@ -2,21 +2,21 @@ import unittest
 from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
 
+import stubs
+
 from db.model.chat_config import ChatConfigDB
 from features.chat.chat_progress_notifier import ChatProgressNotifier
-from features.chat.config.chat_config import ChatConfig
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 
 
 class ChatProgressNotifierTest(unittest.TestCase):
 
-    chat_config: ChatConfig
     message_id: str
     mock_di: Mock
     notifier: ChatProgressNotifier
 
     def setUp(self):
-        self.chat_config = ChatConfig(
+        chat_config = stubs.domain.chat_config(
             chat_id = UUID(int = 1),
             external_id = "test_chat_id",
             language_iso_code = "en",
@@ -31,8 +31,8 @@ class ChatProgressNotifierTest(unittest.TestCase):
         # Create mock DI with all necessary dependencies
         self.mock_di = Mock()
         # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat = self.chat_config
-        self.mock_di.require_invoker_chat = MagicMock(return_value = self.chat_config)
+        self.mock_di.invoker_chat = chat_config
+        self.mock_di.require_invoker_chat = MagicMock(return_value = chat_config)
         # noinspection PyPropertyAccess
         self.mock_di.platform_bot_sdk = Mock(return_value = Mock(spec = PlatformBotSDK))
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)

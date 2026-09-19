@@ -4,17 +4,13 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 from uuid import UUID
 
+import stubs
 from langchain_core.messages import AIMessage
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.config.chat_config import ChatConfig
-from features.chat.ingested_chat_message import IngestedChatMessage
-from features.chat.message.chat_message import ChatMessage
-from features.chat.message_burst import ClaimedChatMessageBurst, ScheduledChatMessageBurst
 from features.chat.message_burst_service import MessageBurstService
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
-from features.users.user import User
 
 
 class MessageBurstServiceTest(unittest.TestCase):
@@ -22,35 +18,6 @@ class MessageBurstServiceTest(unittest.TestCase):
     def setUp(self):
         self.di = Mock(spec = DI)
         self.service = MessageBurstService(self.di)
-        self.chat = ChatConfig(
-            chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = False,
-            reply_chance_percent = 0,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        self.author = User(
-            id = UUID(int = 20),
-            full_name = "Test User",
-            telegram_user_id = 20,
-            telegram_username = "test_user",
-            whatsapp_user_id = "20",
-        )
-        self.message = ChatMessage(
-            chat_id = self.chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = self.author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        self.ingested = IngestedChatMessage(
-            chat = self.chat,
-            author = self.author,
-            message = self.message,
-            attachments = [],
-            raw_message_text = "hello",
-        )
         self.di.tool_choice_resolver.get_tool.return_value = Mock()
         self.di.chat_agent.return_value.execute.return_value = AIMessage("response")
         self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
@@ -65,9 +32,46 @@ class MessageBurstServiceTest(unittest.TestCase):
         self.assertFalse(self.service.is_explicitly_addressed(f">> hello @{handle}\nnot addressed", chat_type))
 
     def test_claimed_message_uses_cutoff_and_aggregate_addressing(self):
-        claim = self._claim(message_count = 1, is_addressed = True)
+        chat = stubs.domain.chat_config(
+            chat_id = UUID(int = 10),
+            external_id = "123",
+            is_private = False,
+            reply_chance_percent = 0,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
+        author = stubs.domain.user(
+            id = UUID(int = 20),
+            full_name = "Test User",
+            telegram_user_id = 20,
+            telegram_username = "test_user",
+            whatsapp_user_id = "20",
+        )
+        message = stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            message_id = "message-1",
+            ingestion_order = 7,
+            author_id = author.id,
+            sent_at = datetime(2026, 1, 2, 12, 0, 0),
+            text = "hello",
+        )
+        ingested = stubs.domain.ingested_chat_message(
+            chat = chat,
+            author = author,
+            message = message,
+            attachments = [],
+            raw_message_text = "hello",
+        )
 
-        result = self.service.process_message(self.ingested, claim = claim)
+        claim = stubs.domain.claimed_chat_message_burst(
+            chat_id = message.chat_id,
+            author_id = message.author_id,
+            message_count = 1,
+            last_message_sent_at = message.sent_at,
+            last_message_ingestion_order = message.ingestion_order,
+            is_addressed = True,
+        )
+
+        result = self.service.process_message(ingested, claim = claim)
 
         self.assertTrue(result)
         self.di.chat_agent.assert_called_once_with(
@@ -80,16 +84,53 @@ class MessageBurstServiceTest(unittest.TestCase):
         )
         self.di.chat_agent.return_value.execute.assert_called_once()
         self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(
-            self.chat,
+            chat,
             "response",
         )
 
     def test_reaction_response_is_stored_and_sent(self):
+        chat = stubs.domain.chat_config(
+            chat_id = UUID(int = 10),
+            external_id = "123",
+            is_private = False,
+            reply_chance_percent = 0,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
+        author = stubs.domain.user(
+            id = UUID(int = 20),
+            full_name = "Test User",
+            telegram_user_id = 20,
+            telegram_username = "test_user",
+            whatsapp_user_id = "20",
+        )
+        message = stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            message_id = "message-1",
+            ingestion_order = 7,
+            author_id = author.id,
+            sent_at = datetime(2026, 1, 2, 12, 0, 0),
+            text = "hello",
+        )
+        ingested = stubs.domain.ingested_chat_message(
+            chat = chat,
+            author = author,
+            message = message,
+            attachments = [],
+            raw_message_text = "hello",
+        )
+
         self.di.chat_agent.return_value.execute.return_value = AIMessage("👍")
 
         result = self.service.process_message(
-            self.ingested,
-            claim = self._claim(message_count = 1, is_addressed = True),
+            ingested,
+            claim = stubs.domain.claimed_chat_message_burst(
+                chat_id = message.chat_id,
+                author_id = message.author_id,
+                message_count = 1,
+                last_message_sent_at = message.sent_at,
+                last_message_ingestion_order = message.ingestion_order,
+                is_addressed = True,
+            ),
         )
 
         self.assertTrue(result)
@@ -103,21 +144,66 @@ class MessageBurstServiceTest(unittest.TestCase):
         )
 
     def test_whatsapp_message_marks_final_message_read(self):
-        self.chat.chat_type = ChatConfigDB.ChatType.whatsapp
+        chat = stubs.domain.chat_config(
+            chat_id = UUID(int = 10),
+            external_id = "123",
+            is_private = False,
+            reply_chance_percent = 0,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
+        author = stubs.domain.user(
+            id = UUID(int = 20),
+            full_name = "Test User",
+            telegram_user_id = 20,
+            telegram_username = "test_user",
+            whatsapp_user_id = "20",
+        )
+        message = stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            message_id = "message-1",
+            ingestion_order = 7,
+            author_id = author.id,
+            sent_at = datetime(2026, 1, 2, 12, 0, 0),
+            text = "hello",
+        )
+        ingested = stubs.domain.ingested_chat_message(
+            chat = chat,
+            author = author,
+            message = message,
+            attachments = [],
+            raw_message_text = "hello",
+        )
+
+        chat.chat_type = ChatConfigDB.ChatType.whatsapp
 
         result = self.service.process_message(
-            self.ingested,
-            claim = self._claim(message_count = 1, is_addressed = False),
+            ingested,
+            claim = stubs.domain.claimed_chat_message_burst(
+                chat_id = message.chat_id,
+                author_id = message.author_id,
+                message_count = 1,
+                last_message_sent_at = message.sent_at,
+                last_message_ingestion_order = message.ingestion_order,
+                is_addressed = False,
+            ),
         )
 
         self.assertTrue(result)
         self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(
-            self.chat,
+            chat,
             "response",
         )
         self.di.whatsapp_bot_sdk.mark_as_read.assert_called_once_with("message-1")
 
     def test_delayed_attempt_opens_no_database_session_before_sleep_finishes(self):
+        message = stubs.domain.chat_message(
+            chat_id = UUID(int = 10),
+            message_id = "message-1",
+            ingestion_order = 7,
+            author_id = UUID(int = 20),
+            sent_at = datetime(2026, 1, 2, 12, 0, 0),
+            text = "hello",
+        )
         sleep_started = asyncio.Event()
         release_sleep = asyncio.Event()
         detached_di = Mock(spec = DI)
@@ -145,7 +231,12 @@ class MessageBurstServiceTest(unittest.TestCase):
                 ) as get_session,
             ):
                 task = asyncio.create_task(
-                    self.service.process_after_quiet_period(self._scheduled_burst()),
+                    self.service.process_after_quiet_period(stubs.domain.scheduled_chat_message_burst(
+                        chat_id = message.chat_id,
+                        author_id = message.author_id,
+                        message_count = 1,
+                        wait_seconds = 0.5,
+                    )),
                 )
                 await sleep_started.wait()
                 get_session.assert_not_called()
@@ -156,10 +247,64 @@ class MessageBurstServiceTest(unittest.TestCase):
         asyncio.run(scenario())
 
     def test_obsolete_timer_noops_and_completion_schedules_waiting_messages(self):
-        first = self._scheduled_burst(message_count = 1)
-        second = self._scheduled_burst(message_count = 2)
-        first_claim = self._claim(message_count = 1)
-        second_claim = self._claim(message_count = 2)
+        chat = stubs.domain.chat_config(
+            chat_id = UUID(int = 10),
+            external_id = "123",
+            is_private = False,
+            reply_chance_percent = 0,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
+        author = stubs.domain.user(
+            id = UUID(int = 20),
+            full_name = "Test User",
+            telegram_user_id = 20,
+            telegram_username = "test_user",
+            whatsapp_user_id = "20",
+        )
+        message = stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            message_id = "message-1",
+            ingestion_order = 7,
+            author_id = author.id,
+            sent_at = datetime(2026, 1, 2, 12, 0, 0),
+            text = "hello",
+        )
+        ingested = stubs.domain.ingested_chat_message(
+            chat = chat,
+            author = author,
+            message = message,
+            attachments = [],
+            raw_message_text = "hello",
+        )
+
+        first = stubs.domain.scheduled_chat_message_burst(
+            chat_id = message.chat_id,
+            author_id = message.author_id,
+            message_count = 1,
+            wait_seconds = 0.5,
+        )
+        second = stubs.domain.scheduled_chat_message_burst(
+            chat_id = message.chat_id,
+            author_id = message.author_id,
+            message_count = 2,
+            wait_seconds = 0.5,
+        )
+        first_claim = stubs.domain.claimed_chat_message_burst(
+            chat_id = message.chat_id,
+            author_id = message.author_id,
+            message_count = 1,
+            last_message_sent_at = message.sent_at,
+            last_message_ingestion_order = message.ingestion_order,
+            is_addressed = False,
+        )
+        second_claim = stubs.domain.claimed_chat_message_burst(
+            chat_id = message.chat_id,
+            author_id = message.author_id,
+            message_count = 2,
+            last_message_sent_at = message.sent_at,
+            last_message_ingestion_order = message.ingestion_order,
+            is_addressed = False,
+        )
         detached_service = Mock(spec = MessageBurstService)
         detached_di = Mock(spec = DI)
         detached_repo = Mock()
@@ -169,7 +314,7 @@ class MessageBurstServiceTest(unittest.TestCase):
         detached_di.chat_message_burst_repo = detached_repo
         # noinspection PyPropertyAccess
         detached_di.message_burst_service = detached_service
-        detached_service.load_claimed_message.return_value = self.ingested
+        detached_service.load_claimed_message.return_value = ingested
         detached_service.process_message.return_value = True
         self.di.clone.return_value = detached_di
 
@@ -189,29 +334,7 @@ class MessageBurstServiceTest(unittest.TestCase):
         self.assertEqual(
             detached_service.process_message.call_args_list,
             [
-                call(self.ingested, claim = first_claim),
-                call(self.ingested, claim = second_claim),
+                call(ingested, claim = first_claim),
+                call(ingested, claim = second_claim),
             ],
-        )
-
-    def _scheduled_burst(self, message_count: int = 1) -> ScheduledChatMessageBurst:
-        return ScheduledChatMessageBurst(
-            chat_id = self.message.chat_id,
-            author_id = self.message.author_id,
-            message_count = message_count,
-            wait_seconds = 0.5,
-        )
-
-    def _claim(
-        self,
-        message_count: int,
-        is_addressed: bool = False,
-    ) -> ClaimedChatMessageBurst:
-        return ClaimedChatMessageBurst(
-            chat_id = self.message.chat_id,
-            author_id = self.message.author_id,
-            message_count = message_count,
-            last_message_sent_at = self.message.sent_at,
-            last_message_ingestion_order = self.message.ingestion_order,
-            is_addressed = is_addressed,
         )

@@ -1,14 +1,14 @@
 import unittest
 from dataclasses import replace
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
+
+import stubs
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.config.chat_config import ChatConfig
 from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
 from features.integrations.integration_config import THE_AGENT
@@ -24,12 +24,12 @@ class TelegramBotSDKTest(unittest.TestCase):
 
         # noinspection PyPropertyAccess
         self.mock_di.telegram_bot_api = Mock(spec = TelegramBotAPI)
-        self.mock_di.invoker = SimpleNamespace(id = UUID(int = 9))
+        self.mock_di.invoker = stubs.domain.user(id = UUID(int = 9))
         self.stored_media_url = "s3://the-agent/chats/chat-id/attachments/attachment-id"
         self.public_url = "https://agent.example/attachments/public/token"
         self.mock_chat_attachment_service = Mock()
         self.mock_chat_attachment_service.save.side_effect = self.__save_attachment
-        self.mock_chat_attachment_service.create_public_url.return_value = SimpleNamespace(url = self.public_url)
+        self.mock_chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(url = self.public_url)
         self.mock_di.chat_attachment_service = self.mock_chat_attachment_service
         self.mock_di.attachment_storage = Mock()
         self.temporary_attachment_path = "/tmp/stored-video.mp4"
@@ -46,12 +46,8 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.chat_id = "123"
         self.message_id = "456"
         self.chat_uuid = UUID("12345678-1234-5678-1234-567812345678")
-        self.chat_config = ChatConfig(
-            chat_id = self.chat_uuid,
-            external_id = self.chat_id,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
         self.api_response = {
+            "ok": True,
             "result": {
                 "message_id": self.message_id,
                 "chat": {
@@ -80,9 +76,14 @@ class TelegramBotSDKTest(unittest.TestCase):
         return replace(attachment, last_url = self.stored_media_url)
 
     def test_send_text_message(self):
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
         text = "test message"
 
-        result = self.sdk.send_text_message(chat_config = self.chat_config, text = text)
+        result = self.sdk.send_text_message(chat_config = chat_config, text = text)
 
         # noinspection PyUnresolvedReferences
         self.mock_di.telegram_bot_api.send_text_message.assert_called_once_with(
@@ -101,15 +102,20 @@ class TelegramBotSDKTest(unittest.TestCase):
 
     def test_send_photo(self):
         caption = "test photo"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "local123",
             chat_id = self.chat_uuid,
             uploader_user_id = self.mock_di.invoker.id,
             mime_type = "image/png",
         )
 
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
         result = self.sdk.send_photo(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             attachment = attachment,
             caption = caption,
         )
@@ -130,14 +136,20 @@ class TelegramBotSDKTest(unittest.TestCase):
 
     def test_send_document(self):
         caption = "test document"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "local456",
             chat_id = self.chat_uuid,
             uploader_user_id = self.mock_di.invoker.id,
+            mime_type = None,
         )
 
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
         result = self.sdk.send_document(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             attachment = attachment,
             caption = caption,
         )
@@ -159,7 +171,7 @@ class TelegramBotSDKTest(unittest.TestCase):
 
     def test_send_video(self):
         caption = "test video"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "local789",
             chat_id = self.chat_uuid,
             uploader_user_id = self.mock_di.invoker.id,
@@ -167,13 +179,18 @@ class TelegramBotSDKTest(unittest.TestCase):
             mime_type = "video/mp4",
         )
 
-        metadata = SimpleNamespace(width = 320, height = 180, duration_seconds = 119.8)
+        metadata = stubs.domain.video_metadata(width = 320, height = 180, duration_seconds = 119.8)
         with patch(
             "features.chat.telegram.sdk.telegram_bot_sdk.inspect_video",
             return_value = metadata,
         ) as mock_inspect:
+            chat_config = stubs.domain.chat_config(
+                chat_id = self.chat_uuid,
+                external_id = self.chat_id,
+                chat_type = ChatConfigDB.ChatType.telegram,
+            )
             result = self.sdk.send_video(
-                chat_config = self.chat_config,
+                chat_config = chat_config,
                 attachment = attachment,
                 caption = caption,
             )
@@ -194,7 +211,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.assertEqual(patched_attachment.message_id, self.message_id)
 
     def test_send_video_document_uses_stored_bytes_and_attachment_filename(self):
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "local-video",
             chat_id = self.chat_uuid,
             uploader_user_id = self.mock_di.invoker.id,
@@ -202,8 +219,13 @@ class TelegramBotSDKTest(unittest.TestCase):
             mime_type = "video/mp4",
         )
 
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
         self.sdk.send_document(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             attachment = attachment,
         )
 
@@ -236,8 +258,13 @@ class TelegramBotSDKTest(unittest.TestCase):
     def test_send_button_link(self):
         link_url = "https://test.example.com/settings/key123"
 
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            chat_type = ChatConfigDB.ChatType.telegram,
+        )
         result = self.sdk.send_button_link(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             link_url = link_url,
             button_text = "⚙️",
         )
@@ -247,7 +274,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.assertEqual(result.text, "⚙️ test...123")
 
         result = self.sdk.send_button_link(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             link_url = link_url,
         )
 
@@ -256,7 +283,7 @@ class TelegramBotSDKTest(unittest.TestCase):
         self.assertEqual(result.text, "⚙️ test...123")
 
         result = self.sdk.send_button_link(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             link_url = link_url,
             button_text = "test",
         )

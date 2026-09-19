@@ -4,64 +4,60 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import UUID
 
+import stubs
+
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.config.chat_config import ChatConfig
-from features.chat.ingested_chat_message import IngestedChatMessage
-from features.chat.message.chat_message import ChatMessage
-from features.chat.message_burst import ScheduledChatMessageBurst
 from features.chat.message_burst_service import MessageBurstService
-from features.chat.telegram.model.update import Update
 from features.chat.telegram.telegram_update_responder import (
     _ingest_update,
-    _IngressOutcome,
     respond_to_update,
 )
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
-from features.users.user import User
 
 
 class TelegramUpdateResponderTest(unittest.TestCase):
 
     def setUp(self):
-        self.chat = ChatConfig(
+        self.di = Mock(spec = DI)
+        self.burst_service = Mock(spec = MessageBurstService)
+        # noinspection PyPropertyAccess
+        self.di.message_burst_service = self.burst_service
+        self.di.telegram_chat_inbound_service = Mock()
+
+    def test_command_is_processed_without_creating_burst(self):
+        chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
             external_id = "123",
             is_private = False,
             reply_chance_percent = 0,
             chat_type = ChatConfigDB.ChatType.telegram,
         )
-        self.author = User(
+        author = stubs.domain.user(
             id = UUID(int = 20),
             full_name = "Test User",
             telegram_user_id = 20,
             telegram_username = "test_user",
         )
-        self.message = ChatMessage(
-            chat_id = self.chat.chat_id,
+        message = stubs.domain.chat_message(
+            chat_id = chat.chat_id,
             message_id = "message-1",
             ingestion_order = 7,
-            author_id = self.author.id,
+            author_id = author.id,
             sent_at = datetime(2026, 1, 2, 12, 0, 0),
             text = "hello",
         )
-        self.ingested = IngestedChatMessage(
-            chat = self.chat,
-            author = self.author,
-            message = self.message,
+        ingested = stubs.domain.ingested_chat_message(
+            chat = chat,
+            author = author,
+            message = message,
             attachments = [],
             raw_message_text = "hello",
         )
-        self.di = Mock(spec = DI)
-        self.burst_service = Mock(spec = MessageBurstService)
-        # noinspection PyPropertyAccess
-        self.di.message_burst_service = self.burst_service
-
-    def test_command_is_processed_without_creating_burst(self):
-        agent = resolve_agent_user(self.ingested.chat.chat_type)
-        agent_handle = resolve_external_handle(agent, self.ingested.chat.chat_type)
-        self.ingested.raw_message_text = f"/help@{agent_handle}"
-        self.di.telegram_chat_inbound_service.ingest_update.return_value = self.ingested
+        agent = resolve_agent_user(ingested.chat.chat_type)
+        agent_handle = resolve_external_handle(agent, ingested.chat.chat_type)
+        ingested.raw_message_text = f"/help@{agent_handle}"
+        self.di.telegram_chat_inbound_service.ingest_update.return_value = ingested
         self.burst_service.process_message.return_value = False
         session = MagicMock()
         with (
@@ -74,29 +70,29 @@ class TelegramUpdateResponderTest(unittest.TestCase):
                 return_value = self.di,
             ),
         ):
-            outcome = _ingest_update(Mock(spec = Update))
+            outcome = _ingest_update(stubs.external.telegram_update())
 
         self.assertIsNone(outcome.scheduled_burst)
         self.burst_service.process_message.assert_called_once_with(
-            self.ingested,
+            ingested,
             command_only = True,
         )
         self.burst_service.record.assert_not_called()
 
     def test_async_responder_offloads_ingestion_and_processing(self):
-        scheduled = self._scheduled_burst()
+        scheduled = stubs.domain.scheduled_chat_message_burst()
         self.burst_service.process_after_quiet_period.return_value = True
         with (
             patch(
                 "features.chat.telegram.telegram_update_responder.asyncio.to_thread",
-                new = AsyncMock(return_value = _IngressOutcome(scheduled_burst = scheduled)),
+                new = AsyncMock(return_value = MagicMock(scheduled_burst = scheduled, processed = False)),
             ) as to_thread,
             patch(
                 "features.chat.telegram.telegram_update_responder.DI",
                 return_value = self.di,
             ) as di_factory,
         ):
-            result = asyncio.run(respond_to_update(Mock(spec = Update)))
+            result = asyncio.run(respond_to_update(stubs.external.telegram_update()))
 
         self.assertTrue(result)
         to_thread.assert_awaited_once()
@@ -105,11 +101,3 @@ class TelegramUpdateResponderTest(unittest.TestCase):
             invoker_chat_id = scheduled.chat_id.hex,
         )
         self.burst_service.process_after_quiet_period.assert_awaited_once()
-
-    def _scheduled_burst(self, message_count: int = 1) -> ScheduledChatMessageBurst:
-        return ScheduledChatMessageBurst(
-            chat_id = self.chat.chat_id,
-            author_id = self.author.id,
-            message_count = message_count,
-            wait_seconds = 0.5,
-        )

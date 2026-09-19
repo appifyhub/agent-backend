@@ -4,12 +4,12 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import UUID
 
+import stubs
+
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
-from features.chat.whatsapp.model.response import ContactResponse, MessageResponse, SentMessageResponse
 from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
 from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
 from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
@@ -56,26 +56,6 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.button_text = "⚙️"
         self.link_url = "https://test.com"
 
-        # Create proper MessageResponse object
-        self.api_response = MessageResponse(
-            messaging_product = "whatsapp",
-            contacts = [ContactResponse(input = "1234567890", wa_id = "1234567890")],
-            messages = [SentMessageResponse(id = self.message_id)],
-        )
-
-        self.mock_di.whatsapp_bot_api.send_text_message.return_value = self.api_response
-        self.mock_di.whatsapp_bot_api.send_image.return_value = self.api_response
-        self.mock_di.whatsapp_bot_api.send_document.return_value = self.api_response
-        self.mock_di.whatsapp_bot_api.send_video.return_value = self.api_response
-
-        self.chat_config = ChatConfig(
-            chat_id = self.chat_uuid,
-            external_id = self.chat_id,
-            title = "Test Chat",
-            is_private = True,
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-
     def __save_attachment(
         self,
         attachment: ChatAttachment,
@@ -88,8 +68,24 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_text_message(self):
         text = "test message"
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+        api_response = stubs.external.whatsapp_message_response(
+            contacts = [
+                stubs.external.whatsapp_contact_response(
+                    input = "1234567890",
+                    wa_id = "1234567890",
+                ),
+            ],
+            messages = [stubs.external.whatsapp_sent_message_response(id = self.message_id)],
+        )
+        self.mock_di.whatsapp_bot_api.send_text_message.return_value = api_response
 
-        result = self.sdk.send_text_message(chat_config = self.chat_config, text = text)
+        result = self.sdk.send_text_message(chat_config = chat_config, text = text)
 
         # noinspection PyUnresolvedReferences
         self.mock_di.whatsapp_bot_api.send_text_message.assert_called_once_with(
@@ -103,10 +99,31 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_photo(self):
         caption = "test photo"
-        attachment = ChatAttachment(id = "local123", chat_id = self.chat_uuid, uploader_user_id = self.mock_di.invoker.id)
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+        api_response = stubs.external.whatsapp_message_response(
+            contacts = [
+                stubs.external.whatsapp_contact_response(
+                    input = "1234567890",
+                    wa_id = "1234567890",
+                ),
+            ],
+            messages = [stubs.external.whatsapp_sent_message_response(id = self.message_id)],
+        )
+        self.mock_di.whatsapp_bot_api.send_image.return_value = api_response
+        attachment = stubs.domain.chat_attachment(
+            id = "local123",
+            chat_id = self.chat_uuid,
+            uploader_user_id = self.mock_di.invoker.id,
+            mime_type = None,
+        )
 
         result = self.sdk.send_photo(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             attachment = attachment,
             caption = caption,
         )
@@ -129,15 +146,32 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_document(self):
         caption = "test document"
-        attachment = ChatAttachment(
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+        api_response = stubs.external.whatsapp_message_response(
+            contacts = [
+                stubs.external.whatsapp_contact_response(
+                    input = "1234567890",
+                    wa_id = "1234567890",
+                ),
+            ],
+            messages = [stubs.external.whatsapp_sent_message_response(id = self.message_id)],
+        )
+        self.mock_di.whatsapp_bot_api.send_document.return_value = api_response
+        attachment = stubs.domain.chat_attachment(
             id = "local456",
             chat_id = self.chat_uuid,
             uploader_user_id = self.mock_di.invoker.id,
             extension = "pdf",
+            mime_type = None,
         )
 
         result = self.sdk.send_document(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             attachment = attachment,
             caption = caption,
         )
@@ -161,7 +195,23 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_video(self):
         caption = "test video"
-        attachment = ChatAttachment(
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+        api_response = stubs.external.whatsapp_message_response(
+            contacts = [
+                stubs.external.whatsapp_contact_response(
+                    input = "1234567890",
+                    wa_id = "1234567890",
+                ),
+            ],
+            messages = [stubs.external.whatsapp_sent_message_response(id = self.message_id)],
+        )
+        self.mock_di.whatsapp_bot_api.send_video.return_value = api_response
+        attachment = stubs.domain.chat_attachment(
             id = "local789",
             chat_id = self.chat_uuid,
             uploader_user_id = self.mock_di.invoker.id,
@@ -169,7 +219,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         )
 
         result = self.sdk.send_video(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             attachment = attachment,
             caption = caption,
         )
@@ -200,10 +250,26 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
     def test_send_button_link(self):
         link_url = "https://test.example.com/settings/key123"
+        chat_config = stubs.domain.chat_config(
+            chat_id = self.chat_uuid,
+            external_id = self.chat_id,
+            title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+        api_response = stubs.external.whatsapp_message_response(
+            contacts = [
+                stubs.external.whatsapp_contact_response(
+                    input = "1234567890",
+                    wa_id = "1234567890",
+                ),
+            ],
+            messages = [stubs.external.whatsapp_sent_message_response(id = self.message_id)],
+        )
+        self.mock_di.whatsapp_bot_api.send_text_message.return_value = api_response
 
         # Test settings button
         result = self.sdk.send_button_link(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             link_url = link_url,
             button_text = "⚙️",
         )
@@ -221,7 +287,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
         # Test default-to-settings button
         result = self.sdk.send_button_link(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             link_url = link_url,
         )
 
@@ -238,7 +304,7 @@ class WhatsAppBotSDKTest(unittest.TestCase):
 
         # Test custom button text
         result = self.sdk.send_button_link(
-            chat_config = self.chat_config,
+            chat_config = chat_config,
             link_url = link_url,
             button_text = "test",
         )
@@ -255,8 +321,18 @@ class WhatsAppBotSDKTest(unittest.TestCase):
         self.assertEqual(result.text, "test test...123")
 
     def test_store_api_response_creates_domain_message(self):
+        api_response = stubs.external.whatsapp_message_response(
+            contacts = [
+                stubs.external.whatsapp_contact_response(
+                    input = "1234567890",
+                    wa_id = "1234567890",
+                ),
+            ],
+            messages = [stubs.external.whatsapp_sent_message_response(id = self.message_id)],
+        )
+
         result = self.sdk._WhatsAppBotSDK__store_api_response_as_message(
-            self.api_response,
+            api_response,
             text = "test",
             chat_id = self.chat_uuid,
         )
