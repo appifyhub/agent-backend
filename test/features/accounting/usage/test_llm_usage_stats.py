@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
+import stubs
 from langchain_core.messages import AIMessage
 
 from features.accounting.usage.llm_usage_stats import LLMUsageStats
@@ -88,10 +89,12 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertIsNone(stats.total_tokens)
 
     def test_decorate_with_perplexity_stats_with_reasoning_and_citation(self):
-        base_stats = LLMUsageStats(
+        base_stats = stubs.domain.llm_usage_stats(
             input_tokens = 100,
             output_tokens = 200,
             total_tokens = 300,
+            search_tokens = None,
+            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -108,10 +111,10 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(result.total_tokens, 380)
 
     def test_decorate_with_perplexity_stats_with_reasoning_only(self):
-        base_stats = LLMUsageStats(
-            input_tokens = 100,
-            output_tokens = 200,
+        base_stats = stubs.domain.llm_usage_stats(
             total_tokens = 300,
+            search_tokens = None,
+            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -125,10 +128,10 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(result.total_tokens, 350)
 
     def test_decorate_with_perplexity_stats_with_citation_only(self):
-        base_stats = LLMUsageStats(
-            input_tokens = 100,
-            output_tokens = 200,
+        base_stats = stubs.domain.llm_usage_stats(
             total_tokens = 300,
+            search_tokens = None,
+            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -142,10 +145,12 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(result.total_tokens, 330)
 
     def test_decorate_with_perplexity_stats_without_perplexity_data(self):
-        base_stats = LLMUsageStats(
+        base_stats = stubs.domain.llm_usage_stats(
             input_tokens = 100,
             output_tokens = 200,
+            search_tokens = None,
             total_tokens = 300,
+            remote_runtime_seconds = None,
         )
         usage_metadata = {}
 
@@ -157,10 +162,12 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertIsNone(result.search_tokens)
 
     def test_decorate_with_perplexity_stats_with_none_base_total(self):
-        base_stats = LLMUsageStats(
-            input_tokens = 100,
-            output_tokens = 200,
+        base_stats = stubs.domain.llm_usage_stats(
             total_tokens = None,
+            input_tokens = None,
+            output_tokens = None,
+            search_tokens = None,
+            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -175,10 +182,10 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(result.total_tokens, 80)
 
     def test_decorate_with_perplexity_stats_ignores_non_int_values(self):
-        base_stats = LLMUsageStats(
-            input_tokens = 100,
-            output_tokens = 200,
+        base_stats = stubs.domain.llm_usage_stats(
             total_tokens = 300,
+            search_tokens = None,
+            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {

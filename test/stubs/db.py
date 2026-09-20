@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -7,6 +7,8 @@ from db.model.chat_config import ChatConfigDB
 from db.model.chat_membership import ChatMembershipDB
 from db.model.chat_message import ChatMessageDB
 from db.model.chat_message_burst import ChatMessageBurstDB
+from db.model.purchase_record import PurchaseRecordDB
+from db.model.usage_record import UsageRecordDB
 from db.model.user import UserDB
 
 
@@ -126,3 +128,65 @@ def chat_message_burst_db(**overrides: Any) -> ChatMessageBurstDB:
         "is_processing": False,
     }
     return ChatMessageBurstDB(**(defaults | overrides))
+
+
+def purchase_record_db(**overrides: Any) -> PurchaseRecordDB:
+    defaults = {
+        "id": UUID("33333333-3333-4333-8333-c33333333333"),
+        "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "seller_id": "seller-123",
+        "sale_id": "sale-456",
+        "sale_timestamp": datetime(2026, 1, 15, 12, 0, tzinfo = timezone.utc),
+        "price": 1_000,
+        "product_id": "product-123",
+        "product_name": "Test Product",
+        "product_permalink": "https://example.com/products/test-product",
+        "short_product_id": "short-123",
+        "license_key": "LICENSE-KEY-ABC",
+        "quantity": 1,
+        "gumroad_fee": 100,
+        "affiliate_credit_amount_cents": 50,
+        "discover_fee_charge": False,
+        "url_params": {},
+        "custom_fields": {},
+        "test": False,
+        "is_preorder_authorization": False,
+        "refunded": False,
+    }
+    return PurchaseRecordDB(**(defaults | overrides))
+
+
+def usage_record_db(**overrides: Any) -> UsageRecordDB:
+    defaults = {
+        "id": UUID("44444444-4444-4444-8444-d44444444444"),
+        "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "payer_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "uses_credits": True,
+        "is_failed": False,
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "tool_id": "gpt-5.5",
+        "tool_name": "GPT 5.5",
+        "provider_id": "open-ai",
+        "provider_name": "OpenAI",
+        "purpose": "chat",
+        "timestamp": datetime(2026, 1, 15, 12, 0, tzinfo = timezone.utc),
+        "runtime_seconds": 1.5,
+        "remote_runtime_seconds": 0.5,
+        "model_cost_credits": 0.1,
+        "remote_runtime_cost_credits": 0.2,
+        "api_call_cost_credits": 0.3,
+        "maintenance_fee_credits": 0.4,
+        "total_cost_credits": 1.0,
+        "input_tokens": 100,
+        "output_tokens": 200,
+        "search_tokens": 50,
+        "total_tokens": 350,
+        "output_image_sizes": [],
+        "input_image_sizes": [],
+        "output_video_size": None,
+        "output_video_duration_seconds": None,
+        "counterpart_id": None,
+        "note": None,
+        "participant_details": None,
+    }
+    return UsageRecordDB(**(defaults | overrides))

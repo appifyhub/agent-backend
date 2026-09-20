@@ -1,14 +1,13 @@
 import unittest
 from time import sleep
 from unittest.mock import Mock
-from uuid import UUID
+
+import stubs
 
 from features.accounting.spending.spending_service import SpendingService
 from features.accounting.usage.decorators.web_fetcher_usage_tracking_decorator import WebFetcherUsageTrackingDecorator
-from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_tracking_service import UsageTrackingService
-from features.external_tools.configured_tool import ConfiguredTool
-from features.external_tools.external_tool import ExternalTool, ToolType
+from features.external_tools.external_tool import ToolType
 from features.web_browsing.web_fetcher import WebFetcher
 
 
@@ -18,23 +17,22 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_fetcher = Mock(spec = WebFetcher)
         self.mock_fetcher.made_request = True
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_api_call = Mock(return_value = Mock(spec = UsageRecord, total_cost_credits = 10.0))
+        self.mock_tracking_service.track_api_call = Mock(
+            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
+        )
         self.mock_spending_service = Mock(spec = SpendingService)
-        self.tool_purpose = ToolType.api_fiat_exchange
-        self.external_tool = Mock(spec = ExternalTool)
-        self.external_tool.id = "test-tool"
-
-        self.mock_configured_tool = Mock(spec = ConfiguredTool)
-        self.mock_configured_tool.definition = self.external_tool
-        self.mock_configured_tool.purpose = self.tool_purpose
-        self.mock_configured_tool.payer_id = UUID(int = 1)
-        self.mock_configured_tool.uses_credits = False
+        external_tool = stubs.domain.external_tool(id = "test-tool")
+        configured_tool = stubs.domain.configured_tool(
+            definition = external_tool,
+            purpose = ToolType.api_fiat_exchange,
+            uses_credits = False,
+        )
 
         self.decorator = WebFetcherUsageTrackingDecorator(
             wrapped_fetcher = self.mock_fetcher,
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
-            configured_tool = self.mock_configured_tool,
+            configured_tool = configured_tool,
         )
 
     def test_fetch_json_tracks_usage(self):
@@ -46,8 +44,8 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
         self.assertEqual(result, mock_response)
         self.mock_tracking_service.track_api_call.assert_called_once()
         call_args = self.mock_tracking_service.track_api_call.call_args
-        self.assertEqual(call_args.kwargs["tool"], self.external_tool)
-        self.assertEqual(call_args.kwargs["tool_purpose"], self.tool_purpose)
+        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.api_fiat_exchange)
         self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
         self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
         self.assertEqual(call_args.kwargs["uses_credits"], False)

@@ -1,65 +1,12 @@
 import unittest
-from datetime import datetime
 from unittest.mock import Mock, patch
 from uuid import UUID
 
-from pydantic import SecretStr
+import stubs
 
-from db.model.user import UserDB
 from di.di import DI
 from features.accounting.spending.spending_service import SpendingService
-from features.external_tools.configured_tool import ConfiguredTool
-from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
-from features.users.user import User
 from util.errors import NotFoundError, ValidationError
-
-
-def _make_user(user_id: int = 1, credit_balance: float = 100.0) -> User:
-    return User(
-        id = UUID(int = user_id),
-        full_name = "Test User",
-        telegram_user_id = user_id,
-        telegram_chat_id = str(user_id),
-        group = UserDB.Group.standard,
-        created_at = datetime.now().date(),
-        credit_balance = credit_balance,
-    )
-
-
-def _make_configured_tool(
-    payer_id: UUID,
-    uses_credits: bool = True,
-    output_video_1k_second: float | None = None,
-    output_video_2k_second: float | None = None,
-    output_video_4k_second: float | None = None,
-) -> ConfiguredTool:
-    provider = ExternalToolProvider(
-        id = "test-provider",
-        name = "Test Provider",
-        token_management_url = "https://test.com",
-        token_format = "test",
-        tools = [],
-    )
-    tool = ExternalTool(
-        id = "test-tool",
-        name = "Test Tool",
-        provider = provider,
-        types = [ToolType.chat],
-        cost_estimate = CostEstimate(
-            input_1m_tokens = 100,
-            output_1m_tokens = 200,
-            output_video_1k_second = output_video_1k_second,
-            output_video_2k_second = output_video_2k_second,
-            output_video_4k_second = output_video_4k_second,
-        ),
-    )
-    return ConfiguredTool(
-        definition = tool,
-        token = SecretStr("test-token"),
-        purpose = ToolType.chat,
-        payer_id = payer_id,
-        uses_credits = uses_credits,
-    )
 
 
 class SpendingServiceValidatePreFlightTest(unittest.TestCase):
@@ -70,16 +17,15 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
         self.payer_id = UUID(int = 1)
 
     def test_does_nothing_when_not_using_credits(self):
-        tool = _make_configured_tool(self.payer_id, uses_credits = False)
+        tool = stubs.domain.configured_tool(uses_credits = False)
 
         self.service.validate_pre_flight(tool, input_text = "a" * 4000)
 
         self.mock_di.user_repo.get.assert_not_called()
 
     def test_passes_when_balance_is_sufficient(self):
-        user = _make_user(credit_balance = 100.0)
-        self.mock_di.user_repo.get.return_value = user
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
+        self.mock_di.user_repo.get.return_value = stubs.domain.user()
+        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
@@ -89,7 +35,7 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
 
     def test_raises_when_user_not_found(self):
         self.mock_di.user_repo.get.return_value = None
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
@@ -97,9 +43,8 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
                 self.service.validate_pre_flight(tool)
 
     def test_raises_when_balance_is_negative(self):
-        user = _make_user(credit_balance = -10.0)
-        self.mock_di.user_repo.get.return_value = user
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
+        self.mock_di.user_repo.get.return_value = stubs.domain.user(credit_balance = -10.0)
+        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
@@ -109,9 +54,8 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
         self.assertIn("Insufficient credits", str(ctx.exception))
 
     def test_raises_when_balance_is_insufficient(self):
-        user = _make_user(credit_balance = 0.5)
-        self.mock_di.user_repo.get.return_value = user
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
+        self.mock_di.user_repo.get.return_value = stubs.domain.user(credit_balance = 0.5)
+        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 5.0
@@ -121,12 +65,17 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
         self.assertIn("Insufficient credits", str(ctx.exception))
 
     def test_uses_video_size_and_duration_in_cost_estimate(self):
-        self.mock_di.user_repo.get.return_value = _make_user(credit_balance = 15.5)
-        tool = _make_configured_tool(
-            self.payer_id,
-            output_video_1k_second = 1,
-            output_video_2k_second = 3,
-            output_video_4k_second = 6,
+        self.mock_di.user_repo.get.return_value = stubs.domain.user(credit_balance = 15.5)
+        tool = stubs.domain.configured_tool(
+            payer_id = self.payer_id,
+            uses_credits = True,
+            definition = stubs.domain.external_tool(
+                cost_estimate = stubs.domain.cost_estimate(
+                    output_video_2k_second = 3,
+                    api_call = None,
+                    web_search_query = None,
+                ),
+            ),
         )
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
@@ -151,14 +100,14 @@ class SpendingServiceDeductTest(unittest.TestCase):
         self.payer_id = UUID(int = 1)
 
     def test_does_nothing_when_not_using_credits(self):
-        tool = _make_configured_tool(self.payer_id, uses_credits = False)
+        tool = stubs.domain.configured_tool(uses_credits = False)
 
         self.service.deduct(tool, 10.0)
 
         self.mock_di.user_repo.update_locked.assert_not_called()
 
     def test_calls_update_locked_when_using_credits(self):
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
 
         self.service.deduct(tool, 10.0)
 
@@ -167,8 +116,8 @@ class SpendingServiceDeductTest(unittest.TestCase):
         self.assertEqual(call_args.args[0], self.payer_id)
 
     def test_deduct_reduces_balance(self):
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
-        user = _make_user(credit_balance = 50.0)
+        tool = stubs.domain.configured_tool(uses_credits = True)
+        user = stubs.domain.user(credit_balance = 50.0)
 
         captured_apply = None
 
@@ -185,8 +134,8 @@ class SpendingServiceDeductTest(unittest.TestCase):
         self.assertAlmostEqual(updated_user.credit_balance, 40.0, places = 5)
 
     def test_deduct_allows_negative_balance(self):
-        tool = _make_configured_tool(self.payer_id, uses_credits = True)
-        user = _make_user(credit_balance = 5.0)
+        tool = stubs.domain.configured_tool(uses_credits = True)
+        user = stubs.domain.user(credit_balance = 5.0)
 
         captured_apply = None
 

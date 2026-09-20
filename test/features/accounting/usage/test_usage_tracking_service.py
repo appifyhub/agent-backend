@@ -1,14 +1,13 @@
 import unittest
-from datetime import date
 from unittest.mock import MagicMock, Mock
 from uuid import UUID
 
-from db.model.user import UserDB
+import stubs
+
 from di.di import DI
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_tracking_service import UsageTrackingService
-from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
-from features.users.user import User
+from features.external_tools.external_tool import ToolType
 from util.config import config
 
 
@@ -25,12 +24,10 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.payer_id = UUID(int = 3)
 
         self.mock_di = Mock(spec = DI)
-        mock_user = Mock()
-        mock_user.id = self.user_id
+        mock_user = stubs.domain.user(id = self.user_id)
         self.mock_di.invoker = mock_user
 
-        mock_chat = Mock()
-        mock_chat.chat_id = self.chat_id
+        mock_chat = stubs.domain.chat_config(chat_id = self.chat_id)
         self.mock_di.require_invoker_chat = MagicMock(return_value = mock_chat)
         self.mock_di.invoker_chat = mock_chat
 
@@ -47,57 +44,16 @@ class UsageTrackingServiceTest(unittest.TestCase):
     def tearDown(self):
         config.usage_maintenance_fee_credits = self.original_fee
 
-    def _create_tool(
-        self,
-        tool_id: str = "test-tool",
-        input_1m: int | None = 100,
-        output_1m: int | None = 200,
-        search_1m: int | None = None,
-        output_image_1k: int | None = None,
-        output_image_2k: int | None = None,
-        output_image_4k: int | None = None,
-        input_image_1k: int | None = None,
-        input_image_2k: int | None = None,
-        input_image_4k: int | None = None,
-        output_video_1k_second: int | None = None,
-        output_video_2k_second: int | None = None,
-        output_video_4k_second: int | None = None,
-        api_call: int | None = None,
-        second_of_runtime: int | None = None,
-    ) -> ExternalTool:
-        provider = ExternalToolProvider(
-            id = "test-provider",
-            name = "Test Provider",
-            token_management_url = "https://test.com",
-            token_format = "test",
-            tools = [],
-        )
-        cost_estimate = CostEstimate(
-            input_1m_tokens = input_1m,
-            output_1m_tokens = output_1m,
-            search_1m_tokens = search_1m,
-            output_image_1k = output_image_1k,
-            output_image_2k = output_image_2k,
-            output_image_4k = output_image_4k,
-            input_image_1k = input_image_1k,
-            input_image_2k = input_image_2k,
-            input_image_4k = input_image_4k,
-            output_video_1k_second = output_video_1k_second,
-            output_video_2k_second = output_video_2k_second,
-            output_video_4k_second = output_video_4k_second,
-            api_call = api_call,
-            second_of_runtime = second_of_runtime,
-        )
-        return ExternalTool(
-            id = tool_id,
-            name = "Test Tool",
-            provider = provider,
-            types = [ToolType.chat],
-            cost_estimate = cost_estimate,
-        )
-
     def test_track_text_model_with_all_tokens(self):
-        tool = self._create_tool(api_call = 10)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+                search_1m_tokens = 0,
+                api_call = 10,
+                second_of_runtime = None,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -129,7 +85,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
 
     def test_track_text_model_with_total_tokens_only(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -147,7 +108,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 0.0)
 
     def test_track_text_model_calculates_total_from_components(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -162,7 +128,13 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.total_tokens, 1500)
 
     def test_track_text_model_with_search_tokens(self):
-        tool = self._create_tool(search_1m = 300)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+                search_1m_tokens = 300,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -178,7 +150,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertAlmostEqual(record.model_cost_credits, 0.65, places = 5)
 
     def test_track_text_model_returns_zero_model_cost_when_all_tokens_none(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -190,7 +167,14 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 0.0)
 
     def test_track_image_model_with_tokens(self):
-        tool = self._create_tool(api_call = 5)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+                api_call = 5,
+                second_of_runtime = None,
+            ),
+        )
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -215,7 +199,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
 
     def test_track_image_model_with_size_1k(self):
-        tool = self._create_tool(output_image_1k = 50)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 50))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -229,7 +213,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 50.0)
 
     def test_track_image_model_with_size_2k(self):
-        tool = self._create_tool(output_image_2k = 100)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_2k = 100))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -242,7 +226,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 100.0)
 
     def test_track_image_model_with_size_4k(self):
-        tool = self._create_tool(output_image_4k = 200)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_4k = 200))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -255,7 +239,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 200.0)
 
     def test_track_image_model_fallback_to_1k(self):
-        tool = self._create_tool(output_image_1k = 50)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 50))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -268,7 +252,13 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 50.0)
 
     def test_track_image_model_normalizes_input_size_formats(self):
-        tool = self._create_tool(input_image_1k = 5, input_image_2k = 10, input_image_4k = 20)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_image_1k = 5,
+                input_image_2k = 10,
+                input_image_4k = 20,
+            ),
+        )
 
         variants_2k = ["2K", "2k", "2M", "2m", "2MB", "2mb", "2MP", "2mp", "2 MP", "2 mb"]
         for size_variant in variants_2k:
@@ -283,7 +273,13 @@ class UsageTrackingServiceTest(unittest.TestCase):
             self.assertEqual(record.model_cost_credits, 10.0, f"Failed for variant: {size_variant}")
 
     def test_track_image_model_normalizes_size_formats(self):
-        tool = self._create_tool(output_image_1k = 10, output_image_2k = 20, output_image_4k = 40)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                output_image_1k = 10,
+                output_image_2k = 20,
+                output_image_4k = 40,
+            ),
+        )
 
         # test various 2K format variants
         variants_2k = [
@@ -324,7 +320,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 40.0)
 
     def test_track_image_model_calculates_total_from_components(self):
-        tool = self._create_tool(output_image_1k = 50)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 50))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -340,7 +336,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.total_tokens, 300)
 
     def test_track_image_model_returns_zero_model_cost_when_all_none(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -352,7 +353,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 0.0)
 
     def test_track_image_model_returns_zero_model_cost_when_no_pricing(self):
-        tool = self._create_tool(output_image_1k = None)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = None))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -365,10 +366,14 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 0.0)
 
     def test_track_video_model_records_normalized_size_duration_and_cost(self):
-        tool = self._create_tool(
-            output_video_1k_second = 1,
-            output_video_2k_second = 3,
-            output_video_4k_second = 6,
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                output_video_1k_second = 1,
+                output_video_2k_second = 3,
+                output_video_4k_second = 6,
+                api_call = None,
+                second_of_runtime = None,
+            ),
         )
 
         record = self.service.track_video_model(
@@ -389,7 +394,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertFalse(record.is_failed)
 
     def test_track_video_model_marks_failed_usage_record(self):
-        tool = self._create_tool(output_video_1k_second = 2)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_video_1k_second = 2))
 
         record = self.service.track_video_model(
             tool = tool,
@@ -406,7 +411,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 8.0)
 
     def test_track_api_call(self):
-        tool = self._create_tool(api_call = 10)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = 10, second_of_runtime = None))
         record = self.service.track_api_call(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -425,7 +430,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
 
     def test_track_api_call_with_zero_cost(self):
-        tool = self._create_tool(api_call = None)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = None))
         record = self.service.track_api_call(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -438,7 +443,14 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.api_call_cost_credits, 0.0)
 
     def test_maintenance_fee_included(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+                api_call = None,
+                second_of_runtime = None,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -457,7 +469,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
 
     def test_track_text_model_with_zero_tokens(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         # Verifies that 0 is treated as a valid value (not treated as None/missing)
         record = self.service.track_text_model(
             tool = tool,
@@ -474,7 +491,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 0.0)
 
     def test_track_image_model_with_zero_tokens(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         # Verifies that 0 tokens are valid for image tools too
         record = self.service.track_image_model(
             tool = tool,
@@ -493,7 +515,9 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.model_cost_credits, 0.0)
 
     def test_track_text_model_with_remote_runtime_cost(self):
-        tool = self._create_tool(second_of_runtime = 5)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(input_1m_tokens = 100, second_of_runtime = 5, api_call = None),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -516,7 +540,9 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
 
     def test_track_image_model_with_remote_runtime_cost(self):
-        tool = self._create_tool(output_image_1k = 10, second_of_runtime = 3)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(output_image_1k = 10, second_of_runtime = 3, api_call = None),
+        )
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -538,8 +564,10 @@ class UsageTrackingServiceTest(unittest.TestCase):
         )
 
     def test_track_text_model_without_remote_runtime(self):
-        tool = self._create_tool(second_of_runtime = 5)
-        # default input_1m = 100 in _create_tool. 1000 tokens = 0.1 credits
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(input_1m_tokens = 100, second_of_runtime = 5, api_call = None),
+        )
+        # input_1m = 100 makes 1000 tokens cost 0.1 credits
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -555,7 +583,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.total_cost_credits, 0.1 + 10.0 + config.usage_maintenance_fee_credits)
 
     def test_track_text_model_persists_to_repo(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -568,7 +601,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.mock_di.usage_record_repo.create.assert_called_once()
 
     def test_track_image_model_persists_to_repo(self):
-        tool = self._create_tool(output_image_1k = 10)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 10))
         self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.images_gen,
@@ -580,7 +613,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.mock_di.usage_record_repo.create.assert_called_once()
 
     def test_track_api_call_persists_to_repo(self):
-        tool = self._create_tool(api_call = 5)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = 5))
         self.service.track_api_call(
             tool = tool,
             tool_purpose = ToolType.api_twitter,
@@ -592,7 +625,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
 
     def test_track_text_model_stores_payer_id_and_uses_credits(self):
         payer_id = UUID(int = 99)
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -606,7 +644,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
 
     def test_track_image_model_stores_payer_id_and_uses_credits(self):
         payer_id = UUID(int = 99)
-        tool = self._create_tool(output_image_1k = 10)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 10))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.images_gen,
@@ -620,7 +658,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
 
     def test_track_api_call_stores_payer_id_and_uses_credits(self):
         payer_id = UUID(int = 99)
-        tool = self._create_tool(api_call = 5)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = 5))
         record = self.service.track_api_call(
             tool = tool,
             tool_purpose = ToolType.api_twitter,
@@ -632,7 +670,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertFalse(record.uses_credits)
 
     def test_participant_details_regular_usage(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -649,7 +692,12 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertIsNone(record.participant_details.counterpart)
 
     def test_participant_details_sponsored_payer_not_in_db(self):
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -667,17 +715,18 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.participant_details.owner.user_id, self.user_id)
 
     def test_participant_details_sponsored_payer_found_in_db(self):
-        payer = User(
+        payer = stubs.domain.user(
             id = self.payer_id,
             full_name = "Payer User",
-            telegram_username = "payer_handle",
-            group = UserDB.Group.standard,
-            created_at = date.today(),
-            credit_balance = 50.0,
         )
         self.mock_di.user_repo.get.return_value = payer
 
-        tool = self._create_tool()
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(
+                input_1m_tokens = 100,
+                output_1m_tokens = 200,
+            ),
+        )
         record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
@@ -693,7 +742,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.participant_details.owner.user_id, self.user_id)
 
     def test_participant_details_image_model(self):
-        tool = self._create_tool(output_image_1k = 10)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 10))
         record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.images_gen,
@@ -709,7 +758,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.participant_details.owner.user_id, self.user_id)
 
     def test_participant_details_api_call(self):
-        tool = self._create_tool(api_call = 5)
+        tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = 5))
         record = self.service.track_api_call(
             tool = tool,
             tool_purpose = ToolType.api_twitter,
@@ -723,28 +772,8 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertIsNotNone(record.participant_details.owner)
         self.assertEqual(record.participant_details.owner.user_id, self.user_id)
 
-    def _create_search_tool(self, web_search_query: float = 1.4) -> ExternalTool:
-        provider = ExternalToolProvider(
-            id = "test-provider",
-            name = "Test Provider",
-            token_management_url = "https://test.com",
-            token_format = "test",
-            tools = [],
-        )
-        return ExternalTool(
-            id = "test-search-tool",
-            name = "Test Search Tool",
-            provider = provider,
-            types = [ToolType.search],
-            cost_estimate = CostEstimate(
-                input_1m_tokens = 100,
-                output_1m_tokens = 200,
-                web_search_query = web_search_query,
-            ),
-        )
-
     def test_track_web_search_query_emits_correct_record_count(self):
-        tool = self._create_search_tool()
+        tool = stubs.domain.external_tool()
         records = self.service.track_web_search_query(
             tool = tool,
             tool_purpose = ToolType.search,
@@ -757,7 +786,9 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(self.mock_di.usage_record_repo.create.call_count, 3)
 
     def test_track_web_search_query_fee_placement(self):
-        tool = self._create_search_tool(web_search_query = 1.4)
+        tool = stubs.domain.external_tool(
+            cost_estimate = stubs.domain.cost_estimate(web_search_query = 1.4),
+        )
         records = self.service.track_web_search_query(
             tool = tool,
             tool_purpose = ToolType.search,
@@ -773,7 +804,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
             self.assertAlmostEqual(record.total_cost_credits, 1.4, places = 5)
 
     def test_track_web_search_query_zero_count_returns_empty(self):
-        tool = self._create_search_tool()
+        tool = stubs.domain.external_tool()
         records = self.service.track_web_search_query(
             tool = tool,
             tool_purpose = ToolType.search,
@@ -786,7 +817,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.mock_di.usage_record_repo.create.assert_not_called()
 
     def test_track_web_search_query_payer_id_stored(self):
-        tool = self._create_search_tool()
+        tool = stubs.domain.external_tool()
         records = self.service.track_web_search_query(
             tool = tool,
             tool_purpose = ToolType.search,
@@ -799,7 +830,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertTrue(records[0].uses_credits)
 
     def test_track_provider_reported_cost_uses_exact_cost_as_model_cost(self):
-        tool = self._create_search_tool()
+        tool = stubs.domain.external_tool()
         record = self.service.track_provider_reported_cost(
             tool = tool,
             tool_purpose = ToolType.search,
@@ -823,7 +854,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertTrue(record.uses_credits)
 
     def test_track_provider_reported_cost_persists_to_repo(self):
-        tool = self._create_search_tool()
+        tool = stubs.domain.external_tool()
 
         self.service.track_provider_reported_cost(
             tool = tool,

@@ -9,6 +9,9 @@ from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from features.accounting.purchases.purchase_aggregates import ProductAggregateStats, ProductInfo, PurchaseAggregates
 from features.accounting.purchases.purchase_record import PurchaseRecord
+from features.accounting.usage.image_usage_stats import ImageUsageStats
+from features.accounting.usage.llm_usage_stats import LLMUsageStats
+from features.accounting.usage.participant_details import ParticipantDetails, ParticipantInfo
 from features.accounting.usage.usage_aggregates import AggregateStats, ProviderInfo, ToolInfo, UsageAggregates
 from features.accounting.usage.usage_record import UsageRecord
 from features.chat.attachment.chat_attachment import ChatAttachment
@@ -439,6 +442,31 @@ def purchase_aggregates(**overrides: Any) -> PurchaseAggregates:
     return PurchaseAggregates(**(defaults | overrides))
 
 
+def participant_info(**overrides: Any) -> ParticipantInfo:
+    defaults = {
+        "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "full_name": "Mark Johnson",
+        "platform": "telegram",
+        "handle": "mark_johnson",
+    }
+    return ParticipantInfo(**(defaults | overrides))
+
+
+def participant_details(**overrides: Any) -> ParticipantDetails:
+    defaults: dict[str, Any] = {}
+    if "payer" not in overrides:
+        defaults["payer"] = participant_info()
+    if "owner" not in overrides:
+        defaults["owner"] = participant_info()
+    if "counterpart" not in overrides:
+        defaults["counterpart"] = participant_info(
+            user_id = UUID("22222222-2222-4222-8222-b22222222222"),
+            full_name = "Taylor Smith",
+            handle = "taylor_smith",
+        )
+    return ParticipantDetails(**(defaults | overrides))
+
+
 def usage_record(**overrides: Any) -> UsageRecord:
     defaults: dict[str, Any] = {
         "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
@@ -465,6 +493,27 @@ def usage_record(**overrides: Any) -> UsageRecord:
     if "tool" not in overrides:
         defaults["tool"] = GPT_5_5
     return UsageRecord(**(defaults | overrides))
+
+
+def image_usage_stats(**overrides: Any) -> ImageUsageStats:
+    defaults = {
+        "input_tokens": 100,
+        "output_tokens": 200,
+        "total_tokens": 300,
+        "remote_runtime_seconds": 1.5,
+    }
+    return ImageUsageStats(**(defaults | overrides))
+
+
+def llm_usage_stats(**overrides: Any) -> LLMUsageStats:
+    defaults = {
+        "input_tokens": 100,
+        "output_tokens": 200,
+        "search_tokens": 50,
+        "total_tokens": 350,
+        "remote_runtime_seconds": 1.5,
+    }
+    return LLMUsageStats(**(defaults | overrides))
 
 
 def aggregate_stats(**overrides: Any) -> AggregateStats:

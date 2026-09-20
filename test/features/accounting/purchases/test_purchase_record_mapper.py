@@ -1,6 +1,6 @@
 import unittest
-import uuid
-from datetime import datetime, timezone
+
+import stubs
 
 from db.model.purchase_record import PurchaseRecordDB
 from features.accounting.purchases.purchase_record import PurchaseRecord
@@ -12,105 +12,67 @@ class PurchaseRecordMapperTest(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
 
-        self.db_record = PurchaseRecordDB(
-            id = uuid.uuid4(),
-            user_id = uuid.uuid4(),
-            seller_id = "seller-123",
-            sale_id = "sale-456",
-            sale_timestamp = datetime.now(timezone.utc),
-            price = 1000,
-            product_id = "product-789",
-            product_name = "Test Product",
-            product_permalink = "https://example.com/product",
-            short_product_id = "short-123",
-            license_key = "LICENSE-KEY-ABC",
-            quantity = 1,
-            gumroad_fee = 100,
-            affiliate_credit_amount_cents = 50,
-            discover_fee_charge = False,
-            url_params = {"user_id": "test-user"},
-            custom_fields = {"field1": "value1"},
-            test = False,
-            is_preorder_authorization = False,
-            refunded = False,
-        )
-
-        self.domain_record = PurchaseRecord(
-            id = self.db_record.id,
-            user_id = self.db_record.user_id,
-            seller_id = "seller-123",
-            sale_id = "sale-456",
-            sale_timestamp = self.db_record.sale_timestamp,
-            price = 1000,
-            product_id = "product-789",
-            product_name = "Test Product",
-            product_permalink = "https://example.com/product",
-            short_product_id = "short-123",
-            license_key = "LICENSE-KEY-ABC",
-            quantity = 1,
-            gumroad_fee = 100,
-            affiliate_credit_amount_cents = 50,
-            discover_fee_charge = False,
-            url_params = {"user_id": "test-user"},
-            custom_fields = {"field1": "value1"},
-            test = False,
-            is_preorder_authorization = False,
-            refunded = False,
-        )
-
     def test_domain_to_db_none(self):
         db_obj = db(None)
         self.assertIsNone(db_obj)
 
     def test_domain_to_db(self):
-        db_obj = db(self.domain_record)
+        domain_record = stubs.domain.purchase_record(
+            url_params = {"user_id": "test-user"},
+            custom_fields = {"field1": "value1"},
+        )
+        db_obj = db(domain_record)
 
         self.assertIsInstance(db_obj, PurchaseRecordDB)
-        self.assertEqual(db_obj.id, self.domain_record.id)
-        self.assertEqual(db_obj.user_id, self.domain_record.user_id)
-        self.assertEqual(db_obj.seller_id, "seller-123")
-        self.assertEqual(db_obj.sale_id, "sale-456")
-        self.assertEqual(db_obj.sale_timestamp, self.domain_record.sale_timestamp)
-        self.assertEqual(db_obj.price, 1000)
-        self.assertEqual(db_obj.product_id, "product-789")
-        self.assertEqual(db_obj.product_name, "Test Product")
-        self.assertEqual(db_obj.product_permalink, "https://example.com/product")
-        self.assertEqual(db_obj.short_product_id, "short-123")
-        self.assertEqual(db_obj.license_key, "LICENSE-KEY-ABC")
-        self.assertEqual(db_obj.quantity, 1)
-        self.assertEqual(db_obj.gumroad_fee, 100)
-        self.assertEqual(db_obj.affiliate_credit_amount_cents, 50)
-        self.assertEqual(db_obj.discover_fee_charge, False)
-        self.assertEqual(db_obj.url_params, {"user_id": "test-user"})
-        self.assertEqual(db_obj.custom_fields, {"field1": "value1"})
-        self.assertEqual(db_obj.test, False)
-        self.assertEqual(db_obj.is_preorder_authorization, False)
-        self.assertEqual(db_obj.refunded, False)
+        self.assertEqual(db_obj.id, domain_record.id)
+        self.assertEqual(db_obj.user_id, domain_record.user_id)
+        self.assertEqual(db_obj.seller_id, domain_record.seller_id)
+        self.assertEqual(db_obj.sale_id, domain_record.sale_id)
+        self.assertEqual(db_obj.sale_timestamp, domain_record.sale_timestamp)
+        self.assertEqual(db_obj.price, domain_record.price)
+        self.assertEqual(db_obj.product_id, domain_record.product_id)
+        self.assertEqual(db_obj.product_name, domain_record.product_name)
+        self.assertEqual(db_obj.product_permalink, domain_record.product_permalink)
+        self.assertEqual(db_obj.short_product_id, domain_record.short_product_id)
+        self.assertEqual(db_obj.license_key, domain_record.license_key)
+        self.assertEqual(db_obj.quantity, domain_record.quantity)
+        self.assertEqual(db_obj.gumroad_fee, domain_record.gumroad_fee)
+        self.assertEqual(db_obj.affiliate_credit_amount_cents, domain_record.affiliate_credit_amount_cents)
+        self.assertEqual(db_obj.discover_fee_charge, domain_record.discover_fee_charge)
+        self.assertEqual(db_obj.url_params, domain_record.url_params)
+        self.assertEqual(db_obj.custom_fields, domain_record.custom_fields)
+        self.assertEqual(db_obj.test, domain_record.test)
+        self.assertEqual(db_obj.is_preorder_authorization, domain_record.is_preorder_authorization)
+        self.assertEqual(db_obj.refunded, domain_record.refunded)
 
     def test_db_to_domain(self):
-        domain_obj = domain(self.db_record)
+        db_record = stubs.db.purchase_record_db(
+            url_params = {"user_id": "test-user"},
+            custom_fields = {"field1": "value1"},
+        )
+        domain_obj = domain(db_record)
 
         self.assertIsInstance(domain_obj, PurchaseRecord)
-        self.assertEqual(domain_obj.id, self.db_record.id)
-        self.assertEqual(domain_obj.user_id, self.db_record.user_id)
-        self.assertEqual(domain_obj.seller_id, "seller-123")
-        self.assertEqual(domain_obj.sale_id, "sale-456")
-        self.assertEqual(domain_obj.sale_timestamp, self.db_record.sale_timestamp)
-        self.assertEqual(domain_obj.price, 1000)
-        self.assertEqual(domain_obj.product_id, "product-789")
-        self.assertEqual(domain_obj.product_name, "Test Product")
-        self.assertEqual(domain_obj.product_permalink, "https://example.com/product")
-        self.assertEqual(domain_obj.short_product_id, "short-123")
-        self.assertEqual(domain_obj.license_key, "LICENSE-KEY-ABC")
-        self.assertEqual(domain_obj.quantity, 1)
-        self.assertEqual(domain_obj.gumroad_fee, 100)
-        self.assertEqual(domain_obj.affiliate_credit_amount_cents, 50)
-        self.assertEqual(domain_obj.discover_fee_charge, False)
-        self.assertEqual(domain_obj.url_params, {"user_id": "test-user"})
-        self.assertEqual(domain_obj.custom_fields, {"field1": "value1"})
-        self.assertEqual(domain_obj.test, False)
-        self.assertEqual(domain_obj.is_preorder_authorization, False)
-        self.assertEqual(domain_obj.refunded, False)
+        self.assertEqual(domain_obj.id, db_record.id)
+        self.assertEqual(domain_obj.user_id, db_record.user_id)
+        self.assertEqual(domain_obj.seller_id, db_record.seller_id)
+        self.assertEqual(domain_obj.sale_id, db_record.sale_id)
+        self.assertEqual(domain_obj.sale_timestamp, db_record.sale_timestamp)
+        self.assertEqual(domain_obj.price, db_record.price)
+        self.assertEqual(domain_obj.product_id, db_record.product_id)
+        self.assertEqual(domain_obj.product_name, db_record.product_name)
+        self.assertEqual(domain_obj.product_permalink, db_record.product_permalink)
+        self.assertEqual(domain_obj.short_product_id, db_record.short_product_id)
+        self.assertEqual(domain_obj.license_key, db_record.license_key)
+        self.assertEqual(domain_obj.quantity, db_record.quantity)
+        self.assertEqual(domain_obj.gumroad_fee, db_record.gumroad_fee)
+        self.assertEqual(domain_obj.affiliate_credit_amount_cents, db_record.affiliate_credit_amount_cents)
+        self.assertEqual(domain_obj.discover_fee_charge, db_record.discover_fee_charge)
+        self.assertEqual(domain_obj.url_params, db_record.url_params)
+        self.assertEqual(domain_obj.custom_fields, db_record.custom_fields)
+        self.assertEqual(domain_obj.test, db_record.test)
+        self.assertEqual(domain_obj.is_preorder_authorization, db_record.is_preorder_authorization)
+        self.assertEqual(domain_obj.refunded, db_record.refunded)
 
     def test_db_to_domain_none(self):
         domain_obj = domain(None)
