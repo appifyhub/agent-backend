@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from io import BytesIO
 from typing import Any
 from uuid import UUID
 
@@ -6,9 +7,13 @@ from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
+from features.accounting.purchases.purchase_aggregates import ProductAggregateStats, ProductInfo, PurchaseAggregates
+from features.accounting.purchases.purchase_record import PurchaseRecord
+from features.accounting.usage.usage_aggregates import AggregateStats, ProviderInfo, ToolInfo, UsageAggregates
+from features.accounting.usage.usage_record import UsageRecord
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
-from features.chat.attachment.chat_attachment_service import RemoteAttachmentContent
+from features.chat.attachment.chat_attachment_service import RemoteAttachmentContent, ResolvedAttachmentStream
 from features.chat.attachment.storage.attachment_storage import PublicAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
@@ -26,10 +31,13 @@ from features.chat.message.formatted_chat_message import (
 from features.chat.message_burst import ClaimedChatMessageBurst, ScheduledChatMessageBurst
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
+from features.external_tools.external_tool_library import GPT_5_5
+from features.sponsorships.sponsorship import Sponsorship
 from features.tools_cache.tools_cache import ToolsCache
 from features.users.user import User
 from features.users.user_remote_data import UserRemoteData
 from features.videos.video_file_utils import VideoMetadata
+from util.config import ConfiguredProduct
 
 
 def user(**overrides: Any) -> User:
@@ -365,3 +373,159 @@ def video_metadata(**overrides: Any) -> VideoMetadata:
         "has_fast_start": True,
     }
     return VideoMetadata(**(defaults | overrides))
+
+
+def resolved_attachment_stream(**overrides: Any) -> ResolvedAttachmentStream:
+    defaults = {
+        "stream": BytesIO(b"attachment-content"),
+        "media_type": "application/octet-stream",
+    }
+    return ResolvedAttachmentStream(**(defaults | overrides))
+
+
+def purchase_record(**overrides: Any) -> PurchaseRecord:
+    defaults = {
+        "id": UUID("33333333-3333-4333-8333-c33333333333"),
+        "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "seller_id": "seller-123",
+        "sale_id": "sale-456",
+        "sale_timestamp": datetime(2026, 1, 15, 12, 0, tzinfo = timezone.utc),
+        "price": 1_000,
+        "product_id": "product-123",
+        "product_name": "Test Product",
+        "product_permalink": "https://example.com/products/test-product",
+        "short_product_id": "short-123",
+        "license_key": "LICENSE-KEY-ABC",
+        "quantity": 1,
+        "gumroad_fee": 100,
+        "affiliate_credit_amount_cents": 50,
+        "discover_fee_charge": False,
+        "url_params": {},
+        "custom_fields": {},
+        "test": False,
+        "is_preorder_authorization": False,
+        "refunded": False,
+    }
+    return PurchaseRecord(**(defaults | overrides))
+
+
+def product_aggregate_stats(**overrides: Any) -> ProductAggregateStats:
+    defaults = {
+        "record_count": 10,
+        "total_cost_cents": 10_000,
+        "total_net_cost_cents": 9_000,
+    }
+    return ProductAggregateStats(**(defaults | overrides))
+
+
+def product_info(**overrides: Any) -> ProductInfo:
+    defaults = {
+        "id": "product-123",
+        "name": "Test Product",
+    }
+    return ProductInfo(**(defaults | overrides))
+
+
+def purchase_aggregates(**overrides: Any) -> PurchaseAggregates:
+    defaults: dict[str, Any] = {
+        "total_purchase_count": 10,
+        "total_cost_cents": 10_000,
+        "total_net_cost_cents": 9_000,
+    }
+    if "by_product" not in overrides:
+        defaults["by_product"] = {"product-123": product_aggregate_stats()}
+    if "all_products_used" not in overrides:
+        defaults["all_products_used"] = [product_info()]
+    return PurchaseAggregates(**(defaults | overrides))
+
+
+def usage_record(**overrides: Any) -> UsageRecord:
+    defaults: dict[str, Any] = {
+        "user_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "payer_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "uses_credits": True,
+        "is_failed": False,
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "tool_purpose": ToolType.chat,
+        "timestamp": datetime(2026, 1, 15, 12, 0, tzinfo = timezone.utc),
+        "runtime_seconds": 1.5,
+        "remote_runtime_seconds": 0.5,
+        "model_cost_credits": 0.1,
+        "remote_runtime_cost_credits": 0.2,
+        "api_call_cost_credits": 0.3,
+        "maintenance_fee_credits": 0.4,
+        "total_cost_credits": 1.0,
+        "input_tokens": 100,
+        "output_tokens": 200,
+        "search_tokens": 50,
+        "total_tokens": 350,
+        "output_image_sizes": [],
+        "input_image_sizes": [],
+    }
+    if "tool" not in overrides:
+        defaults["tool"] = GPT_5_5
+    return UsageRecord(**(defaults | overrides))
+
+
+def aggregate_stats(**overrides: Any) -> AggregateStats:
+    defaults = {
+        "record_count": 10,
+        "total_cost": 100.0,
+    }
+    return AggregateStats(**(defaults | overrides))
+
+
+def tool_info(**overrides: Any) -> ToolInfo:
+    defaults = {
+        "id": "gpt-4o",
+        "name": "GPT 4o",
+    }
+    return ToolInfo(**(defaults | overrides))
+
+
+def provider_info(**overrides: Any) -> ProviderInfo:
+    defaults = {
+        "id": "open-ai",
+        "name": "OpenAI",
+    }
+    return ProviderInfo(**(defaults | overrides))
+
+
+def usage_aggregates(**overrides: Any) -> UsageAggregates:
+    defaults: dict[str, Any] = {
+        "total_records": 10,
+        "total_cost_credits": 100.0,
+        "total_runtime_seconds": 15.0,
+        "all_purposes_used": ["chat"],
+    }
+    if "by_tool" not in overrides:
+        defaults["by_tool"] = {"gpt-4o": aggregate_stats()}
+    if "by_purpose" not in overrides:
+        defaults["by_purpose"] = {"chat": aggregate_stats()}
+    if "by_provider" not in overrides:
+        defaults["by_provider"] = {"open-ai": aggregate_stats()}
+    if "all_tools_used" not in overrides:
+        defaults["all_tools_used"] = [tool_info()]
+    if "all_providers_used" not in overrides:
+        defaults["all_providers_used"] = [provider_info()]
+    return UsageAggregates(**(defaults | overrides))
+
+
+def sponsorship(**overrides: Any) -> Sponsorship:
+    defaults = {
+        "sponsor_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "receiver_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "sponsored_at": datetime(2026, 1, 15, 12, 0),
+        "accepted_at": datetime(2026, 1, 16, 12, 0),
+    }
+    return Sponsorship(**(defaults | overrides))
+
+
+def configured_product(**overrides: Any) -> ConfiguredProduct:
+    defaults = {
+        "id": "product-123",
+        "credits": 100,
+        "name": "Starter Pack",
+        "url": "https://example.com/product-123",
+    }
+    return ConfiguredProduct(**(defaults | overrides))

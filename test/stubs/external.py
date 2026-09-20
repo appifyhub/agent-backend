@@ -1,5 +1,7 @@
 from typing import Any
 
+from fastapi.security import HTTPAuthorizationCredentials
+
 from features.chat.telegram.model.attachment.audio import Audio as TelegramAudio
 from features.chat.telegram.model.attachment.document import Document as TelegramDocument
 from features.chat.telegram.model.attachment.photo_size import PhotoSize as TelegramPhotoSize
@@ -264,3 +266,11 @@ def telegram_update(**overrides: Any) -> TelegramUpdate:
         "update_id": 123,
     }
     return TelegramUpdate(**(defaults | overrides))
+
+
+def http_authorization_credentials(**overrides: Any) -> HTTPAuthorizationCredentials:
+    defaults = {
+        "scheme": "Bearer",
+        "credentials": "valid-token",
+    }
+    return HTTPAuthorizationCredentials(**(defaults | overrides))

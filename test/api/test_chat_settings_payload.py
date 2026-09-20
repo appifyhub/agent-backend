@@ -1,26 +1,20 @@
 import unittest
 
+import stubs
 from pydantic import ValidationError
-
-from api.model.chat_config_payload import ChatConfigPayload
-from api.model.chat_settings_payload import ChatSettingsPayload
-from api.model.user_chat_config_payload import UserChatConfigPayload
 
 
 class ChatSettingsPayloadTest(unittest.TestCase):
 
     def test_basic_creation_with_both_blocks(self):
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 language_name = "Spanish",
                 language_iso_code = "es",
                 reply_chance_percent = 75,
                 release_notifications = "all",
-                media_mode = "photo",
             ),
-            user_chat_config = UserChatConfigPayload(
-                use_about_me = True,
-                use_custom_prompt = True,
+            user_chat_config = stubs.api.user_chat_config_payload(
                 max_output_tokens = 2000,
                 max_chat_history_depth = 30,
                 max_iterations = 20,
@@ -38,14 +32,9 @@ class ChatSettingsPayloadTest(unittest.TestCase):
         self.assertTrue(payload.user_chat_config.use_custom_prompt)
 
     def test_creation_with_only_user_chat_config(self):
-        payload = ChatSettingsPayload(
-            user_chat_config = UserChatConfigPayload(
-                use_about_me = False,
-                use_custom_prompt = True,
-                max_output_tokens = 2000,
-                max_chat_history_depth = 30,
-                max_iterations = 20,
-            ),
+        payload = stubs.api.chat_settings_payload(
+            chat_config = None,
+            user_chat_config = stubs.api.user_chat_config_payload(use_about_me = False),
         )
 
         self.assertIsNone(payload.chat_config)
@@ -54,14 +43,12 @@ class ChatSettingsPayloadTest(unittest.TestCase):
         self.assertTrue(payload.user_chat_config.use_custom_prompt)
 
     def test_creation_with_only_chat_config(self):
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
-                language_name = "English",
-                language_iso_code = "en",
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 reply_chance_percent = 50,
-                release_notifications = "major",
                 media_mode = "all",
             ),
+            user_chat_config = None,
         )
 
         self.assertIsNotNone(payload.chat_config)
@@ -69,13 +56,16 @@ class ChatSettingsPayloadTest(unittest.TestCase):
 
     def test_empty_payload_validates_at_pydantic_level(self):
         # both fields are optional at the pydantic level — empty body parses fine
-        payload = ChatSettingsPayload()
+        payload = stubs.api.chat_settings_payload(
+            chat_config = None,
+            user_chat_config = None,
+        )
         self.assertIsNone(payload.chat_config)
         self.assertIsNone(payload.user_chat_config)
         # the controller is responsible for rejecting the empty case at runtime
 
     def test_string_trimming_validation(self):
-        config = ChatConfigPayload(
+        config = stubs.api.chat_config_payload(
             language_name = "  English  ",
             language_iso_code = "\ten\n",
             reply_chance_percent = 50,
@@ -89,7 +79,7 @@ class ChatSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(config.media_mode, "file")
 
     def test_empty_strings_after_trimming(self):
-        config = ChatConfigPayload(
+        config = stubs.api.chat_config_payload(
             language_name = "   ",
             language_iso_code = "",
             reply_chance_percent = 25,
@@ -104,23 +94,15 @@ class ChatSettingsPayloadTest(unittest.TestCase):
 
     def test_reply_chance_validation_valid_values(self):
         for percent in (0, 50, 100):
-            config = ChatConfigPayload(
-                language_name = "English",
-                language_iso_code = "en",
+            config = stubs.api.chat_config_payload(
                 reply_chance_percent = percent,
-                release_notifications = "all",
-                media_mode = "photo",
             )
             self.assertEqual(config.reply_chance_percent, percent)
 
     def test_reply_chance_validation_invalid_values(self):
         for percent in (-1, 101, 200):
             with self.assertRaises(ValidationError) as context:
-                ChatConfigPayload(
-                    language_name = "English",
-                    language_iso_code = "en",
+                stubs.api.chat_config_payload(
                     reply_chance_percent = percent,
-                    release_notifications = "all",
-                    media_mode = "photo",
                 )
             self.assertIn("Reply chance percent must be between 0 and 100", str(context.exception))
