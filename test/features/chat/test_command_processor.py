@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import MagicMock, Mock
-from uuid import UUID
 
 import stubs
 
@@ -19,34 +18,19 @@ from features.connect.profile_connect_service import ProfileConnectService
 from features.integrations.integrations import resolve_agent_user
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.sponsorships.sponsorship_service import SponsorshipService
-from features.users.user import User
 from util.error_codes import UNEXPECTED_ERROR
 
 
 class CommandProcessorTest(unittest.TestCase):
 
-    agent_user: User
     mock_di: DI
     processor: CommandProcessor
 
     def setUp(self):
         user = stubs.domain.user(
-            id = UUID(int = 1),
-            full_name = "Test User",
-            telegram_username = "test_username",
             telegram_chat_id = "test_chat_id",
-            telegram_user_id = 1,
         )
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 2),
-            external_id = "test_chat_id",
-            is_private = True,
-            reply_chance_percent = 100,
-            chat_type = ChatConfigDB.ChatType.telegram,
-            release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-        )
-        self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.telegram)
+        chat = stubs.domain.chat_config()
 
         # Create mock DI with all required dependencies
         self.mock_di = Mock(spec = DI)
@@ -162,7 +146,7 @@ class CommandProcessorTest(unittest.TestCase):
         )
 
     def test_start_command_with_bot_tag(self):
-        bot_tag = self.agent_user.telegram_username
+        bot_tag = resolve_agent_user(self.mock_di.invoker_chat_type).telegram_username
         result = self.processor.execute(f"/{COMMAND_START}@{bot_tag}")
         self.assertEqual(result.status, "success")
         # noinspection PyUnresolvedReferences
@@ -171,7 +155,7 @@ class CommandProcessorTest(unittest.TestCase):
         self.mock_platform_sdk.send_button_link.assert_called_once()
 
     def test_settings_command_with_bot_tag(self):
-        bot_tag = self.agent_user.telegram_username
+        bot_tag = resolve_agent_user(self.mock_di.invoker_chat_type).telegram_username
         result = self.processor.execute(f"/{COMMAND_SETTINGS}@{bot_tag}")
         self.assertEqual(result.status, "success")
         # noinspection PyUnresolvedReferences
@@ -247,7 +231,7 @@ class CommandProcessorTest(unittest.TestCase):
         )
 
     def test_help_command_with_bot_tag(self):
-        bot_tag = self.agent_user.telegram_username
+        bot_tag = resolve_agent_user(self.mock_di.invoker_chat_type).telegram_username
         result = self.processor.execute(f"/{COMMAND_HELP}@{bot_tag}")
         self.assertEqual(result.status, "success")
         # noinspection PyUnresolvedReferences

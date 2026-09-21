@@ -4,7 +4,6 @@ from unittest.mock import Mock
 import stubs
 from db.sql_util import SQLUtil
 
-from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership_service import ChatMembershipService
@@ -26,9 +25,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.sql = SQLUtil()
         self.user = self.sql.user_repo().save(
             stubs.domain.user(
-                full_name = "Test User",
-                telegram_username = "testuser",
-                telegram_chat_id = "chat_ext_1",
                 telegram_user_id = 1,
             ),
         )
@@ -36,8 +32,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat_ext_1",
-                chat_type = ChatConfigDB.ChatType.telegram,
-                is_private = True,
             ),
         )
         self.mock_sdk = Mock()
@@ -64,7 +58,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 chat_id = self.chat.chat_id,
                 is_admin = True,
                 use_about_me = False,
-                use_custom_prompt = True,
                 max_output_tokens = 1000,
                 max_chat_history_depth = 10,
                 max_iterations = 7,
@@ -92,7 +85,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat_ext_2",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         repo = self.sql.chat_membership_repo()
@@ -114,7 +106,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             chat_id = self.chat.chat_id,
             is_admin = True,
             use_about_me = False,
-            use_custom_prompt = True,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
@@ -136,10 +127,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
-                max_output_tokens = 500,
-                max_chat_history_depth = 5,
-                max_iterations = 3,
             ),
         )
 
@@ -169,7 +156,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
             ),
@@ -187,7 +173,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
             ),
@@ -354,8 +339,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
-                use_about_me = True,
-                use_custom_prompt = True,
             ),
         )
         self.mock_sdk.resolve_chat_access.return_value = None
@@ -378,7 +361,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
                 max_output_tokens = 500,
@@ -402,8 +384,6 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
-                use_about_me = True,
-                use_custom_prompt = True,
             ),
         )
 
@@ -441,16 +421,14 @@ class ChatMembershipServiceTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat_ext_3",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_membership_repo().save(
             stubs.domain.chat_membership(user_id = self.user.id, chat_id = self.chat.chat_id, is_admin = True),
         )
         self.sql.chat_membership_repo().save(
-            stubs.domain.chat_membership(user_id = self.user.id, chat_id = second_chat.chat_id, is_admin = False),
+            stubs.domain.chat_membership(user_id = self.user.id, chat_id = second_chat.chat_id),
         )
-
         result = self.service.refresh_chat_memberships(self.user, [second_chat])
 
         by_chat = {m.chat_id: m for m in result}

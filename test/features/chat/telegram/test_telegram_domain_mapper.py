@@ -20,16 +20,16 @@ class TelegramDomainMapperTest(unittest.TestCase):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             text = "This is a test message",
             date = int(datetime.now().timestamp()),
             reply_to_message = stubs.external.telegram_message(
-                chat = stubs.external.telegram_chat(id = 10, type = "private"),
+                chat = stubs.external.telegram_chat(id = 10),
                 message_id = 99,
                 date = int(datetime.now().timestamp()),
             ),
-            quote = stubs.external.telegram_text_quote(text = "This is a quote", position = 0),
+            quote = stubs.external.telegram_text_quote(text = "This is a quote"),
         )
 
         result = self.mapper.map_message(message)
@@ -45,7 +45,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         sent_timestamp = int(datetime(2026, 1, 1, 12, 0).timestamp())
         edit_timestamp = sent_timestamp + 30
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             text = "edited text",
             date = sent_timestamp,
@@ -60,7 +60,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             caption = "This is a caption",
             date = int(datetime.now().timestamp()),
@@ -77,7 +77,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
     def test_map_author_filled(self):
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             date = int(datetime.now().timestamp()),
             **{
@@ -87,7 +87,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
                     first_name = "First",
                     last_name = "Last",
                     username = "username",
-                    is_bot = False,
                 ),
             },
         )
@@ -102,7 +101,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
 
     def test_map_author_does_not_use_another_users_private_chat(self):
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             date = int(datetime.now().timestamp()),
             **{
@@ -124,7 +123,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             date = int(datetime.now().timestamp()),
         )
@@ -139,7 +138,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
         message = stubs.external.telegram_message(
             chat = stubs.external.telegram_chat(
                 id = 10,
-                type = "private",
                 username = "chat_username",
                 first_name = "First",
             ),
@@ -164,7 +162,11 @@ class TelegramDomainMapperTest(unittest.TestCase):
             date = int(datetime.now().timestamp()),
         )
         message.from_user = stubs.external.telegram_user(
-            id = 1, is_bot = False, first_name = "F", last_name = "L", username = "U", language_code = "de",
+            id = 1,
+            first_name = "F",
+            last_name = "L",
+            username = "U",
+            language_code = "de",
         )
 
         result = self.mapper.map_chat(message)
@@ -213,7 +215,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         # noinspection PyArgumentList
         message = stubs.external.telegram_message(
             message_id = 100,
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             audio = stubs.external.telegram_audio(
                 file_id = "a1",
                 file_unique_id = "a",
@@ -246,8 +248,6 @@ class TelegramDomainMapperTest(unittest.TestCase):
                 file_id = "video4",
                 file_unique_id = "video",
                 file_size = 4,
-                width = 1920,
-                height = 1080,
                 duration = 5,
             ),
             voice = stubs.external.telegram_voice(
@@ -302,7 +302,7 @@ class TelegramDomainMapperTest(unittest.TestCase):
         # 'from' is a reserved keyword in Python, so we use a workaround to access it
         # noinspection PyArgumentList
         message = stubs.external.telegram_message(
-            chat = stubs.external.telegram_chat(id = 10, type = "private"),
+            chat = stubs.external.telegram_chat(id = 10),
             message_id = 100,
             date = int(datetime.now().timestamp()),
         )

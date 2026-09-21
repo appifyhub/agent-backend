@@ -14,14 +14,12 @@ from features.chat.chat_progress_notifier import ChatProgressNotifier
 from features.chat.command_processor import CommandProcessor
 from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
 from features.integrations.integrations import resolve_agent_user
-from features.users.user import User
 from util.error_codes import UNEXPECTED_ERROR, WAITLIST_ACCOUNT_NOT_ACTIVE, WAITLIST_INVITED_POLICIES_REQUIRED
 from util.errors import AuthorizationError
 
 
 class ChatAgentTest(unittest.TestCase):
 
-    agent_user: User
     mock_di: DI
     agent: ChatAgent
 
@@ -30,7 +28,6 @@ class ChatAgentTest(unittest.TestCase):
             telegram_chat_id = "test_chat_id",
             is_invited_to_start = False,
         )
-        self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.telegram)
         chat_config = stubs.domain.chat_config(
             is_private = False,
             reply_chance_percent = 50,
@@ -79,9 +76,9 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.llm_tool_library.tool_names = ["test_tool"]
 
         configured_tool = stubs.domain.configured_tool()
+        self.cutoff_sent_at = datetime.now()
 
         # configure message and attachment fetching used in ChatAgent.__init__
-        self.cutoff_sent_at = datetime.now()
         latest_message = stubs.domain.chat_message(
             message_id = "msg_123",
             sent_at = self.cutoff_sent_at,
@@ -175,11 +172,10 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.invoker_chat.is_private = False
         self.mock_di.invoker_chat.reply_chance_percent = 0
 
+        agent_username = resolve_agent_user(ChatConfigDB.ChatType.telegram).telegram_username
         for quote_prefix in [">>", ">>>>"]:
             with self.subTest(quote_prefix = quote_prefix):
-                self.agent._ChatAgent__trigger_message_text = (
-                    f"{quote_prefix} Hello @{self.agent_user.telegram_username}\n\nI agree"
-                )
+                self.agent._ChatAgent__trigger_message_text = f"{quote_prefix} Hello @{agent_username}\n\nI agree"
 
                 self.assertFalse(self.agent.should_reply())
 
@@ -236,7 +232,8 @@ class ChatAgentTest(unittest.TestCase):
         self.mock_di.invoker_chat.is_private = False
         self.mock_di.invoker_chat.reply_chance_percent = 100
         self.agent._ChatAgent__trigger_message_text = "Hello"
-        self.mock_di.invoker.telegram_username = self.agent_user.telegram_username
+        agent_username = resolve_agent_user(ChatConfigDB.ChatType.telegram).telegram_username
+        self.mock_di.invoker.telegram_username = agent_username
 
         self.assertFalse(self.agent._ChatAgent__is_dispatchable())
 
@@ -316,19 +313,24 @@ class ChatAgentTest(unittest.TestCase):
     ):
         mock_should_reply.return_value = True
         mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = AIMessage(content = [
-            {"type": "text", "text": "Here\n📎 [ a1 (image/png) ]"},
-            "📎 [ a2 ]",
-            {"type": "thinking", "thinking": "internal"},
-        ])
+        mock_tools_model.invoke.return_value = AIMessage(
+            content = [
+                {"type": "text", "text": "Here\n📎 [ a1 (image/png) ]"},
+                "📎 [ a2 ]",
+                {"type": "thinking", "thinking": "internal"},
+            ],
+        )
         self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
 
         result = self.agent.execute()
 
-        self.assertEqual(result.content, [
-            {"type": "text", "text": "Here"},
-            {"type": "thinking", "thinking": "internal"},
-        ])
+        self.assertEqual(
+            result.content,
+            [
+                {"type": "text", "text": "Here"},
+                {"type": "thinking", "thinking": "internal"},
+            ],
+        )
 
     @patch("features.chat.chat_agent.ChatAgent.should_reply")
     def test_execute_tool_call(self, mock_should_reply):

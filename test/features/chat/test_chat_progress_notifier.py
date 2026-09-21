@@ -1,33 +1,19 @@
 import unittest
 from unittest.mock import MagicMock, Mock, patch
-from uuid import UUID
 
 import stubs
 
-from db.model.chat_config import ChatConfigDB
 from features.chat.chat_progress_notifier import ChatProgressNotifier
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 
 
 class ChatProgressNotifierTest(unittest.TestCase):
 
-    message_id: str
     mock_di: Mock
     notifier: ChatProgressNotifier
 
     def setUp(self):
-        chat_config = stubs.domain.chat_config(
-            chat_id = UUID(int = 1),
-            external_id = "test_chat_id",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Test Chat",
-            is_private = True,
-            reply_chance_percent = 100,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        self.message_id = "test_message_id"
-
+        chat_config = stubs.domain.chat_config()
         # Create mock DI with all necessary dependencies
         self.mock_di = Mock()
         # noinspection PyPropertyAccess
@@ -35,17 +21,20 @@ class ChatProgressNotifierTest(unittest.TestCase):
         self.mock_di.require_invoker_chat = MagicMock(return_value = chat_config)
         # noinspection PyPropertyAccess
         self.mock_di.platform_bot_sdk = Mock(return_value = Mock(spec = PlatformBotSDK))
-        self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
+        self.mock_di.require_invoker_chat_type = MagicMock(return_value = chat_config.chat_type)
 
         self.notifier = ChatProgressNotifier(
-            message_id = self.message_id,
+            message_id = stubs.domain.chat_message().message_id,
             di = self.mock_di,
             auto_start = False,
         )
 
     # noinspection PyUnresolvedReferences
     def test_init(self):
-        self.assertEqual(self.notifier._ChatProgressNotifier__message_id, self.message_id)
+        self.assertEqual(
+            self.notifier._ChatProgressNotifier__message_id,
+            stubs.domain.chat_message().message_id,
+        )
         self.assertEqual(self.notifier._ChatProgressNotifier__di, self.mock_di)
 
     @patch("features.chat.chat_progress_notifier.Thread")
@@ -78,7 +67,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
         self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
 
         notifier = ChatProgressNotifier(
-            message_id = self.message_id,
+            message_id = stubs.domain.chat_message().message_id,
             di = self.mock_di,
             auto_start = False,
         )
@@ -109,7 +98,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
         mock_time.side_effect = [0.0, 0.0, 0.1, 0.2]
 
         notifier = ChatProgressNotifier(
-            message_id = self.message_id,
+            message_id = stubs.domain.chat_message().message_id,
             di = self.mock_di,
             auto_start = False,
         )
@@ -143,7 +132,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
         mock_time.side_effect = [5.0, 11.0, 16.0, 21.0]
 
         notifier = ChatProgressNotifier(
-            message_id = self.message_id,
+            message_id = stubs.domain.chat_message().message_id,
             di = self.mock_di,
             auto_start = False,
         )
@@ -168,7 +157,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
     @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
     @patch("features.chat.chat_progress_notifier.time.time")
     def test_fires_when_initial_delay_greater_than_interval(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = (15, 7)  # delay=15s, interval=7s
+        mock_resolve_timing.return_value = (15, 7)  # delay = 15s, interval = 7s
         mock_platform_sdk = Mock(spec = PlatformBotSDK)
         self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
 
@@ -181,7 +170,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
         mock_time.side_effect = [0.0, 10.0, 15.0, 20.0, 22.0]
 
         notifier = ChatProgressNotifier(
-            message_id = self.message_id,
+            message_id = stubs.domain.chat_message().message_id,
             di = self.mock_di,
             auto_start = False,
         )
@@ -203,7 +192,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
     @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
     @patch("features.chat.chat_progress_notifier.time.time")
     def test_fires_when_initial_delay_less_than_interval(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = (3, 7)  # delay=3s, interval=7s
+        mock_resolve_timing.return_value = (3, 7)  # delay = 3s, interval = 7s
         mock_platform_sdk = Mock(spec = PlatformBotSDK)
         self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
 
@@ -215,7 +204,7 @@ class ChatProgressNotifierTest(unittest.TestCase):
         mock_time.side_effect = [0.0, 3.0, 8.0, 10.0]
 
         notifier = ChatProgressNotifier(
-            message_id = self.message_id,
+            message_id = stubs.domain.chat_message().message_id,
             di = self.mock_di,
             auto_start = False,
         )

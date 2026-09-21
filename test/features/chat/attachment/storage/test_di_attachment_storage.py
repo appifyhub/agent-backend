@@ -41,11 +41,13 @@ class DIAttachmentStorageTest(unittest.TestCase):
         self.__assert_selected(self.__config(s3 = False, uploadcare = False), expected = "local")
 
     def __assert_selected(self, config: SimpleNamespace, expected: str) -> None:
-        with patch("features.chat.attachment.storage.s3_attachment_storage.config", config), \
-             patch("features.chat.attachment.storage.uploadcare_attachment_storage.config", config), \
-             patch("features.chat.attachment.storage.s3_attachment_storage.S3AttachmentStorage") as s3_class, \
-             patch("features.chat.attachment.storage.uploadcare_attachment_storage.UploadcareAttachmentStorage") as uploadcare_class, \
-             patch("features.chat.attachment.storage.local_attachment_storage.LocalAttachmentStorage") as local_class:
+        with (
+            patch("features.chat.attachment.storage.s3_attachment_storage.config", config),
+            patch("features.chat.attachment.storage.uploadcare_attachment_storage.config", config),
+            patch("features.chat.attachment.storage.s3_attachment_storage.S3AttachmentStorage") as s3_class,
+            patch("features.chat.attachment.storage.uploadcare_attachment_storage.UploadcareAttachmentStorage") as uploadcare_class,  # ruff: ignore[line-too-long]
+            patch("features.chat.attachment.storage.local_attachment_storage.LocalAttachmentStorage") as local_class,
+        ):
             s3_class.can_be_used.side_effect = S3AttachmentStorage.can_be_used
             uploadcare_class.can_be_used.side_effect = UploadcareAttachmentStorage.can_be_used
             local_class.can_be_used.side_effect = LocalAttachmentStorage.can_be_used

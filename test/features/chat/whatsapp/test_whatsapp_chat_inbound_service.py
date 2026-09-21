@@ -48,7 +48,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
     resolver: WhatsAppChatInboundService
 
     def setUp(self):
-        self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.whatsapp)
         self.sql = SQLUtil()
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
@@ -63,7 +62,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_attachment_service = ChatAttachmentService(self.mock_di)
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_bot_api = MagicMock()
-        self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xFF\xD8\xFF\xE0fake-jpeg"
+        self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xff\xd8\xff\xe0fake-jpeg"
         # noinspection PyPropertyAccess
         self.mock_di.attachment_storage = MagicMock()
         self.mock_di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
@@ -132,7 +131,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             timestamp = str(int(datetime.now().timestamp())),
             type = "image",
             text = None,
-            image = stubs.external.whatsapp_media_attachment(id = "e1", mime_type = "image/jpeg"),
+            image = stubs.external.whatsapp_media_attachment(id = "e1"),
             **{"from": ""},
         )
 
@@ -140,7 +139,8 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             self.resolver.ingest_message(message, stubs.external.whatsapp_value(messages = [message], contacts = []))
 
     def test_ingest_message_from_agent_skips_remote_attachments(self):
-        agent_id = self.agent_user.whatsapp_user_id
+        agent_user = resolve_agent_user(ChatConfigDB.ChatType.whatsapp)
+        agent_id = agent_user.whatsapp_user_id
         assert agent_id is not None
         message = stubs.external.whatsapp_message(
             id = "m1",
@@ -149,7 +149,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             text = None,
             image = stubs.external.whatsapp_media_attachment(
                 id = "e1",
-                mime_type = "image/jpeg",
                 caption = "This is a message",
             ),
             **{"from": agent_id},
@@ -164,7 +163,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
                 contacts = [
                     stubs.external.whatsapp_contact(
                         profile = stubs.external.whatsapp_profile(
-                            name = self.agent_user.full_name,
+                            name = agent_user.full_name,
                         ),
                         wa_id = agent_id,
                     ),
@@ -188,7 +187,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             text = None,
             image = stubs.external.whatsapp_media_attachment(
                 id = "e1",
-                mime_type = "image/jpeg",
                 caption = "This is a message",
             ),
             **{"from": "1"},
@@ -362,7 +360,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             tool_choice_vision = "openai",
             tool_choice_hearing = "openai",
             tool_choice_images_gen = "replicate",
-            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_search = "perplexity",
             tool_choice_embedding = "openai",
             tool_choice_api_fiat_exchange = "rapidapi",
@@ -514,8 +511,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             external_id = "e1",
             message_id = "m1",
             last_url = "path/to/file.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
         )
 
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
@@ -548,8 +543,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             message_id = "m1",
             size = 1,
             last_url = f"s3://{config.s3_bucket}/chats/{chat.chat_id}/attachments/i1.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
         )
         self.sql.chat_attachment_repo().save(old_attachment_data)
 

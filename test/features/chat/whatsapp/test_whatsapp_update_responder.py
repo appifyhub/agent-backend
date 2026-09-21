@@ -9,7 +9,11 @@ import stubs
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.message_burst_service import MessageBurstService
-from features.chat.whatsapp.whatsapp_update_responder import _ingest_update, respond_to_update
+from features.chat.whatsapp.whatsapp_update_responder import (
+    _ingest_update,
+    _IngressOutcome,
+    respond_to_update,
+)
 
 
 class WhatsAppUpdateResponderTest(unittest.TestCase):
@@ -23,15 +27,10 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
     def test_photo_and_prompt_deliveries_schedule_same_author_bursts(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = True,
-            reply_chance_percent = 0,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            whatsapp_user_id = "20",
         )
         photo_message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -100,15 +99,11 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
     def test_different_group_authors_schedule_independent_bursts(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
             is_private = False,
-            reply_chance_percent = 0,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            whatsapp_user_id = "20",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -127,8 +122,6 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
         )
         other_author = stubs.domain.user(
             id = UUID(int = 21),
-            full_name = "Other User",
-            whatsapp_user_id = "21",
         )
         other_message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -181,15 +174,10 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
     def test_command_does_not_extend_conversational_burst(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = True,
-            reply_chance_percent = 0,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            whatsapp_user_id = "20",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -265,9 +253,7 @@ class WhatsAppUpdateResponderTest(unittest.TestCase):
             message_count = 2,
             wait_seconds = 0.5,
         )
-        outcome = MagicMock()
-        outcome.scheduled_bursts = [first, second]
-        outcome.processed = True
+        outcome = _IngressOutcome(scheduled_bursts = [first, second])
         second_di = Mock(spec = DI)
         second_burst_service = Mock(spec = MessageBurstService)
         # noinspection PyPropertyAccess

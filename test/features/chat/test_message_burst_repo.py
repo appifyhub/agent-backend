@@ -7,7 +7,6 @@ from uuid import UUID
 import stubs
 from db.sql_util import SQLUtil
 
-from db.model.chat_config import ChatConfigDB
 from db.model.chat_message_burst import ChatMessageBurstDB
 from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.chat.message_burst_repo import ChatMessageBurstRepository
@@ -28,20 +27,21 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         self.sql.end_session()
 
     def test_claim_and_finalization_preserve_newer_messages(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config(
-            chat_id = None,
-            external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
-        ))
-        author = self.sql.user_repo().save(stubs.domain.user(full_name = "User 1", telegram_user_id = 1))
-        first_message = self.message_repo.save(stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message1",
-            ingestion_order = 1,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "First",
-        ))
+        chat = self.sql.chat_config_repo().save(
+            stubs.domain.chat_config(
+                chat_id = None,
+            ),
+        )
+        author = self.sql.user_repo().save(stubs.domain.user())
+        first_message = self.message_repo.save(
+            stubs.domain.chat_message(
+                chat_id = chat.chat_id,
+                message_id = "message1",
+                author_id = author.id,
+                sent_at = datetime(2026, 1, 2, 12, 0, 0),
+                text = "First",
+            ),
+        )
         first_scheduled = self.repo.record_message(
             first_message,
             is_addressed = False,
@@ -53,14 +53,16 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         self.assertIsNotNone(first_claim)
         self.assertIsNone(self.repo.claim(first_scheduled))
 
-        second_message = self.message_repo.save(stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message2",
-            ingestion_order = 2,
-            author_id = author.id,
-            sent_at = first_message.sent_at,
-            text = "Second",
-        ))
+        second_message = self.message_repo.save(
+            stubs.domain.chat_message(
+                chat_id = chat.chat_id,
+                message_id = "message2",
+                ingestion_order = 2,
+                author_id = author.id,
+                sent_at = first_message.sent_at,
+                text = "Second",
+            ),
+        )
         second_scheduled = self.repo.record_message(
             second_message,
             is_addressed = True,
@@ -81,19 +83,20 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         self.assertEqual(self.sql.get_session().query(ChatMessageBurstDB).count(), 0)
 
     def test_delete_older_than_uses_strict_cutoff(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config(
-            chat_id = None,
-            external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
-        ))
-        author = self.sql.user_repo().save(stubs.domain.user(full_name = "User 1", telegram_user_id = 1))
-        message = self.message_repo.save(stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message1",
-            ingestion_order = 1,
-            author_id = author.id,
-            text = "Message",
-        ))
+        chat = self.sql.chat_config_repo().save(
+            stubs.domain.chat_config(
+                chat_id = None,
+            ),
+        )
+        author = self.sql.user_repo().save(stubs.domain.user())
+        message = self.message_repo.save(
+            stubs.domain.chat_message(
+                chat_id = chat.chat_id,
+                message_id = "message1",
+                author_id = author.id,
+                text = "Message",
+            ),
+        )
         self.repo.record_message(
             message,
             is_addressed = False,
@@ -143,26 +146,29 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         )
 
     def test_new_message_count_supersedes_old_schedule_before_claim(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config(
-            chat_id = None,
-            external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
-        ))
-        author = self.sql.user_repo().save(stubs.domain.user(full_name = "User 1", telegram_user_id = 1))
-        first = self.message_repo.save(stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "first",
-            ingestion_order = 1,
-            author_id = author.id,
-            text = "First",
-        ))
-        second = self.message_repo.save(stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "second",
-            ingestion_order = 2,
-            author_id = author.id,
-            text = "Second",
-        ))
+        chat = self.sql.chat_config_repo().save(
+            stubs.domain.chat_config(
+                chat_id = None,
+            ),
+        )
+        author = self.sql.user_repo().save(stubs.domain.user())
+        first = self.message_repo.save(
+            stubs.domain.chat_message(
+                chat_id = chat.chat_id,
+                message_id = "first",
+                author_id = author.id,
+                text = "First",
+            ),
+        )
+        second = self.message_repo.save(
+            stubs.domain.chat_message(
+                chat_id = chat.chat_id,
+                message_id = "second",
+                ingestion_order = 2,
+                author_id = author.id,
+                text = "Second",
+            ),
+        )
         first_scheduled = self.repo.record_message(
             first,
             is_addressed = True,

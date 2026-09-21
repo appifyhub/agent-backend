@@ -24,14 +24,10 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         chat_config = stubs.domain.chat_config(
             chat_id = None,
             external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
             title = "Chat One",
-            is_private = True,
             reply_chance_percent = 75,
             release_notifications = ChatConfigDB.ReleaseNotifications.minor,
             media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
 
         result = self.repo.save(chat_config)
@@ -80,7 +76,6 @@ class ChatConfigRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
 
@@ -145,7 +140,6 @@ class ChatConfigRepositoryTest(unittest.TestCase):
     def test_save_remote_data_creates_private_chat_with_defaults(self):
         remote_data = stubs.domain.chat_config_remote_data(
             external_id = "remote-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "Remote Chat",
             language_iso_code = "en",
         )
@@ -166,7 +160,6 @@ class ChatConfigRepositoryTest(unittest.TestCase):
     def test_save_remote_data_creates_public_chat_with_release_notifications_none(self):
         remote_data = stubs.domain.chat_config_remote_data(
             external_id = "public-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "Public Chat",
             is_private = False,
         )
@@ -182,12 +175,10 @@ class ChatConfigRepositoryTest(unittest.TestCase):
                 chat_id = None,
                 external_id = "remote-chat",
                 title = "Old Title",
-                is_private = True,
             ),
         )
         remote_data = stubs.domain.chat_config_remote_data(
             external_id = "remote-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "New Title",
             is_private = False,
             language_iso_code = "fr",
@@ -217,7 +208,6 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         )
         remote_data = stubs.domain.chat_config_remote_data(
             external_id = "remote-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             language_iso_code = "fr",
         )
 

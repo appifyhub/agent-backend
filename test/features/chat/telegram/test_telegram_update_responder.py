@@ -6,11 +6,11 @@ from uuid import UUID
 
 import stubs
 
-from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.message_burst_service import MessageBurstService
 from features.chat.telegram.telegram_update_responder import (
     _ingest_update,
+    _IngressOutcome,
     respond_to_update,
 )
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
@@ -28,16 +28,9 @@ class TelegramUpdateResponderTest(unittest.TestCase):
     def test_command_is_processed_without_creating_burst(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = False,
-            reply_chance_percent = 0,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            telegram_user_id = 20,
-            telegram_username = "test_user",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -85,7 +78,7 @@ class TelegramUpdateResponderTest(unittest.TestCase):
         with (
             patch(
                 "features.chat.telegram.telegram_update_responder.asyncio.to_thread",
-                new = AsyncMock(return_value = MagicMock(scheduled_burst = scheduled, processed = False)),
+                new = AsyncMock(return_value = _IngressOutcome(scheduled_burst = scheduled)),
             ) as to_thread,
             patch(
                 "features.chat.telegram.telegram_update_responder.DI",

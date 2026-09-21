@@ -89,9 +89,10 @@ class S3AttachmentStorageTest(unittest.TestCase):
         self.assertFalse(storage.owns_uri(""))
 
     def test_configures_boto3_client_for_path_style_endpoint(self):
-        with patch("features.chat.attachment.storage.s3_attachment_storage.config", self.__config(
-            s3_base_url = "http://seaweedfs-s3.storage.svc.cluster.local:8333",
-        )):
+        with patch(
+            "features.chat.attachment.storage.s3_attachment_storage.config",
+            self.__config(s3_base_url = "http://seaweedfs-s3.storage.svc.cluster.local:8333"),
+        ):
             with patch("features.chat.attachment.storage.s3_attachment_storage.boto3.client") as boto_client:
                 S3AttachmentStorage()
 

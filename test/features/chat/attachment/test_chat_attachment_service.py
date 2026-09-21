@@ -142,8 +142,6 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             message_id = "message-id",
             size = None,
             last_url = None,
-            mime_type = "image/jpeg",
-            extension = "jpg",
         )
 
         result = self.service.save(attachment, b"\x89PNG\r\n\x1a\ncontent")
@@ -166,7 +164,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         )
 
         mock_config.s3_bucket = "the-agent"
-        attachment = replace(attachment, mime_type = "audio/ogg; codecs = opus")
+        attachment = replace(attachment, mime_type = "audio/ogg; codecs=opus")
 
         result = self.service.save(attachment, b"audio data")
 
@@ -188,7 +186,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             uploader_user_id = UUID(int = 1),
             message_id = "message-id",
             size = None,
-            last_url = "https://example.com/document.pdf?token = abc",
+            last_url = "https://example.com/document.pdf?token=abc",
             extension = None,
             mime_type = None,
         )
@@ -215,7 +213,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
                 mime_type = None,
             ),
             content = b"video data",
-            remote_url = "https://example.com/video.webm?token = abc",
+            remote_url = "https://example.com/video.webm?token=abc",
         )
 
         self.assertEqual(result.mime_type, "video/webm")
@@ -299,7 +297,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             result = self.service.save(
                 attachment,
                 file_path = source,
-                remote_url = "https://example.com/video.webm?token = abc",
+                remote_url = "https://example.com/video.webm?token=abc",
             )
 
         self.assertEqual(result.mime_type, "video/webm")
@@ -710,8 +708,6 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             uploader_user_id = UUID(int = 1),
             message_id = "m1",
             last_url = "s3://the-agent/chats/00000000-0000-0000-0000-000000000002/attachments/stored-id.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
             size = 1024,
         )
         self.di.chat_attachment_repo.get_by_external_id.return_value = stored_attachment

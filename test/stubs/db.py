@@ -7,9 +7,25 @@ from db.model.chat_config import ChatConfigDB
 from db.model.chat_membership import ChatMembershipDB
 from db.model.chat_message import ChatMessageDB
 from db.model.chat_message_burst import ChatMessageBurstDB
+from db.model.price_alert import PriceAlertDB
 from db.model.purchase_record import PurchaseRecordDB
+from db.model.sponsorship import SponsorshipDB
+from db.model.tools_cache import ToolsCacheDB
 from db.model.usage_record import UsageRecordDB
 from db.model.user import UserDB
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_6_SONNET,
+    CRYPTO_CURRENCY_EXCHANGE,
+    FIAT_CURRENCY_EXCHANGE,
+    GPT_5_5,
+    IMAGE_GEN_EDIT_FLUX_2_PRO,
+    SONAR,
+    TEXT_EMBEDDING_5_LARGE,
+    TWELVE_DATA_STOCK_QUOTE,
+    VIDEO_GEN_P_VIDEO,
+    WHISPER_1,
+    X_READ_POST,
+)
 
 
 def user_db(**overrides: Any) -> UserDB:
@@ -34,19 +50,19 @@ def user_db(**overrides: Any) -> UserDB:
         "twelve_data_api_key": "test-twelve-data-key",
         "x_key": "test-x-key",
         "x_ai_key": "test-x-ai-key",
-        "tool_choice_chat": "openai-gpt-5",
-        "tool_choice_reasoning": "anthropic-claude-sonnet",
-        "tool_choice_copywriting": "openai-gpt-5",
-        "tool_choice_vision": "openai-gpt-5",
-        "tool_choice_hearing": "openai-whisper",
-        "tool_choice_images_gen": "openai-gpt-image",
-        "tool_choice_videos_gen": "replicate-video",
-        "tool_choice_search": "perplexity-search",
-        "tool_choice_embedding": "openai-text-embedding",
-        "tool_choice_api_fiat_exchange": "rapid-api-fiat-exchange",
-        "tool_choice_api_crypto_exchange": "coinmarketcap-crypto-exchange",
-        "tool_choice_api_stock_quote": "twelve-data-stock-quote",
-        "tool_choice_api_twitter": "rapid-api-twitter",
+        "tool_choice_chat": GPT_5_5.id,
+        "tool_choice_reasoning": CLAUDE_4_6_SONNET.id,
+        "tool_choice_copywriting": GPT_5_5.id,
+        "tool_choice_vision": CLAUDE_4_6_SONNET.id,
+        "tool_choice_hearing": WHISPER_1.id,
+        "tool_choice_images_gen": IMAGE_GEN_EDIT_FLUX_2_PRO.id,
+        "tool_choice_videos_gen": VIDEO_GEN_P_VIDEO.id,
+        "tool_choice_search": SONAR.id,
+        "tool_choice_embedding": TEXT_EMBEDDING_5_LARGE.id,
+        "tool_choice_api_fiat_exchange": FIAT_CURRENCY_EXCHANGE.id,
+        "tool_choice_api_crypto_exchange": CRYPTO_CURRENCY_EXCHANGE.id,
+        "tool_choice_api_stock_quote": TWELVE_DATA_STOCK_QUOTE.id,
+        "tool_choice_api_twitter": X_READ_POST.id,
         "credit_balance": 100.0,
         "is_on_waitlist": False,
         "is_invited_to_start": True,
@@ -190,3 +206,37 @@ def usage_record_db(**overrides: Any) -> UsageRecordDB:
         "participant_details": None,
     }
     return UsageRecordDB(**(defaults | overrides))
+
+
+def price_alert_db(**overrides: Any) -> PriceAlertDB:
+    defaults = {
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "owner_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "asset_type": "crypto",
+        "asset_id": "BTC",
+        "currency": "USD",
+        "threshold_percent": 5,
+        "last_price": 50_000.0,
+        "last_price_time": datetime(2026, 1, 15, 12, 0),
+    }
+    return PriceAlertDB(**(defaults | overrides))
+
+
+def sponsorship_db(**overrides: Any) -> SponsorshipDB:
+    defaults = {
+        "sponsor_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "receiver_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "sponsored_at": datetime(2026, 1, 15, 12, 0),
+        "accepted_at": datetime(2026, 1, 16, 12, 0),
+    }
+    return SponsorshipDB(**(defaults | overrides))
+
+
+def tools_cache_db(**overrides: Any) -> ToolsCacheDB:
+    defaults = {
+        "key": "test-cache-key",
+        "value": "cached tool result",
+        "created_at": datetime(2026, 1, 15, 12, 0, 0),
+        "expires_at": None,
+    }
+    return ToolsCacheDB(**(defaults | overrides))

@@ -7,7 +7,6 @@ from uuid import uuid4
 import stubs
 from db.sql_util import SQLUtil
 
-from db.model.chat_config import ChatConfigDB
 from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
 
 
@@ -19,18 +18,16 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.chat_attachment_repo()
-        self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader"))
         self.message_order = count(1)
 
     def tearDown(self):
         self.sql.end_session()
 
-    def test_save_preserves_random_id(self):
+    def test_save_preserves_generated_id(self):
         chat = self.sql.chat_config_repo().save(
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -42,9 +39,11 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
                 text = "message1",
             ),
         )
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader"))
         attachment = stubs.domain.chat_attachment(
             id = uuid4().hex[:8],
             chat_id = chat.chat_id,
+            uploader_user_id = uploader.id,
             message_id = "message1",
         )
 
@@ -58,7 +57,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -85,7 +83,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         attachment = stubs.domain.chat_attachment(
@@ -103,7 +100,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -134,7 +130,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -170,7 +165,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
 
@@ -181,14 +175,12 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         second_chat = self.sql.chat_config_repo().save(
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat2",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -214,7 +206,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -250,7 +241,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -303,14 +293,12 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         second_chat = self.sql.chat_config_repo().save(
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat2",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -357,7 +345,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -394,14 +381,12 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         second_chat = self.sql.chat_config_repo().save(
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat2",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -446,7 +431,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_message_repo().save(
@@ -478,7 +462,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         cutoff = datetime(2026, 1, 2, 12, 0, 0)
@@ -546,7 +529,6 @@ class ChatAttachmentRepositoryTest(unittest.TestCase):
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         cutoff = datetime(2026, 1, 2, 12, 0, 0)

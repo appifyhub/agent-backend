@@ -14,19 +14,12 @@ from util.errors import AuthorizationError, NotFoundError
 
 class DevAnnouncementsServiceTest(unittest.TestCase):
 
-    raw_announcement: str
-    invoker_user_id: UUID
     mock_di: MagicMock
     mock_configured_tool: ConfiguredTool
 
     def setUp(self):
         self.raw_announcement = "Test announcement"
-        self.invoker_user_id = UUID("123e4567-e89b-12d3-a456-426614174000")
         user = stubs.domain.user(
-            id = self.invoker_user_id,
-            full_name = "Test User",
-            telegram_username = "test_username",
-            telegram_chat_id = "test_chat_id",
             telegram_user_id = 100,
             group = UserDB.Group.developer,
         )
@@ -36,13 +29,13 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         self.mock_di.invoker = user
         self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
-        self.mock_platform_sdk = MagicMock()
-        self.mock_di.platform_bot_sdk = MagicMock(return_value = self.mock_platform_sdk)
+        mock_platform_sdk = MagicMock()
+        self.mock_di.platform_bot_sdk = MagicMock(return_value = mock_platform_sdk)
         self.mock_di.chat_langchain_model.return_value = MagicMock()
         self.mock_di.user_repo.get_by_telegram_username.return_value = None
         self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
         self.mock_di.chat_config_repo.get_all.return_value = []
-        self.mock_platform_sdk.send_text_message.return_value = {"result": {"message_id": 123}}
+        mock_platform_sdk.send_text_message.return_value = {"result": {"message_id": 123}}
         self.mock_di.translations_cache.get.return_value = "Translated announcement"
         self.mock_di.translations_cache.save.return_value = "Translated announcement"
         self.mock_di.clone.return_value = self.mock_di
@@ -100,11 +93,13 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
 
         # Mock external ID resolution
         with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
+
             def mock_resolve_side_effect(user, chat_type):
                 if hasattr(user, "telegram_user_id") and user.telegram_user_id:
                     return str(user.telegram_user_id)
                 # For agent user, return a different ID so chats don't get filtered out
                 return "999999999"
+
             mock_resolve.side_effect = mock_resolve_side_effect
 
             service = DevAnnouncementsService(
@@ -133,11 +128,13 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
 
         # Mock external ID resolution
         with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
+
             def mock_resolve_side_effect(user, chat_type):
                 if hasattr(user, "telegram_user_id") and user.telegram_user_id:
                     return str(user.telegram_user_id)
                 # For agent user, return a different ID so chats don't get filtered out
                 return "999999999"
+
             mock_resolve.side_effect = mock_resolve_side_effect
 
             service = DevAnnouncementsService(
@@ -161,15 +158,17 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
         self.mock_di.chat_config_repo.get_all.return_value = [
             stubs.domain.chat_config(external_id = "1", release_notifications = ChatConfigDB.ReleaseNotifications.all),
         ]
-        self.mock_platform_sdk.send_text_message.side_effect = Exception("Notification failed")
+        self.mock_di.platform_bot_sdk.return_value.send_text_message.side_effect = Exception("Notification failed")
 
         # Mock external ID resolution
         with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
+
             def mock_resolve_side_effect(user, chat_type):
                 if hasattr(user, "telegram_user_id") and user.telegram_user_id:
                     return str(user.telegram_user_id)
                 # For agent user, return a different ID so chats don't get filtered out
                 return "999999999"
+
             mock_resolve.side_effect = mock_resolve_side_effect
 
             service = DevAnnouncementsService(
@@ -194,11 +193,13 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
 
         # Mock external ID resolution
         with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
+
             def mock_resolve_side_effect(user, chat_type):
                 if hasattr(user, "telegram_user_id") and user.telegram_user_id:
                     return str(user.telegram_user_id)
                 # For agent user, return a different ID so chats don't get filtered out
                 return "999999999"
+
             mock_resolve.side_effect = mock_resolve_side_effect
 
             service = DevAnnouncementsService(
@@ -216,18 +217,18 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
 
     def test_targeted_announcement_success(self):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content = [
-            {"type": "thinking", "thinking": "Hidden reasoning"},
-            {"type": "text", "text": "Refined announcement"},
-        ])
+        mock_llm.invoke.return_value = AIMessage(
+            content = [
+                {"type": "thinking", "thinking": "Hidden reasoning"},
+                {"type": "text", "text": "Refined announcement"},
+            ],
+        )
         self.mock_di.chat_langchain_model.return_value = mock_llm
         self.mock_di.translations_cache.get.return_value = None
         self.mock_di.translations_cache.save.return_value = "Refined announcement"
 
         target_user = stubs.domain.user(
             id = UUID("223e4567-e89b-12d3-a456-426614174000"),
-            full_name = "Target User",
-            telegram_username = "target_user",
             telegram_chat_id = "12345",
             telegram_user_id = 2,
         )
@@ -276,8 +277,6 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
     def test_targeted_announcement_no_chat_id(self):
         target_user = stubs.domain.user(
             id = UUID("223e4567-e89b-12d3-a456-426614174000"),
-            full_name = "Target User",
-            telegram_username = "target_user",
             telegram_chat_id = None,
             telegram_user_id = 2,
         )
@@ -299,8 +298,6 @@ class DevAnnouncementsServiceTest(unittest.TestCase):
     def test_targeted_announcement_chat_not_found(self):
         target_user = stubs.domain.user(
             id = UUID("223e4567-e89b-12d3-a456-426614174000"),
-            full_name = "Target User",
-            telegram_username = "target_user",
             telegram_chat_id = "target_chat_id",
             telegram_user_id = 2,
         )

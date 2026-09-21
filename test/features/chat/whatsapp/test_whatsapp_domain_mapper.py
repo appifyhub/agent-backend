@@ -51,7 +51,6 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
             text = None,
             image = stubs.external.whatsapp_media_attachment(
                 id = "image_id",
-                mime_type = "image/jpeg",
                 caption = "This is a caption",
             ),
         )
@@ -202,7 +201,6 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
             text = None,
             image = stubs.external.whatsapp_media_attachment(
                 id = "image_id",
-                mime_type = "image/jpeg",
             ),
         )
 

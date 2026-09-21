@@ -8,12 +8,10 @@ from db.model.chat_config import ChatConfigDB
 from features.chat.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
 from features.integrations.integrations import resolve_agent_user
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
-from features.users.user import User
 
 
 class DomainLangchainMapperTest(unittest.TestCase):
 
-    agent_user: User
     mapper: DomainLangchainMapper
 
     def setUp(self):
@@ -28,8 +26,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
             full_name = "John Doe",
         )
         message = stubs.domain.chat_message(
-            chat_id = UUID(int = 1),
-            message_id = "m1",
             text = "Hello, how are you?",
         )
         expected_output = HumanMessage("@john_doe [John Doe]:\nHello, how are you?")
@@ -66,7 +62,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = "Test message")
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 1)
@@ -78,7 +73,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = f"Message 1{CHAT_MESSAGE_DELIMITER}Message 2{CHAT_MESSAGE_DELIMITER}Message 3")
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 3)
@@ -93,7 +87,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = "")
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 0)
@@ -102,7 +95,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = ["Message 1", "Message 2", "Message 3"])
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 3)
@@ -117,7 +109,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = [{"name": "Mike", "city": "Valencia"}, {"name": "Dirk"}])
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 2)
@@ -132,7 +123,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = [{"type": "text", "text": "Hello, world!", "extras": {"signature": "abc123"}}])
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 1)
@@ -150,7 +140,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 2)
@@ -164,22 +153,16 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = "Test message")
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result1 = self.mapper.map_bot_message_to_storage(chat, message)
         result2 = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertNotEqual(result1[0].message_id, result2[0].message_id)
 
     def test_map_bot_message_to_storage_preserves_code_block(self):
-        content = (
-            f"Here's code:{CHAT_MESSAGE_DELIMITER}```python\n"
-            f"x = 1{CHAT_MESSAGE_DELIMITER}y = 2\n"
-            f"```{CHAT_MESSAGE_DELIMITER}Done!"
-        )
+        content = f"Here's code:{CHAT_MESSAGE_DELIMITER}```python\nx = 1{CHAT_MESSAGE_DELIMITER}y = 2\n```{CHAT_MESSAGE_DELIMITER}Done!"
         message = AIMessage(content = content)
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 3)
@@ -193,7 +176,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = content)
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 3)
@@ -206,7 +188,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = content)
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 2)
@@ -214,13 +195,14 @@ class DomainLangchainMapperTest(unittest.TestCase):
         self.assertEqual(result[1].text, "```python\nprint('hi')\n```")
 
     def test_map_bot_message_to_storage_formats_thinking_block(self):
-        message = AIMessage(content = [
-            {"type": "thinking", "thinking": "some reasoning", "signature": "EqwH..."},
-            {"type": "text", "text": "Hello!"},
-        ])
+        message = AIMessage(
+            content = [
+                {"type": "thinking", "thinking": "some reasoning", "signature": "EqwH..."},
+                {"type": "text", "text": "Hello!"},
+            ],
+        )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 2)
@@ -228,13 +210,14 @@ class DomainLangchainMapperTest(unittest.TestCase):
         self.assertEqual(result[1].text, "Hello!")
 
     def test_map_bot_message_to_storage_formats_multiline_thinking_block(self):
-        message = AIMessage(content = [
-            {"type": "thinking", "thinking": "line one\nline two\nline three", "signature": "EqwH..."},
-            {"type": "text", "text": "Answer."},
-        ])
+        message = AIMessage(
+            content = [
+                {"type": "thinking", "thinking": "line one\nline two\nline three", "signature": "EqwH..."},
+                {"type": "text", "text": "Answer."},
+            ],
+        )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 2)
@@ -242,49 +225,53 @@ class DomainLangchainMapperTest(unittest.TestCase):
         self.assertEqual(result[1].text, "Answer.")
 
     def test_map_bot_message_to_storage_skips_empty_thinking_block(self):
-        message = AIMessage(content = [
-            {"type": "thinking", "thinking": "", "signature": "EqwH..."},
-            {"type": "text", "text": "Hello!"},
-        ])
+        message = AIMessage(
+            content = [
+                {"type": "thinking", "thinking": "", "signature": "EqwH..."},
+                {"type": "text", "text": "Hello!"},
+            ],
+        )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "Hello!")
 
     def test_map_bot_message_to_storage_only_thinking_block(self):
-        message = AIMessage(content = [
-            {"type": "thinking", "thinking": "some reasoning", "signature": "EqwH..."},
-        ])
+        message = AIMessage(
+            content = [
+                {"type": "thinking", "thinking": "some reasoning", "signature": "EqwH..."},
+            ],
+        )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "💭\n> some reasoning")
 
     def test_map_bot_message_to_storage_only_empty_thinking_block(self):
-        message = AIMessage(content = [
-            {"type": "thinking", "thinking": "", "signature": "EqwH..."},
-        ])
+        message = AIMessage(
+            content = [
+                {"type": "thinking", "thinking": "", "signature": "EqwH..."},
+            ],
+        )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 0)
 
     def test_map_bot_message_to_storage_skips_redacted_thinking_block(self):
-        message = AIMessage(content = [
-            {"type": "redacted_thinking", "data": "opaque-data"},
-            {"type": "text", "text": "Hello!"},
-        ])
+        message = AIMessage(
+            content = [
+                {"type": "redacted_thinking", "data": "opaque-data"},
+                {"type": "text", "text": "Hello!"},
+            ],
+        )
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 1)
@@ -295,7 +282,6 @@ class DomainLangchainMapperTest(unittest.TestCase):
         message = AIMessage(content = content)
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
-            external_id = "test_chat",
         )
         result = self.mapper.map_bot_message_to_storage(chat, message)
         self.assertEqual(len(result), 1)
@@ -326,11 +312,14 @@ class SplitPreservingBlocksTest(unittest.TestCase):
     def test_code_block_with_language(self):
         content = f"Check this:{self.D}```python\ndef foo():\n    pass{self.D}def bar():\n    pass\n```{self.D}Nice."
         result = _split_preserving_blocks(content, self.D)
-        self.assertEqual(result, [
-            "Check this:",
-            f"```python\ndef foo():\n    pass{self.D}def bar():\n    pass\n```",
-            "Nice.",
-        ])
+        self.assertEqual(
+            result,
+            [
+                "Check this:",
+                f"```python\ndef foo():\n    pass{self.D}def bar():\n    pass\n```",
+                "Nice.",
+            ],
+        )
 
     def test_tilde_code_fence(self):
         content = f"Start{self.D}~~~\ncode{self.D}more\n~~~{self.D}End"
@@ -370,13 +359,16 @@ class SplitPreservingBlocksTest(unittest.TestCase):
     def test_code_block_then_list(self):
         content = f"Code:{self.D}```\na{self.D}b\n```{self.D}List:{self.D}- X{self.D}- Y{self.D}Bye"
         result = _split_preserving_blocks(content, self.D)
-        self.assertEqual(result, [
-            "Code:",
-            f"```\na{self.D}b\n```",
-            "List:",
-            f"- X{self.D}- Y",
-            "Bye",
-        ])
+        self.assertEqual(
+            result,
+            [
+                "Code:",
+                f"```\na{self.D}b\n```",
+                "List:",
+                f"- X{self.D}- Y",
+                "Bye",
+            ],
+        )
 
     def test_unclosed_code_block_keeps_rest_together(self):
         content = f"Oops:{self.D}```\ncode{self.D}more code{self.D}still going"

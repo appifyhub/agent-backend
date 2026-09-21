@@ -1,5 +1,5 @@
 import unittest
-from uuid import UUID
+from uuid import uuid4
 
 import stubs
 
@@ -15,11 +15,6 @@ from features.chat.config.chat_config_mapper import (
 
 class ChatConfigMapperTest(unittest.TestCase):
 
-    chat_id: UUID
-
-    def setUp(self):
-        self.chat_id = UUID("11111111-1111-1111-1111-111111111111")
-
     def test_domain_returns_none_for_none_input(self):
         self.assertIsNone(domain(None))
 
@@ -27,18 +22,7 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertIsNone(db(None))
 
     def test_domain_maps_all_fields(self):
-        db_model = stubs.db.chat_config_db(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
+        db_model = stubs.db.chat_config_db()
 
         result = domain(db_model)
 
@@ -55,18 +39,7 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertEqual(result.chat_type, db_model.chat_type)
 
     def test_db_maps_all_fields(self):
-        domain_model = stubs.domain.chat_config(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
+        domain_model = stubs.domain.chat_config()
 
         result = db(domain_model)
 
@@ -83,53 +56,31 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertEqual(result.chat_type, domain_model.chat_type)
 
     def test_roundtrip_domain_to_db_to_domain(self):
-        domain_model = stubs.domain.chat_config(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
+        domain_model = stubs.domain.chat_config()
 
         result = domain(db(domain_model))
 
         self.assertEqual(result, domain_model)
 
     def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
-        db_model = stubs.db.chat_config_db(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-
+        db_model = stubs.db.chat_config_db()
+        original_chat_id = db_model.chat_id
         domain_model = stubs.domain.chat_config(
-            chat_id = UUID("33333333-3333-3333-3333-333333333333"),
+            chat_id = uuid4(),
             external_id = "chat2",
             language_iso_code = None,
             language_name = None,
             title = None,
-            is_private = True,
+            is_private = False,
             reply_chance_percent = 25,
-            release_notifications = ChatConfigDB.ReleaseNotifications.major,
-            media_mode = ChatConfigDB.MediaMode.photo,
+            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
+            media_mode = ChatConfigDB.MediaMode.file,
             chat_type = ChatConfigDB.ChatType.whatsapp,
         )
 
         apply_to_db_model(domain_model, db_model)
 
-        self.assertEqual(db_model.chat_id, self.chat_id)
+        self.assertEqual(db_model.chat_id, original_chat_id)
         self.assertEqual(db_model.external_id, domain_model.external_id)
         self.assertIsNone(db_model.language_iso_code)
         self.assertIsNone(db_model.language_name)
@@ -141,31 +92,14 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertEqual(db_model.chat_type, domain_model.chat_type)
 
     def test_db_leaves_missing_chat_id_for_database_generation(self):
-        domain_model = stubs.domain.chat_config(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        domain_model.chat_id = None
+        domain_model = stubs.domain.chat_config(chat_id = None)
 
         result = db(domain_model)
 
         self.assertIsNone(result.chat_id)
 
     def test_from_remote_data_defaults_missing_privacy_to_private(self):
-        remote_data = stubs.domain.chat_config_remote_data(
-            external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
-            title = "Chat One",
-            language_iso_code = "en",
-        )
+        remote_data = stubs.domain.chat_config_remote_data()
 
         result = from_remote_data(remote_data)
 
@@ -180,12 +114,7 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertEqual(result.chat_type, remote_data.chat_type)
 
     def test_from_remote_data_sets_public_release_defaults(self):
-        remote_data = stubs.domain.chat_config_remote_data(
-            external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
-            title = "Public Chat",
-            is_private = False,
-        )
+        remote_data = stubs.domain.chat_config_remote_data(is_private = False)
 
         result = from_remote_data(remote_data)
 
@@ -193,21 +122,9 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertEqual(result.release_notifications, ChatConfigDB.ReleaseNotifications.none)
 
     def test_apply_remote_data_updates_only_remote_owned_fields(self):
-        domain_model = stubs.domain.chat_config(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
+        domain_model = stubs.domain.chat_config(is_private = False)
         remote_data = stubs.domain.chat_config_remote_data(
             external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "Updated Title",
             is_private = True,
             language_iso_code = "fr",
@@ -227,23 +144,8 @@ class ChatConfigMapperTest(unittest.TestCase):
         self.assertEqual(result.chat_type, domain_model.chat_type)
 
     def test_apply_remote_data_ignores_null_remote_values(self):
-        domain_model = stubs.domain.chat_config(
-            chat_id = self.chat_id,
-            external_id = "chat1",
-            language_iso_code = "en",
-            language_name = "English",
-            title = "Chat One",
-            is_private = False,
-            reply_chance_percent = 75,
-            release_notifications = ChatConfigDB.ReleaseNotifications.minor,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        remote_data = stubs.domain.chat_config_remote_data(
-            external_id = "chat1",
-            chat_type = ChatConfigDB.ChatType.telegram,
-            language_iso_code = "fr",
-        )
+        domain_model = stubs.domain.chat_config()
+        remote_data = stubs.domain.chat_config_remote_data()
 
         result = apply_remote_data(domain_model, remote_data)
 

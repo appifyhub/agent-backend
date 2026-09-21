@@ -32,6 +32,13 @@ from features.chat.whatsapp.model.response import (
 )
 from features.chat.whatsapp.model.update import Update as WhatsAppUpdate
 from features.chat.whatsapp.model.value import Value as WhatsAppValue
+from features.web_browsing.twitter_status_fetcher import (
+    TweetData,
+    TweetLinkPreview,
+    TweetMediaItem,
+    TweetMediaVariant,
+    TweetUserData,
+)
 
 
 def whatsapp_profile(**overrides: Any) -> WhatsAppProfile:
@@ -274,3 +281,65 @@ def http_authorization_credentials(**overrides: Any) -> HTTPAuthorizationCredent
         "credentials": "valid-token",
     }
     return HTTPAuthorizationCredentials(**(defaults | overrides))
+
+
+def tweet_media_variant(**overrides: Any) -> TweetMediaVariant:
+    defaults = {
+        "url": "https://video.twimg.com/video.mp4",
+        "content_type": "video/mp4",
+        "bit_rate": 2_176_000,
+    }
+    return TweetMediaVariant(**(defaults | overrides))
+
+
+def tweet_media_item(**overrides: Any) -> TweetMediaItem:
+    defaults = {
+        "url": "https://pbs.twimg.com/media/photo.jpg",
+        "preview_url": "https://pbs.twimg.com/media/photo-preview.jpg",
+        "media_type": "photo",
+        "variants": [],
+        "duration_ms": None,
+        "width": 1280,
+        "height": 720,
+        "alt_text": "A city skyline at sunset.",
+    }
+    return TweetMediaItem(**(defaults | overrides))
+
+
+def tweet_user_data(**overrides: Any) -> TweetUserData:
+    defaults = {
+        "name": "Mark Johnson",
+        "handle": "mark_johnson",
+        "bio": "Building useful software.",
+        "profile_image_url": "https://pbs.twimg.com/profile_images/mark.jpg",
+    }
+    return TweetUserData(**(defaults | overrides))
+
+
+def tweet_link_preview(**overrides: Any) -> TweetLinkPreview:
+    defaults = {
+        "title": "Example story",
+        "description": "A concise preview of the linked story.",
+        "og_image_url": "https://example.com/articles/story.jpg",
+        "expanded_url": "https://example.com/articles/story",
+        "domain": "example.com",
+    }
+    return TweetLinkPreview(**(defaults | overrides))
+
+
+def tweet_data(**overrides: Any) -> TweetData:
+    defaults: dict[str, Any] = {
+        "text": "A useful update from Mark Johnson.",
+        "language": "en",
+        "created_at": "2026-01-15T12:00:00Z",
+        "quoted_tweet_id": None,
+        "is_reply": False,
+        "replied_to_tweet_id": None,
+    }
+    if "user" not in overrides:
+        defaults["user"] = tweet_user_data()
+    if "media" not in overrides:
+        defaults["media"] = [tweet_media_item()]
+    if "link_previews" not in overrides:
+        defaults["link_previews"] = [tweet_link_preview()]
+    return TweetData(**(defaults | overrides))

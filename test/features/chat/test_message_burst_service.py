@@ -34,17 +34,9 @@ class MessageBurstServiceTest(unittest.TestCase):
     def test_claimed_message_uses_cutoff_and_aggregate_addressing(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = False,
-            reply_chance_percent = 0,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            telegram_user_id = 20,
-            telegram_username = "test_user",
-            whatsapp_user_id = "20",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -58,7 +50,6 @@ class MessageBurstServiceTest(unittest.TestCase):
             chat = chat,
             author = author,
             message = message,
-            attachments = [],
             raw_message_text = "hello",
         )
 
@@ -68,7 +59,6 @@ class MessageBurstServiceTest(unittest.TestCase):
             message_count = 1,
             last_message_sent_at = message.sent_at,
             last_message_ingestion_order = message.ingestion_order,
-            is_addressed = True,
         )
 
         result = self.service.process_message(ingested, claim = claim)
@@ -92,16 +82,9 @@ class MessageBurstServiceTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
             external_id = "123",
-            is_private = False,
-            reply_chance_percent = 0,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            telegram_user_id = 20,
-            telegram_username = "test_user",
-            whatsapp_user_id = "20",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -115,7 +98,6 @@ class MessageBurstServiceTest(unittest.TestCase):
             chat = chat,
             author = author,
             message = message,
-            attachments = [],
             raw_message_text = "hello",
         )
 
@@ -129,7 +111,6 @@ class MessageBurstServiceTest(unittest.TestCase):
                 message_count = 1,
                 last_message_sent_at = message.sent_at,
                 last_message_ingestion_order = message.ingestion_order,
-                is_addressed = True,
             ),
         )
 
@@ -146,17 +127,9 @@ class MessageBurstServiceTest(unittest.TestCase):
     def test_whatsapp_message_marks_final_message_read(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = False,
-            reply_chance_percent = 0,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            telegram_user_id = 20,
-            telegram_username = "test_user",
-            whatsapp_user_id = "20",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -170,7 +143,6 @@ class MessageBurstServiceTest(unittest.TestCase):
             chat = chat,
             author = author,
             message = message,
-            attachments = [],
             raw_message_text = "hello",
         )
 
@@ -231,12 +203,14 @@ class MessageBurstServiceTest(unittest.TestCase):
                 ) as get_session,
             ):
                 task = asyncio.create_task(
-                    self.service.process_after_quiet_period(stubs.domain.scheduled_chat_message_burst(
-                        chat_id = message.chat_id,
-                        author_id = message.author_id,
-                        message_count = 1,
-                        wait_seconds = 0.5,
-                    )),
+                    self.service.process_after_quiet_period(
+                        stubs.domain.scheduled_chat_message_burst(
+                            chat_id = message.chat_id,
+                            author_id = message.author_id,
+                            message_count = 1,
+                            wait_seconds = 0.5,
+                        ),
+                    ),
                 )
                 await sleep_started.wait()
                 get_session.assert_not_called()
@@ -249,17 +223,9 @@ class MessageBurstServiceTest(unittest.TestCase):
     def test_obsolete_timer_noops_and_completion_schedules_waiting_messages(self):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 10),
-            external_id = "123",
-            is_private = False,
-            reply_chance_percent = 0,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
         author = stubs.domain.user(
             id = UUID(int = 20),
-            full_name = "Test User",
-            telegram_user_id = 20,
-            telegram_username = "test_user",
-            whatsapp_user_id = "20",
         )
         message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
@@ -273,7 +239,6 @@ class MessageBurstServiceTest(unittest.TestCase):
             chat = chat,
             author = author,
             message = message,
-            attachments = [],
             raw_message_text = "hello",
         )
 

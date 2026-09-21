@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -32,9 +33,43 @@ from features.chat.message.formatted_chat_message import (
     FormattedTextPart,
 )
 from features.chat.message_burst import ClaimedChatMessageBurst, ScheduledChatMessageBurst
+from features.currencies.asset_alert_service import AssetAlertService
+from features.currencies.asset_price import AssetPrice, AssetType, StockQuote
+from features.currencies.price_alert import PriceAlert
+from features.external_tools.access_token_resolver import ResolvedToken
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
-from features.external_tools.external_tool_library import GPT_5_5
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_6_SONNET,
+    CRYPTO_CURRENCY_EXCHANGE,
+    FIAT_CURRENCY_EXCHANGE,
+    GPT_5_5,
+    IMAGE_GEN_EDIT_FLUX_2_PRO,
+    SONAR,
+    TEXT_EMBEDDING_5_LARGE,
+    TWELVE_DATA_STOCK_QUOTE,
+    VIDEO_GEN_P_VIDEO,
+    WHISPER_1,
+    X_READ_POST,
+)
+from features.prompting.prompt_composer import PromptFragment, PromptSection
+from features.social_cards.social_card_models import (
+    SocialAuthor,
+    SocialCardMode,
+    SocialCardRenderResult,
+    SocialCardTemplateResult,
+    SocialCardVideoInput,
+    SocialDynamicMedia,
+    SocialLinkPreview,
+    SocialLinkPreviewAsset,
+    SocialMediaAsset,
+    SocialMediaItem,
+    SocialMediaKind,
+    SocialMediaPlacement,
+    SocialPlatformBrand,
+    SocialPost,
+    SocialPostRenderAssets,
+)
 from features.sponsorships.sponsorship import Sponsorship
 from features.tools_cache.tools_cache import ToolsCache
 from features.users.user import User
@@ -65,19 +100,19 @@ def user(**overrides: Any) -> User:
         "twelve_data_api_key": SecretStr("test-twelve-data-key"),
         "x_key": SecretStr("test-x-key"),
         "x_ai_key": SecretStr("test-x-ai-key"),
-        "tool_choice_chat": "openai-gpt-5",
-        "tool_choice_reasoning": "anthropic-claude-sonnet",
-        "tool_choice_copywriting": "openai-gpt-5",
-        "tool_choice_vision": "openai-gpt-5",
-        "tool_choice_hearing": "openai-whisper",
-        "tool_choice_images_gen": "openai-gpt-image",
-        "tool_choice_videos_gen": "replicate-video",
-        "tool_choice_search": "perplexity-search",
-        "tool_choice_embedding": "openai-text-embedding",
-        "tool_choice_api_fiat_exchange": "rapid-api-fiat-exchange",
-        "tool_choice_api_crypto_exchange": "coinmarketcap-crypto-exchange",
-        "tool_choice_api_stock_quote": "twelve-data-stock-quote",
-        "tool_choice_api_twitter": "rapid-api-twitter",
+        "tool_choice_chat": GPT_5_5.id,
+        "tool_choice_reasoning": CLAUDE_4_6_SONNET.id,
+        "tool_choice_copywriting": GPT_5_5.id,
+        "tool_choice_vision": CLAUDE_4_6_SONNET.id,
+        "tool_choice_hearing": WHISPER_1.id,
+        "tool_choice_images_gen": IMAGE_GEN_EDIT_FLUX_2_PRO.id,
+        "tool_choice_videos_gen": VIDEO_GEN_P_VIDEO.id,
+        "tool_choice_search": SONAR.id,
+        "tool_choice_embedding": TEXT_EMBEDDING_5_LARGE.id,
+        "tool_choice_api_fiat_exchange": FIAT_CURRENCY_EXCHANGE.id,
+        "tool_choice_api_crypto_exchange": CRYPTO_CURRENCY_EXCHANGE.id,
+        "tool_choice_api_stock_quote": TWELVE_DATA_STOCK_QUOTE.id,
+        "tool_choice_api_twitter": X_READ_POST.id,
         "credit_balance": 100.0,
         "is_on_waitlist": False,
         "is_invited_to_start": True,
@@ -491,7 +526,37 @@ def usage_record(**overrides: Any) -> UsageRecord:
         "input_image_sizes": [],
     }
     if "tool" not in overrides:
-        defaults["tool"] = GPT_5_5
+        defaults["tool"] = external_tool(
+            id = GPT_5_5.id,
+            name = GPT_5_5.name,
+            provider = external_tool_provider(
+                id = GPT_5_5.provider.id,
+                name = GPT_5_5.provider.name,
+                token_management_url = GPT_5_5.provider.token_management_url,
+                token_format = GPT_5_5.provider.token_format,
+                tools = list(GPT_5_5.provider.tools),
+            ),
+            types = list(GPT_5_5.types),
+            cost_estimate = cost_estimate(
+                input_1m_tokens = GPT_5_5.cost_estimate.input_1m_tokens,
+                output_1m_tokens = GPT_5_5.cost_estimate.output_1m_tokens,
+                search_1m_tokens = None,
+                input_image_1k = None,
+                input_image_2k = None,
+                input_image_4k = None,
+                input_image_8k = None,
+                input_image_12k = None,
+                output_image_1k = None,
+                output_image_2k = None,
+                output_image_4k = None,
+                output_video_1k_second = None,
+                output_video_2k_second = None,
+                output_video_4k_second = None,
+                api_call = None,
+                second_of_runtime = None,
+                web_search_query = None,
+            ),
+        )
     return UsageRecord(**(defaults | overrides))
 
 
@@ -578,3 +643,247 @@ def configured_product(**overrides: Any) -> ConfiguredProduct:
         "url": "https://example.com/product-123",
     }
     return ConfiguredProduct(**(defaults | overrides))
+
+
+def prompt_fragment(**overrides: Any) -> PromptFragment:
+    defaults = {
+        "id": "agent-context",
+        "content": "You are a helpful assistant.",
+        "section": PromptSection.context,
+    }
+    return PromptFragment(**(defaults | overrides))
+
+
+def price_alert(**overrides: Any) -> PriceAlert:
+    defaults = {
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "owner_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "asset_type": AssetType.crypto,
+        "asset_id": "BTC",
+        "currency": "USD",
+        "threshold_percent": 5,
+        "last_price": 50_000.0,
+        "last_price_time": datetime(2026, 1, 15, 12, 0),
+    }
+    return PriceAlert(**(defaults | overrides))
+
+
+def triggered_alert(**overrides: Any) -> AssetAlertService.TriggeredAlert:
+    defaults = {
+        "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
+        "owner_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "asset_type": AssetType.crypto,
+        "asset_id": "BTC",
+        "currency": "USD",
+        "threshold_percent": 5,
+        "old_price": 50_000.0,
+        "old_price_time": "2026-01-15 12:00 UTC",
+        "new_price": 55_000.0,
+        "new_price_time": "2026-01-16 12:00 UTC",
+        "price_change_percent": 10,
+    }
+    return AssetAlertService.TriggeredAlert(**(defaults | overrides))
+
+
+def resolved_token(**overrides: Any) -> ResolvedToken:
+    defaults = {
+        "token": SecretStr("test-provider-token"),
+        "payer_id": UUID("11111111-1111-4111-8111-a11111111111"),
+        "uses_credits": False,
+    }
+    return ResolvedToken(**(defaults | overrides))
+
+
+def social_platform_brand(**overrides: Any) -> SocialPlatformBrand:
+    defaults = {
+        "platform_id": "x",
+        "display_name": "X",
+        "logo_light_key": "x-light",
+        "logo_dark_key": "x-dark",
+    }
+    return SocialPlatformBrand(**(defaults | overrides))
+
+
+def social_author(**overrides: Any) -> SocialAuthor:
+    defaults = {
+        "handle": "@mark_johnson",
+        "additional_profile_info": "Software engineer",
+        "avatar_url": "https://example.com/avatar.jpg",
+        "profile_url": "https://x.com/mark_johnson",
+        "bio": "Building useful software.",
+    }
+    return SocialAuthor(**(defaults | overrides))
+
+
+def social_dynamic_media(**overrides: Any) -> SocialDynamicMedia:
+    defaults = {
+        "playback_url": "https://example.com/media/video.mp4",
+        "audio_url": "https://example.com/media/audio.mp3",
+        "duration_seconds": 12.0,
+        "width": 1280,
+        "height": 720,
+    }
+    return SocialDynamicMedia(**(defaults | overrides))
+
+
+def social_media_item(**overrides: Any) -> SocialMediaItem:
+    defaults = {
+        "kind": SocialMediaKind.IMAGE,
+        "url": "https://example.com/media/photo.jpg",
+        "preview_url": "https://example.com/media/photo-preview.jpg",
+        "alt_text": "A city skyline at sunset.",
+        "dynamic_media": None,
+    }
+    return SocialMediaItem(**(defaults | overrides))
+
+
+def social_link_preview(**overrides: Any) -> SocialLinkPreview:
+    defaults = {
+        "expanded_url": "https://example.com/articles/story",
+        "domain": "example.com",
+        "title": "Example story",
+        "description": "A concise preview of the linked story.",
+        "image_url": "https://example.com/articles/story.jpg",
+    }
+    return SocialLinkPreview(**(defaults | overrides))
+
+
+def social_post(**overrides: Any) -> SocialPost:
+    defaults: dict[str, Any] = {
+        "text": "A useful update from Mark Johnson.",
+        "source_url": "https://x.com/mark_johnson/status/123456789",
+        "title": "Product update",
+        "language": "en",
+        "created_at": "2026-01-15T12:00:00Z",
+        "embedded_post": None,
+    }
+    if "platform" not in overrides:
+        defaults["platform"] = social_platform_brand()
+    if "author" not in overrides:
+        defaults["author"] = social_author()
+    if "media" not in overrides:
+        defaults["media"] = [social_media_item()]
+    if "link_previews" not in overrides:
+        defaults["link_previews"] = [social_link_preview()]
+    return SocialPost(**(defaults | overrides))
+
+
+def social_media_asset(**overrides: Any) -> SocialMediaAsset:
+    defaults: dict[str, Any] = {
+        "path": Path("test/fixtures/social-photo.jpg"),
+    }
+    if "media" not in overrides:
+        defaults["media"] = social_media_item()
+    return SocialMediaAsset(**(defaults | overrides))
+
+
+def social_link_preview_asset(**overrides: Any) -> SocialLinkPreviewAsset:
+    defaults: dict[str, Any] = {
+        "og_image_path": Path("test/fixtures/social-link-preview.jpg"),
+        "favicon_path": Path("test/fixtures/social-favicon.png"),
+        "short_url": "example.com/story",
+    }
+    if "link_preview" not in overrides:
+        defaults["link_preview"] = social_link_preview()
+    return SocialLinkPreviewAsset(**(defaults | overrides))
+
+
+def social_post_render_assets(**overrides: Any) -> SocialPostRenderAssets:
+    defaults = {
+        "avatar_path": Path("test/fixtures/social-avatar.jpg"),
+        "media": [social_media_asset()],
+        "link_previews": [social_link_preview_asset()],
+        "embedded_post": None,
+    }
+    return SocialPostRenderAssets(**(defaults | overrides))
+
+
+def social_media_placement(**overrides: Any) -> SocialMediaPlacement:
+    defaults: dict[str, Any] = {
+        "x": 40,
+        "y": 240,
+        "width": 1200,
+        "height": 675,
+        "top_left_radius": 24,
+        "top_right_radius": 24,
+        "bottom_right_radius": 24,
+        "bottom_left_radius": 24,
+    }
+    if "media" not in overrides:
+        defaults["media"] = social_media_item()
+    return SocialMediaPlacement(**(defaults | overrides))
+
+
+def social_card_video_input(**overrides: Any) -> SocialCardVideoInput:
+    defaults: dict[str, Any] = {
+        "media_path": Path("test/fixtures/social-video.mp4"),
+    }
+    if "placement" not in overrides:
+        defaults["placement"] = social_media_placement(
+            media = social_media_item(
+                kind = SocialMediaKind.VIDEO,
+                dynamic_media = social_dynamic_media(),
+            ),
+        )
+    return SocialCardVideoInput(**(defaults | overrides))
+
+
+def social_card_template_result(**overrides: Any) -> SocialCardTemplateResult:
+    defaults = {
+        "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+        "width": 1280,
+        "height": 720,
+        "media_placements": [],
+    }
+    return SocialCardTemplateResult(**(defaults | overrides))
+
+
+def social_card_render_result(**overrides: Any) -> SocialCardRenderResult:
+    defaults = {
+        "public_url": "https://example.com/social-cards/card.png",
+        "mode": SocialCardMode.IMAGE,
+    }
+    return SocialCardRenderResult(**(defaults | overrides))
+
+
+def asset_price(**overrides: Any) -> AssetPrice:
+    defaults = {
+        "asset": "BTC",
+        "asset_type": AssetType.crypto,
+        "amount": 1.0,
+        "currency": "USD",
+        "unit_price": 50_000.0,
+        "value": 50_000.0,
+        "provider": "CoinMarketCap",
+        "symbol": "BTC",
+        "native_currency": "USD",
+        "native_price": 50_000.0,
+        "name": "Bitcoin",
+        "exchange": None,
+        "mic_code": None,
+        "timestamp": 1_768_478_400,
+        "is_market_open": None,
+        "previous_close": None,
+        "change": None,
+        "percent_change": None,
+    }
+    return AssetPrice(**(defaults | overrides))
+
+
+def stock_quote(**overrides: Any) -> StockQuote:
+    defaults = {
+        "symbol": "AAPL",
+        "native_currency": "USD",
+        "native_price": 250.0,
+        "timestamp": 1_768_478_400,
+        "is_market_open": True,
+        "provider": "Twelve Data",
+        "name": "Apple Inc.",
+        "exchange": "NASDAQ",
+        "mic_code": "XNAS",
+        "previous_close": 248.0,
+        "change": 2.0,
+        "percent_change": 0.81,
+        "requested_qualifier": None,
+    }
+    return StockQuote(**(defaults | overrides))

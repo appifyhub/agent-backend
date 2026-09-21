@@ -13,11 +13,13 @@ from features.chat.message.formatted_chat_message import (
 class FormattedChatMessageTest(unittest.TestCase):
 
     def test_to_text_joins_non_empty_parts(self):
-        message = stubs.domain.formatted_chat_message(parts = [
-            stubs.domain.formatted_text_part(text = "First"),
-            stubs.domain.formatted_text_part(text = None),
-            stubs.domain.formatted_text_part(text = "Second"),
-        ])
+        message = stubs.domain.formatted_chat_message(
+            parts = [
+                stubs.domain.formatted_text_part(text = "First"),
+                stubs.domain.formatted_text_part(text = None),
+                stubs.domain.formatted_text_part(text = "Second"),
+            ],
+        )
 
         result = message.to_text()
 
@@ -26,8 +28,6 @@ class FormattedChatMessageTest(unittest.TestCase):
     def test_attachment_reference_from_attachment(self):
         attachment = stubs.domain.chat_attachment(
             id = "local123",
-            chat_id = stubs.domain.chat_config().chat_id,
-            uploader_user_id = stubs.domain.user().id,
             mime_type = "image/png",
         )
 
@@ -36,10 +36,12 @@ class FormattedChatMessageTest(unittest.TestCase):
         self.assertEqual(result.to_text(), "local123 (image/png)")
 
     def test_attachment_part_formats_multiple_attachments(self):
-        result = stubs.domain.formatted_attachment_part(attachments = [
-            stubs.domain.formatted_attachment_reference(id = "a1", mime_type = "image/png"),
-            stubs.domain.formatted_attachment_reference(id = "a2", mime_type = None),
-        ]).to_text()
+        result = stubs.domain.formatted_attachment_part(
+            attachments = [
+                stubs.domain.formatted_attachment_reference(id = "a1", mime_type = "image/png"),
+                stubs.domain.formatted_attachment_reference(id = "a2", mime_type = None),
+            ],
+        ).to_text()
 
         self.assertEqual(result, "📎 [ a1 (image/png), a2 ]")
 
@@ -62,8 +64,6 @@ class FormattedChatMessageTest(unittest.TestCase):
     def test_from_text_replaces_existing_attachment_marker(self):
         attachment = stubs.domain.chat_attachment(
             id = "local123",
-            chat_id = stubs.domain.chat_config().chat_id,
-            uploader_user_id = stubs.domain.user().id,
             mime_type = "image/png",
         )
 
@@ -77,35 +77,37 @@ class FormattedChatMessageTest(unittest.TestCase):
     def test_with_attachments_replaces_existing_attachment_part(self):
         old_attachment = stubs.domain.chat_attachment(
             id = "old123",
-            chat_id = stubs.domain.chat_config().chat_id,
-            uploader_user_id = stubs.domain.user().id,
             mime_type = None,
         )
         new_attachment = stubs.domain.chat_attachment(
             id = "new123",
-            chat_id = stubs.domain.chat_config().chat_id,
-            uploader_user_id = stubs.domain.user().id,
             mime_type = None,
         )
-        message = stubs.domain.formatted_chat_message(parts = [
-            stubs.domain.formatted_text_part(text = "Caption"),
-            FormattedAttachmentPart.from_attachments([old_attachment]),
-        ])
+        message = stubs.domain.formatted_chat_message(
+            parts = [
+                stubs.domain.formatted_text_part(text = "Caption"),
+                FormattedAttachmentPart.from_attachments([old_attachment]),
+            ],
+        )
 
         result = message.with_attachments([new_attachment])
 
         self.assertEqual(result.to_text(), "Caption\n\n📎 [ new123 ]")
 
     def test_prepend_quote_prefixes_all_lines(self):
-        message = stubs.domain.formatted_chat_message(parts = [
-            stubs.domain.formatted_text_part(text = "Current"),
-        ])
-        quote = stubs.domain.formatted_chat_message(parts = [
-            stubs.domain.formatted_text_part(text = "Line one\nLine two"),
-            stubs.domain.formatted_attachment_part(
-                attachments = [stubs.domain.formatted_attachment_reference(id = "local123", mime_type = None)],
-            ),
-        ])
+        message = stubs.domain.formatted_chat_message(
+            parts = [
+                stubs.domain.formatted_text_part(text = "Current"),
+            ],
+        )
+        quote = stubs.domain.formatted_chat_message(
+            parts = [
+                stubs.domain.formatted_text_part(text = "Line one\nLine two"),
+                stubs.domain.formatted_attachment_part(
+                    attachments = [stubs.domain.formatted_attachment_reference(id = "local123", mime_type = None)],
+                ),
+            ],
+        )
 
         result = message.prepend_quote(quote)
 
