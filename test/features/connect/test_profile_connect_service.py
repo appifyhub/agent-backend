@@ -3,6 +3,7 @@ from datetime import date, datetime
 from unittest.mock import Mock, patch
 from uuid import UUID
 
+import stubs
 from pydantic import SecretStr
 
 from db.model.chat_message import ChatMessageDB
@@ -17,25 +18,25 @@ class ProfileConnectServiceTest(unittest.TestCase):
 
     def setUp(self):
         self.mock_user_repo = Mock()
-        self.mock_di = Mock()
-        self.mock_di.user_repo = self.mock_user_repo
-        self.mock_db = Mock()
-        self.transaction_mock = Mock()
-        self.transaction_mock.is_active = True
+        mock_di = Mock()
+        mock_di.user_repo = self.mock_user_repo
+        mock_db = Mock()
+        transaction_mock = Mock()
+        transaction_mock.is_active = True
 
         def _commit_side_effect():
-            self.transaction_mock.is_active = False
+            transaction_mock.is_active = False
 
         def _rollback_side_effect():
-            self.transaction_mock.is_active = False
+            transaction_mock.is_active = False
 
-        self.transaction_mock.commit.side_effect = _commit_side_effect
-        self.transaction_mock.rollback.side_effect = _rollback_side_effect
-        self.mock_db.begin.return_value = self.transaction_mock
-        self.nested_transaction_mock = Mock()
-        self.mock_db.begin_nested.return_value = self.nested_transaction_mock
-        self.mock_db.in_transaction.return_value = False
-        self.mock_db.rollback = Mock()
+        transaction_mock.commit.side_effect = _commit_side_effect
+        transaction_mock.rollback.side_effect = _rollback_side_effect
+        mock_db.begin.return_value = transaction_mock
+        nested_transaction_mock = Mock()
+        mock_db.begin_nested.return_value = nested_transaction_mock
+        mock_db.in_transaction.return_value = False
+        mock_db.rollback = Mock()
         self.query_calls = []
 
         def make_query(model):
@@ -63,9 +64,9 @@ class ProfileConnectServiceTest(unittest.TestCase):
             self.query_calls.append(query)
             return query
 
-        self.mock_db.query.side_effect = make_query
-        self.mock_di.db = self.mock_db
-        self.service = ProfileConnectService(self.mock_di)
+        mock_db.query.side_effect = make_query
+        mock_di.db = mock_db
+        self.service = ProfileConnectService(mock_di)
 
     def _assert_filter_conditions(self, query_mock: Mock, expected_conditions: list):
         self.assertEqual(len(query_mock.filter_calls), 1)
@@ -171,16 +172,7 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertTrue(key.replace("-", "").isalnum())
 
     def test_validate_connection_same_user(self):
-        user1 = User(
-            id = UUID(int = 1),
-            full_name = "Test User",
-            telegram_user_id = 123,
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
-
+        user1 = stubs.domain.user()
         result = self._validate_connection(user1, user1)
 
         self.assertIsNotNone(result)
@@ -188,25 +180,15 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertIn("Cannot connect a profile to itself", result)
 
     def test_validate_connection_both_telegram_only(self):
-        user1 = User(
+        user1 = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "User 1",
             telegram_user_id = 123,
             whatsapp_user_id = None,
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
-        user2 = User(
+        user2 = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "User 2",
             telegram_user_id = 456,
             whatsapp_user_id = None,
-            connect_key = "KEY2-KEY2-KEY2",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
 
         result = self._validate_connection(user1, user2)
@@ -216,25 +198,15 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertIn("Telegram only", result)
 
     def test_validate_connection_both_whatsapp_only(self):
-        user1 = User(
+        user1 = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "User 1",
             telegram_user_id = None,
             whatsapp_user_id = "123",
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
-        user2 = User(
+        user2 = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "User 2",
             telegram_user_id = None,
             whatsapp_user_id = "456",
-            connect_key = "KEY2-KEY2-KEY2",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
 
         result = self._validate_connection(user1, user2)
@@ -244,25 +216,15 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertIn("WhatsApp only", result)
 
     def test_validate_connection_different_platforms_valid(self):
-        user1 = User(
+        user1 = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "User 1",
             telegram_user_id = 123,
             whatsapp_user_id = None,
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
-        user2 = User(
+        user2 = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "User 2",
             telegram_user_id = None,
             whatsapp_user_id = "456",
-            connect_key = "KEY2-KEY2-KEY2",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
 
         result = self._validate_connection(user1, user2)
@@ -273,22 +235,8 @@ class ProfileConnectServiceTest(unittest.TestCase):
         older_date = datetime(2023, 1, 1).date()
         newer_date = datetime(2024, 1, 1).date()
 
-        user1 = User(
-            id = UUID(int = 1),
-            full_name = "Older User",
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = older_date,
-        )
-        user2 = User(
-            id = UUID(int = 2),
-            full_name = "Newer User",
-            connect_key = "KEY2-KEY2-KEY2",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = newer_date,
-        )
+        user1 = stubs.domain.user(id = UUID(int = 1), created_at = older_date)
+        user2 = stubs.domain.user(id = UUID(int = 2), created_at = newer_date)
 
         survivor, deleted = self._classify_profiles(user1, user2)
 
@@ -296,15 +244,12 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertEqual(deleted.id, user2.id)
 
     def test_merge_user_data_prefer_non_null(self):
-        survivor = User(
+        survivor = stubs.domain.user(
             id = UUID(int = 1),
             full_name = "Survivor",
             telegram_user_id = 123,
             whatsapp_user_id = None,
-            is_on_waitlist = False,
             is_invited_to_start = False,
-            are_policies_accepted = True,
-            connect_key = "KEY1-KEY1-KEY1",
             open_ai_key = SecretStr("survivor-key"),
             anthropic_key = None,
             twelve_data_api_key = None,
@@ -313,30 +258,17 @@ class ProfileConnectServiceTest(unittest.TestCase):
             tool_choice_api_stock_quote = None,
             tool_choice_images_gen = None,
             tool_choice_videos_gen = None,
-            credit_balance = 100.0,
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
         )
-        deleted = User(
+        deleted = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = None,
-            telegram_user_id = None,
             whatsapp_user_id = "456",
-            is_on_waitlist = False,
-            is_invited_to_start = False,
             are_policies_accepted = False,
-            connect_key = "KEY2-KEY2-KEY2",
-            open_ai_key = None,
             anthropic_key = SecretStr("deleted-key"),
             twelve_data_api_key = SecretStr("deleted-twelve-data-key"),
             x_key = SecretStr("deleted-x-key"),
             x_ai_key = SecretStr("deleted-x-ai-key"),
-            tool_choice_api_stock_quote = "quote",
-            tool_choice_images_gen = "black-forest-labs/flux-2-pro",
-            tool_choice_videos_gen = "prunaai/p-video",
             credit_balance = 50.0,
             group = UserDB.Group.developer,
-            created_at = datetime.now().date(),
         )
 
         merged = self._merge_user_data(survivor, deleted)
@@ -359,30 +291,8 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertFalse(merged.is_invited_to_start)
 
     def test_merge_user_data_resets_invite_when_merged_user_is_active(self):
-        survivor = User(
-            id = UUID(int = 1),
-            full_name = "Survivor",
-            telegram_user_id = 123,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("survivor-key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
-        casualty = User(
-            id = UUID(int = 2),
-            full_name = "Casualty",
-            whatsapp_user_id = "456",
-            is_on_waitlist = True,
-            is_invited_to_start = True,
-            are_policies_accepted = False,
-            connect_key = "KEY2-KEY2-KEY2",
-            open_ai_key = None,
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
+        survivor = stubs.domain.user(is_invited_to_start = False)
+        casualty = stubs.domain.user(is_on_waitlist = True, are_policies_accepted = False)
 
         merged = self._merge_user_data(survivor, casualty)
         self.assertFalse(merged.is_on_waitlist)
@@ -399,15 +309,7 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self._assert_migration_queries(survivor_id, casualty_id)
 
     def test_connect_profiles_invalid_key(self):
-        requester = User(
-            id = UUID(int = 1),
-            full_name = "Requester",
-            telegram_user_id = 123,
-            connect_key = "KEY1-KEY1-KEY1",
-            open_ai_key = SecretStr("key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
+        requester = stubs.domain.user()
         self.mock_user_repo.get_by_connect_key.return_value = None
 
         result, message = self.service.connect_profiles(requester, "INVALID-KEY-HERE")
@@ -417,27 +319,20 @@ class ProfileConnectServiceTest(unittest.TestCase):
 
     @patch("features.connect.profile_connect_service.generate_connect_key", return_value = "ABCD-EFGH-IJKL")
     def test_connect_profiles_success(self, mock_generate: Mock):
-        survivor_user = User(
+        survivor_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Survivor",
             telegram_user_id = 123,
+            whatsapp_user_id = None,
             connect_key = "SURV-KEY-AAAA",
-            group = UserDB.Group.standard,
             created_at = date(2023, 1, 1),
         )
         casualty_id = UUID(int = 2)
         target_connect_key = "CAST-KEY-BBBB"
-        casualty = User(
+        casualty = stubs.domain.user(
             id = casualty_id,
-            full_name = "Casualty",
+            telegram_user_id = None,
             whatsapp_user_id = "wa-456",
-            connect_key = target_connect_key,
-            group = UserDB.Group.developer,
             created_at = date(2024, 1, 1),
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
         )
 
         self.mock_user_repo.get_by_connect_key.return_value = casualty
@@ -472,26 +367,8 @@ class ProfileConnectServiceTest(unittest.TestCase):
 
     @patch("features.connect.profile_connect_service.generate_connect_key", return_value = "NEW-KEY-9999")
     def test_regenerate_connect_key(self, mock_generate: Mock):
-        user = User(
-            id = UUID(int = 1),
-            full_name = "User",
-            telegram_user_id = 123,
-            connect_key = "OLD-KEY-1111",
-            group = UserDB.Group.standard,
-            created_at = date(2023, 1, 1),
-        )
-        updated_user = User(
-            id = user.id,
-            full_name = user.full_name,
-            telegram_user_id = user.telegram_user_id,
-            connect_key = "NEW-KEY-9999",
-            group = UserDB.Group.standard,
-            created_at = user.created_at,
-            credit_balance = 0.0,
-            is_on_waitlist = False,
-            is_invited_to_start = False,
-            are_policies_accepted = True,
-        )
+        user = stubs.domain.user()
+        updated_user = stubs.domain.user(connect_key = "NEW-KEY-9999")
         self.mock_user_repo.save.return_value = updated_user
 
         new_key = self.service.regenerate_connect_key(user)
