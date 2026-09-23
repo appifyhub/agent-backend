@@ -24,11 +24,7 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "test-tool"),
-            purpose = ToolType.chat,
-            uses_credits = False,
-        )
+        configured_tool = stubs.domain.configured_tool()
 
         self.decorator = ChatModelUsageTrackingDecorator(
             wrapped_model = self.mock_model,
@@ -49,15 +45,24 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
             },
         }
         mock_response.usage_metadata = None
+        configured_tool = stubs.domain.configured_tool()
+        decorator = ChatModelUsageTrackingDecorator(
+            wrapped_model = self.mock_model,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            max_tokens = 4096,
+        )
 
         self.mock_model.invoke = Mock(return_value = mock_response)
 
-        result = self.decorator.invoke("test input")
+        result = decorator.invoke("test input")
 
         self.assertEqual(result, mock_response)
         self.mock_tracking_service.track_text_model.assert_called_once()
         call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.chat)
         self.assertEqual(call_args.kwargs["input_tokens"], 100)
         self.assertEqual(call_args.kwargs["output_tokens"], 200)
@@ -121,11 +126,20 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
         mock_response = Mock(spec = AIMessage)
         mock_response.response_metadata = {}
         mock_response.usage_metadata = None
+        configured_tool = stubs.domain.configured_tool()
+        decorator = ChatModelUsageTrackingDecorator(
+            wrapped_model = self.mock_model,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            max_tokens = 4096,
+        )
         self.mock_model.invoke = Mock(return_value = mock_response)
 
-        self.decorator.invoke("test input")
+        decorator.invoke("test input")
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool, 4096, "test input")
 
     def test_invoke_releases_db_session_after_preflight_and_before_model_call(self):
         events = []
@@ -156,11 +170,20 @@ class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
         mock_response.response_metadata = {}
         mock_response.usage_metadata = None
         mock_runnable.invoke = Mock(return_value = mock_response)
+        configured_tool = stubs.domain.configured_tool()
+        decorator = ChatModelUsageTrackingDecorator(
+            wrapped_model = self.mock_model,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            max_tokens = 4096,
+        )
 
-        runnable = self.decorator.bind_tools(["tool1"])
+        runnable = decorator.bind_tools(["tool1"])
         runnable.invoke("test input")
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool, 4096, "test input")
 
     def test_invoke_failure_tracks_without_deduction(self):
         self.mock_model.invoke = Mock(side_effect = RuntimeError("API error"))
@@ -184,11 +207,7 @@ class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "test-tool"),
-            purpose = ToolType.chat,
-            uses_credits = False,
-        )
+        configured_tool = stubs.domain.configured_tool()
 
         self.decorator = RunnableUsageTrackingDecorator(
             wrapped_runnable = self.mock_runnable,
@@ -209,15 +228,24 @@ class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
             },
         }
         mock_response.usage_metadata = None
+        configured_tool = stubs.domain.configured_tool()
+        decorator = RunnableUsageTrackingDecorator(
+            wrapped_runnable = self.mock_runnable,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            max_tokens = 4096,
+        )
 
         self.mock_runnable.invoke = Mock(return_value = mock_response)
 
-        result = self.decorator.invoke("test input")
+        result = decorator.invoke("test input")
 
         self.assertEqual(result, mock_response)
         self.mock_tracking_service.track_text_model.assert_called_once()
         call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.chat)
         self.assertEqual(call_args.kwargs["input_tokens"], 50)
         self.assertEqual(call_args.kwargs["output_tokens"], 100)

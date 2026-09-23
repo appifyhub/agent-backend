@@ -14,20 +14,16 @@ from util.config import config
 class UsageTrackingServiceTest(unittest.TestCase):
 
     mock_di: DI
-    user_id: UUID
-    chat_id: UUID
     service: UsageTrackingService
 
     def setUp(self):
         self.user_id = UUID(int = 1)
-        self.chat_id = UUID(int = 2)
         self.payer_id = UUID(int = 3)
-
         self.mock_di = Mock(spec = DI)
         mock_user = stubs.domain.user(id = self.user_id)
         self.mock_di.invoker = mock_user
 
-        mock_chat = stubs.domain.chat_config(chat_id = self.chat_id)
+        mock_chat = stubs.domain.chat_config()
         self.mock_di.require_invoker_chat = MagicMock(return_value = mock_chat)
         self.mock_di.invoker_chat = mock_chat
 
@@ -68,7 +64,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
 
         self.assertIsInstance(record, UsageRecord)
         self.assertEqual(record.user_id, self.user_id)
-        self.assertEqual(record.chat_id, self.chat_id)
+        self.assertEqual(record.chat_id, self.mock_di.invoker_chat.chat_id)
         self.assertEqual(record.tool, tool)
         self.assertEqual(record.runtime_seconds, 5)
         self.assertEqual(record.input_tokens, 1000)

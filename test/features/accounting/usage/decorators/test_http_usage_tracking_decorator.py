@@ -20,9 +20,7 @@ class HTTPUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "test-tool"),
             purpose = ToolType.api_twitter,
-            uses_credits = False,
         )
 
         self.decorator = HTTPUsageTrackingDecorator(
@@ -35,9 +33,15 @@ class HTTPUsageTrackingDecoratorTest(unittest.TestCase):
         mock_response = Mock(spec = requests.Response)
         mock_response.status_code = 200
         mock_response.json.return_value = {"data": "test"}
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_twitter)
+        decorator = HTTPUsageTrackingDecorator(
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+        )
 
         with unittest.mock.patch("requests.get", return_value = mock_response) as mock_get:
-            result = self.decorator.get(
+            result = decorator.get(
                 "https://api.example.com/test",
                 headers = {"X-API-Key": "test"},
             )
@@ -46,7 +50,7 @@ class HTTPUsageTrackingDecoratorTest(unittest.TestCase):
         mock_get.assert_called_once_with("https://api.example.com/test", headers = {"X-API-Key": "test"})
         self.mock_tracking_service.track_api_call.assert_called_once()
         call_args = self.mock_tracking_service.track_api_call.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.api_twitter)
         self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
         self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
@@ -95,8 +99,14 @@ class HTTPUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_get_calls_validate_pre_flight(self):
         mock_response = Mock(spec = requests.Response)
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_twitter)
+        decorator = HTTPUsageTrackingDecorator(
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+        )
 
         with unittest.mock.patch("requests.get", return_value = mock_response):
-            self.decorator.get("https://api.example.com/test")
+            decorator.get("https://api.example.com/test")
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)

@@ -14,6 +14,7 @@ from features.external_tools.external_tool import ToolType
 class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
 
     def setUp(self):
+        self.image_size = "1024x1024"
         self.mock_client = Mock()
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(
@@ -21,11 +22,8 @@ class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         self.mock_rollback_db_session = Mock()
-        self.image_size = "1024x1024"
         configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "test-tool"),
             purpose = ToolType.images_gen,
-            uses_credits = False,
         )
 
         self.decorator = GoogleAIUsageTrackingDecorator(
@@ -48,15 +46,24 @@ class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
         mock_response.usage_metadata.prompt_token_count = 100
         mock_response.usage_metadata.candidates_token_count = 200
         mock_response.usage_metadata.total_token_count = 300
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = GoogleAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
 
         self.mock_client.models.generate_content = Mock(return_value = mock_response)
 
-        result = self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
+        result = decorator.models.generate_content(model = "test-model", contents = "test prompt")
 
         self.assertEqual(result, mock_response)
         self.mock_tracking_service.track_image_model.assert_called_once()
         call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.images_gen)
         self.assertEqual(call_args.kwargs["output_image_sizes"], [self.image_size])
         self.assertEqual(call_args.kwargs["input_tokens"], 100)
@@ -130,12 +137,25 @@ class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
     def test_generate_content_calls_validate_pre_flight(self):
         mock_response = Mock(spec = GenerateContentResponse)
         mock_response.usage_metadata = None
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = GoogleAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
 
         self.mock_client.models.generate_content = Mock(return_value = mock_response)
 
-        self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
+        decorator.models.generate_content(model = "test-model", contents = "test prompt")
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
+            configured_tool,
+            input_image_sizes = None,
+            output_image_sizes = [self.image_size],
+        )
 
     def test_generate_content_releases_db_session_after_preflight_and_before_provider_call(self):
         events = []

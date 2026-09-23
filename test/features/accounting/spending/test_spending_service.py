@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import Mock, patch
-from uuid import UUID
 
 import stubs
 
@@ -14,10 +13,9 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
     def setUp(self):
         self.mock_di = Mock(spec = DI)
         self.service = SpendingService(self.mock_di)
-        self.payer_id = UUID(int = 1)
 
     def test_does_nothing_when_not_using_credits(self):
-        tool = stubs.domain.configured_tool(uses_credits = False)
+        tool = stubs.domain.configured_tool()
 
         self.service.validate_pre_flight(tool, input_text = "a" * 4000)
 
@@ -25,17 +23,17 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
 
     def test_passes_when_balance_is_sufficient(self):
         self.mock_di.user_repo.get.return_value = stubs.domain.user()
-        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
             self.service.validate_pre_flight(tool, max_output_tokens = 0)
 
-        self.mock_di.user_repo.get.assert_called_once_with(self.payer_id)
+        self.mock_di.user_repo.get.assert_called_once_with(tool.payer_id)
 
     def test_raises_when_user_not_found(self):
         self.mock_di.user_repo.get.return_value = None
-        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
@@ -44,7 +42,7 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
 
     def test_raises_when_balance_is_negative(self):
         self.mock_di.user_repo.get.return_value = stubs.domain.user(credit_balance = -10.0)
-        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 1.0
@@ -55,7 +53,7 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
 
     def test_raises_when_balance_is_insufficient(self):
         self.mock_di.user_repo.get.return_value = stubs.domain.user(credit_balance = 0.5)
-        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(uses_credits = True)
 
         with patch("features.accounting.spending.spending_service.config") as mock_config:
             mock_config.usage_maintenance_fee_credits = 5.0
@@ -67,7 +65,6 @@ class SpendingServiceValidatePreFlightTest(unittest.TestCase):
     def test_uses_video_size_and_duration_in_cost_estimate(self):
         self.mock_di.user_repo.get.return_value = stubs.domain.user(credit_balance = 15.5)
         tool = stubs.domain.configured_tool(
-            payer_id = self.payer_id,
             uses_credits = True,
             definition = stubs.domain.external_tool(
                 cost_estimate = stubs.domain.cost_estimate(
@@ -97,23 +94,22 @@ class SpendingServiceDeductTest(unittest.TestCase):
     def setUp(self):
         self.mock_di = Mock(spec = DI)
         self.service = SpendingService(self.mock_di)
-        self.payer_id = UUID(int = 1)
 
     def test_does_nothing_when_not_using_credits(self):
-        tool = stubs.domain.configured_tool(uses_credits = False)
+        tool = stubs.domain.configured_tool()
 
         self.service.deduct(tool, 10.0)
 
         self.mock_di.user_repo.update_locked.assert_not_called()
 
     def test_calls_update_locked_when_using_credits(self):
-        tool = stubs.domain.configured_tool(payer_id = self.payer_id, uses_credits = True)
+        tool = stubs.domain.configured_tool(uses_credits = True)
 
         self.service.deduct(tool, 10.0)
 
         self.mock_di.user_repo.update_locked.assert_called_once()
         call_args = self.mock_di.user_repo.update_locked.call_args
-        self.assertEqual(call_args.args[0], self.payer_id)
+        self.assertEqual(call_args.args[0], tool.payer_id)
 
     def test_deduct_reduces_balance(self):
         tool = stubs.domain.configured_tool(uses_credits = True)

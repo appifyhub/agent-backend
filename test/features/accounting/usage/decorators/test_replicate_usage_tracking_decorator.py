@@ -18,6 +18,7 @@ from util.errors import ExternalServiceError
 class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
 
     def setUp(self):
+        self.image_size = "512x512"
         self.mock_client = Mock()
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(
@@ -25,9 +26,7 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         self.mock_rollback_db_session = Mock()
-        self.image_size = "512x512"
-        external_tool = stubs.domain.external_tool(id = "test-tool")
-        configured_tool = stubs.domain.configured_tool(definition = external_tool, purpose = ToolType.images_gen, uses_credits = False)
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
 
         self.decorator = ReplicateUsageTrackingDecorator(
             wrapped_client = self.mock_client,
@@ -68,11 +67,26 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_create_calls_validate_pre_flight(self):
         mock_prediction = Mock()
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = ReplicateUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
         self.mock_client.predictions.create = Mock(return_value = mock_prediction)
 
-        self.decorator.predictions.create(input = {"prompt": "test"})
+        decorator.predictions.create(input = {"prompt": "test"})
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
+            configured_tool,
+            input_image_sizes = None,
+            output_image_sizes = [self.image_size],
+            output_video_size = None,
+            output_video_duration_seconds = None,
+        )
 
     def test_create_releases_db_session_after_preflight_and_before_provider_call(self):
         events = []
@@ -91,9 +105,7 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
         mock_prediction = Mock()
         self.mock_client.predictions.create = Mock(return_value = mock_prediction)
         configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "test-tool"),
             purpose = ToolType.images_gen,
-            uses_credits = False,
         )
         decorator = ReplicateUsageTrackingDecorator(
             wrapped_client = self.mock_client,
@@ -120,6 +132,7 @@ class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
 class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
 
     def setUp(self):
+        self.image_size = "512x512"
         self.mock_prediction = Mock()
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(
@@ -130,9 +143,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         self.mock_rollback_db_session = Mock()
-        self.image_size = "512x512"
-        external_tool = stubs.domain.external_tool(id = "test-tool")
-        configured_tool = stubs.domain.configured_tool(definition = external_tool, purpose = ToolType.images_gen, uses_credits = False)
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
 
         self.decorator = PredictionUsageTrackingDecorator(
             wrapped_prediction = self.mock_prediction,
@@ -146,14 +157,23 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
     def test_wait_tracks_usage(self):
         self.mock_prediction.metrics = Mock()
         self.mock_prediction.metrics.predict_time = 1.5
-        self.mock_prediction.wait = Mock(return_value = "result")
+        self.mock_prediction.wait.return_value = "result"
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = PredictionUsageTrackingDecorator(
+            wrapped_prediction = self.mock_prediction,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
 
-        result = self.decorator.wait()
+        result = decorator.wait()
 
         self.assertEqual(result, "result")
         self.mock_tracking_service.track_image_model.assert_called_once()
         call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.images_gen)
         self.assertEqual(call_args.kwargs["output_image_sizes"], [self.image_size])
         self.assertEqual(call_args.kwargs["remote_runtime_seconds"], 1.5)
@@ -249,9 +269,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_prediction.metrics = None
         self.mock_prediction.reload.side_effect = lambda: setattr(self.mock_prediction, "status", "succeeded")
         configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "test-tool"),
             purpose = ToolType.images_gen,
-            uses_credits = False,
         )
 
         decorator = PredictionUsageTrackingDecorator(
@@ -287,11 +305,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
             wrapped_prediction = self.mock_prediction,
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
-            configured_tool = stubs.domain.configured_tool(
-                definition = stubs.domain.external_tool(id = "test-tool"),
-                purpose = ToolType.images_gen,
-                uses_credits = False,
-            ),
+            configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen),
             rollback_db_session = self.mock_rollback_db_session,
             output_video_size = "2K",
             output_video_duration_seconds = 10,
@@ -314,11 +328,7 @@ class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
             wrapped_prediction = self.mock_prediction,
             tracking_service = self.mock_tracking_service,
             spending_service = self.mock_spending_service,
-            configured_tool = stubs.domain.configured_tool(
-                definition = stubs.domain.external_tool(id = "test-tool"),
-                purpose = ToolType.images_gen,
-                uses_credits = False,
-            ),
+            configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen),
             rollback_db_session = self.mock_rollback_db_session,
             output_video_size = "2K",
             output_video_duration_seconds = 10,

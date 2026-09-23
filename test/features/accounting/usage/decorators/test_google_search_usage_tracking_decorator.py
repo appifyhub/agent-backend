@@ -25,9 +25,7 @@ class GoogleSearchUsageTrackingDecoratorTest(unittest.TestCase):
         self.mock_spending_service = Mock(spec = SpendingService)
 
         configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "gemini-flash-latest"),
             purpose = ToolType.search,
-            uses_credits = False,
         )
 
         self.decorator = GoogleSearchUsageTrackingDecorator(
@@ -56,13 +54,20 @@ class GoogleSearchUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_generate_content_tracks_token_record(self):
         response = self._make_response()
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.search)
+        decorator = GoogleSearchUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+        )
         self.mock_client.models.generate_content = Mock(return_value = response)
 
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
+        decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
 
         self.mock_tracking_service.track_text_model.assert_called_once()
         call_kwargs = self.mock_tracking_service.track_text_model.call_args.kwargs
-        self.assertEqual(call_kwargs["tool"].id, "gemini-flash-latest")
+        self.assertIs(call_kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_kwargs["tool_purpose"], ToolType.search)
         self.assertEqual(call_kwargs["input_tokens"], 10)
         self.assertEqual(call_kwargs["output_tokens"], 250)  # candidates + thoughts
@@ -97,11 +102,18 @@ class GoogleSearchUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_generate_content_calls_validate_pre_flight(self):
         response = self._make_response()
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.search)
+        decorator = GoogleSearchUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+        )
         self.mock_client.models.generate_content = Mock(return_value = response)
 
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
+        decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
 
     def test_generate_content_measures_runtime(self):
         response = self._make_response()

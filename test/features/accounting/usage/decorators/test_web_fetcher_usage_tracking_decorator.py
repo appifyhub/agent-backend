@@ -21,12 +21,7 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
             return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
         )
         self.mock_spending_service = Mock(spec = SpendingService)
-        external_tool = stubs.domain.external_tool(id = "test-tool")
-        configured_tool = stubs.domain.configured_tool(
-            definition = external_tool,
-            purpose = ToolType.api_fiat_exchange,
-            uses_credits = False,
-        )
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_fiat_exchange)
 
         self.decorator = WebFetcherUsageTrackingDecorator(
             wrapped_fetcher = self.mock_fetcher,
@@ -37,14 +32,21 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_fetch_json_tracks_usage(self):
         mock_response = {"data": "test"}
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_fiat_exchange)
+        decorator = WebFetcherUsageTrackingDecorator(
+            wrapped_fetcher = self.mock_fetcher,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+        )
         self.mock_fetcher.fetch_json = Mock(return_value = mock_response)
 
-        result = self.decorator.fetch_json()
+        result = decorator.fetch_json()
 
         self.assertEqual(result, mock_response)
         self.mock_tracking_service.track_api_call.assert_called_once()
         call_args = self.mock_tracking_service.track_api_call.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "test-tool")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.api_fiat_exchange)
         self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
         self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
@@ -114,11 +116,18 @@ class WebFetcherUsageTrackingDecoratorTest(unittest.TestCase):
         self.assertEqual(self.decorator.error_json, {"status": "error", "code": 429})
 
     def test_fetch_json_calls_validate_pre_flight(self):
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_fiat_exchange)
+        decorator = WebFetcherUsageTrackingDecorator(
+            wrapped_fetcher = self.mock_fetcher,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+        )
         self.mock_fetcher.fetch_json = Mock(return_value = {"data": "test"})
 
-        self.decorator.fetch_json()
+        decorator.fetch_json()
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
 
     def test_fetch_json_cache_hit_is_not_tracked_or_deducted(self):
         self.mock_fetcher.made_request = False

@@ -10,17 +10,19 @@ from features.accounting.purchases.purchase_record_repo import PurchaseRecordRep
 from features.accounting.purchases.purchase_service import PurchaseService
 
 KNOWN_PRODUCT_ID = "GUMROAD_ID_100"
-KNOWN_PRODUCT_CREDITS = 100
-DONATION_PRODUCT_ID = "GUMROAD_ID_DONATION"
-UNKNOWN_PRODUCT_ID = "UNKNOWN_PRODUCT"
 
 
-def _mock_config(known: bool = True, credits: int = KNOWN_PRODUCT_CREDITS):
+def _mock_config(known: bool = True, credits: int | None = None):
     mock = Mock()
     products_mock = MagicMock()
     products_mock.__contains__ = Mock(return_value = known)
     if known:
-        products_mock.get = Mock(return_value = stubs.domain.configured_product(credits = credits))
+        product = (
+            stubs.domain.configured_product()
+            if credits is None
+            else stubs.domain.configured_product(credits = credits)
+        )
+        products_mock.get = Mock(return_value = product)
     else:
         products_mock.get = Mock(return_value = None)
     mock.products = products_mock
@@ -30,12 +32,10 @@ def _mock_config(known: bool = True, credits: int = KNOWN_PRODUCT_CREDITS):
 class PurchaseServiceTest(unittest.TestCase):
 
     mock_di: DI
-    user_id: UUID
     service: PurchaseService
 
     def setUp(self):
         self.user_id = UUID(int = 1)
-
         self.mock_di = Mock(spec = DI)
 
         mock_user = stubs.domain.user(id = self.user_id)
@@ -68,7 +68,8 @@ class PurchaseServiceTest(unittest.TestCase):
         self.assertEqual(record.price, payload.price)
 
     def test_record_purchase_ignores_unknown_product(self):
-        payload = stubs.api.gumroad_ping_payload(product_id = UNKNOWN_PRODUCT_ID)
+        unknown_product_id = "UNKNOWN_PRODUCT"
+        payload = stubs.api.gumroad_ping_payload(product_id = unknown_product_id)
 
         with patch("features.accounting.purchases.purchase_service.config", _mock_config(known = False)):
             record = self.service.record_purchase(payload)
@@ -147,8 +148,9 @@ class PurchaseServiceTest(unittest.TestCase):
         self.assertTrue(callable(call_args.kwargs["update_fn"]))
 
     def test_record_purchase_does_not_allocate_credits_for_donation(self):
+        donation_product_id = "GUMROAD_ID_DONATION"
         payload = stubs.api.gumroad_ping_payload(
-            product_id = DONATION_PRODUCT_ID,
+            product_id = donation_product_id,
             url_params = {"user_id": str(self.user_id)},
         )
 

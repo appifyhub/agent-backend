@@ -8,7 +8,6 @@ from db.model.usage_record import UsageRecordDB
 from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_mapper import db, domain
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_5_5
 
 
 class UsageRecordMapperTest(unittest.TestCase):
@@ -24,65 +23,49 @@ class UsageRecordMapperTest(unittest.TestCase):
         # The mapper.db function takes a domain model and returns a DB model
         # Note: generated IDs like 'id' are not part of domain model usually, but created by DB or passed in.
         # UsageRecord domain model doesn't have an ID.
-        payer_id = uuid.uuid4()
-        output_image_sizes = ["1024x1024"]
-        output_video_size = "2k"
-        output_video_duration_seconds = 5
-        total_cost_credits = 1.0
         record = stubs.domain.usage_record(
-            payer_id = payer_id,
-            output_image_sizes = output_image_sizes,
-            output_video_size = output_video_size,
-            output_video_duration_seconds = output_video_duration_seconds,
-            total_cost_credits = total_cost_credits,
+            payer_id = uuid.uuid4(),
+            output_image_sizes = ["1024x1024"],
+            output_video_size = "2k",
+            output_video_duration_seconds = 5,
         )
 
         db_obj = db(record)
 
         self.assertIsInstance(db_obj, UsageRecordDB)
         self.assertEqual(db_obj.user_id, record.user_id)
-        self.assertEqual(db_obj.payer_id, payer_id)
+        self.assertEqual(db_obj.payer_id, record.payer_id)
         self.assertTrue(db_obj.uses_credits)
         self.assertEqual(db_obj.tool_id, record.tool.id)
         self.assertEqual(db_obj.timestamp, record.timestamp)
-        self.assertEqual(db_obj.output_image_sizes, output_image_sizes)
-        self.assertEqual(db_obj.output_video_size, output_video_size)
-        self.assertEqual(db_obj.output_video_duration_seconds, output_video_duration_seconds)
-        self.assertEqual(db_obj.total_cost_credits, total_cost_credits)
+        self.assertEqual(db_obj.output_image_sizes, record.output_image_sizes)
+        self.assertEqual(db_obj.output_video_size, record.output_video_size)
+        self.assertEqual(db_obj.output_video_duration_seconds, record.output_video_duration_seconds)
+        self.assertEqual(db_obj.total_cost_credits, record.total_cost_credits)
         self.assertEqual(db_obj.purpose, ToolType.chat.value)
 
     def test_db_to_domain(self):
         # The domain() mapper iterates over ALL_EXTERNAL_TOOLS imported in the module.
-        # Since we are using a real tool (GPT_5_5), it should be found automatically.
-        payer_id = uuid.uuid4()
-        output_image_sizes = ["1024x1024"]
-        output_video_size = "2k"
-        output_video_duration_seconds = 5
-        total_cost_credits = 1.0
+        # The factory default tool should be found automatically.
         record = stubs.db.usage_record_db(
-            payer_id = payer_id,
-            tool_id = GPT_5_5.id,
-            tool_name = GPT_5_5.name,
-            provider_id = GPT_5_5.provider.id,
-            provider_name = GPT_5_5.provider.name,
-            output_image_sizes = output_image_sizes,
-            output_video_size = output_video_size,
-            output_video_duration_seconds = output_video_duration_seconds,
-            total_cost_credits = total_cost_credits,
+            payer_id = uuid.uuid4(),
+            output_image_sizes = ["1024x1024"],
+            output_video_size = "2k",
+            output_video_duration_seconds = 5,
         )
 
         domain_obj = domain(record)
 
         self.assertIsInstance(domain_obj, UsageRecord)
         self.assertEqual(domain_obj.user_id, record.user_id)
-        self.assertEqual(domain_obj.payer_id, payer_id)
+        self.assertEqual(domain_obj.payer_id, record.payer_id)
         self.assertTrue(domain_obj.uses_credits)
-        self.assertEqual(domain_obj.tool.id, GPT_5_5.id)
-        self.assertEqual(domain_obj.tool.name, GPT_5_5.name)
-        self.assertEqual(domain_obj.output_image_sizes, output_image_sizes)
-        self.assertEqual(domain_obj.output_video_size, output_video_size)
-        self.assertEqual(domain_obj.output_video_duration_seconds, output_video_duration_seconds)
-        self.assertEqual(domain_obj.total_cost_credits, total_cost_credits)
+        self.assertEqual(domain_obj.tool.id, record.tool_id)
+        self.assertEqual(domain_obj.tool.name, record.tool_name)
+        self.assertEqual(domain_obj.output_image_sizes, record.output_image_sizes)
+        self.assertEqual(domain_obj.output_video_size, record.output_video_size)
+        self.assertEqual(domain_obj.output_video_duration_seconds, record.output_video_duration_seconds)
+        self.assertEqual(domain_obj.total_cost_credits, record.total_cost_credits)
 
         # Verify tool_purpose conversion string -> Enum
         self.assertEqual(domain_obj.tool_purpose, ToolType.chat)
@@ -94,10 +77,6 @@ class UsageRecordMapperTest(unittest.TestCase):
     def test_db_to_domain_deprecated_tool_and_purpose(self):
         # Test case where tool is not found in library and purpose is invalid
         record = stubs.db.usage_record_db(
-            tool_id = GPT_5_5.id,
-            tool_name = GPT_5_5.name,
-            provider_id = GPT_5_5.provider.id,
-            provider_name = GPT_5_5.provider.name,
             purpose = "unknown_purpose_that_does_not_exist",
         )
 
@@ -106,10 +85,11 @@ class UsageRecordMapperTest(unittest.TestCase):
 
             self.assertIsInstance(domain_obj, UsageRecord)
             # Should have reconstructed a deprecated tool
-            self.assertEqual(domain_obj.tool.id, GPT_5_5.id)
-            self.assertEqual(domain_obj.tool.name, GPT_5_5.name)
+            self.assertEqual(domain_obj.tool.id, record.tool_id)
+            self.assertEqual(domain_obj.tool.name, record.tool_name)
             self.assertEqual(domain_obj.tool.types, [])
-            self.assertEqual(domain_obj.tool.provider.id, GPT_5_5.provider.id)
+            self.assertEqual(domain_obj.tool.provider.id, record.provider_id)
+            self.assertEqual(domain_obj.tool.provider.name, record.provider_name)
             # Purpose should fall back to deprecated
             self.assertEqual(domain_obj.tool_purpose, ToolType.deprecated)
 

@@ -17,12 +17,7 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.purchase_record_repo()
-        self.user = self.sql.user_repo().save(
-            stubs.domain.user(
-                id = uuid4(),
-                connect_key = "TEST-KEY-1234",
-            ),
-        )
+        self.user = self.sql.user_repo().save(stubs.domain.user())
 
     def tearDown(self):
         self.sql.end_session()
@@ -45,7 +40,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
             id = uuid4(),
             user_id = self.user.id,
             sale_id = f"sale-{uuid4().hex[:8]}",
-            price = 1000,
         )
         persisted = self.repo.save(record)
 
@@ -60,7 +54,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
             id = uuid4(),
             user_id = self.user.id,
             sale_id = "sale-unique-123",
-            price = 1000,
         )
         self.repo.save(record)
 
@@ -224,7 +217,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 sale_id = f"sale-{uuid4().hex[:8]}",
                 product_id = "product-A",
-                price = 1000,
             ),
         )
         self.repo.save(
@@ -288,7 +280,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 sale_id = f"sale-{uuid4().hex[:8]}",
                 sale_timestamp = now,
-                price = 1000,
             ),
         )
 
@@ -307,7 +298,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 sale_id = f"sale-{uuid4().hex[:8]}",
                 product_id = "product-A",
-                price = 1000,
             ),
         )
         self.repo.save(
@@ -339,8 +329,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 sale_id = f"sale-{uuid4().hex[:8]}",
                 product_id = "product-A",
-                price = 1000,
-                refunded = False,
             ),
         )
         self.repo.save(
@@ -350,7 +338,6 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
                 sale_id = f"sale-{uuid4().hex[:8]}",
                 product_id = "product-A",
                 price = 500,
-                refunded = False,
             ),
         )
         self.repo.save(
@@ -427,7 +414,12 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
 
     def test_bind_license_key_to_user_already_bound(self):
         other_user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), telegram_user_id = 987654321, whatsapp_user_id = "whatsapp-other", connect_key = "OTHER-KEY"),
+            stubs.domain.user(
+                id = uuid4(),
+                telegram_user_id = 987654321,
+                whatsapp_user_id = "whatsapp-other",
+                connect_key = "OTHER-KEY",
+            ),
         )
         record = stubs.domain.purchase_record(
             id = uuid4(),
@@ -563,7 +555,12 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
 
     def test_save_updates_user_id_when_update_has_value(self):
         other_user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), telegram_user_id = 987654321, whatsapp_user_id = "whatsapp-update", connect_key = "UPDATE-KEY"),
+            stubs.domain.user(
+                id = uuid4(),
+                telegram_user_id = 987654321,
+                whatsapp_user_id = "whatsapp-update",
+                connect_key = "UPDATE-KEY",
+            ),
         )
         original = stubs.domain.purchase_record(
             id = uuid4(),

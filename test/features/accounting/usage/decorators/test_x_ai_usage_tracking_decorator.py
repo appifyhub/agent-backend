@@ -14,6 +14,7 @@ from util.errors import ExternalServiceError
 class XAIUsageTrackingDecoratorTest(unittest.TestCase):
 
     def setUp(self):
+        self.image_size = "1k"
         self.mock_client = Mock()
         self.mock_tracking_service = Mock(spec = UsageTrackingService)
         self.mock_tracking_service.track_image_model = Mock(
@@ -27,9 +28,7 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
         )
         self.mock_spending_service = Mock(spec = SpendingService)
         self.mock_rollback_db_session = Mock()
-        self.image_size = "1k"
-        external_tool = stubs.domain.external_tool(id = "grok-imagine-image")
-        configured_tool = stubs.domain.configured_tool(definition = external_tool, purpose = ToolType.images_gen, uses_credits = False)
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
 
         self.decorator = XAIUsageTrackingDecorator(
             wrapped_client = self.mock_client,
@@ -47,9 +46,18 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_sample_tracks_usage_by_image_size(self):
         mock_response = Mock()
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = XAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
         self.mock_client.image.sample = Mock(return_value = mock_response)
 
-        result = self.decorator.image.sample(
+        result = decorator.image.sample(
             prompt = "test prompt",
             model = "grok-imagine-image",
             image_format = "base64",
@@ -58,7 +66,7 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
         self.assertEqual(result, mock_response)
         self.mock_tracking_service.track_image_model.assert_called_once()
         call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertEqual(call_args.kwargs["tool"].id, "grok-imagine-image")
+        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.images_gen)
         self.assertEqual(call_args.kwargs["output_image_sizes"], [self.image_size])
         self.assertIsNone(call_args.kwargs.get("input_tokens"))
@@ -84,18 +92,27 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
         mock_chat = Mock()
         mock_chat.sample.return_value = response
         self.mock_client.chat.create.return_value = mock_chat
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = XAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
 
-        result = self.decorator.chat.create(model = "grok-4.3").sample()
+        result = decorator.chat.create(model = "grok-4.3").sample()
 
         self.assertEqual(result, response)
         self.mock_tracking_service.track_provider_reported_cost.assert_called_once()
         call_kwargs = self.mock_tracking_service.track_provider_reported_cost.call_args.kwargs
-        self.assertEqual(call_kwargs["tool"].id, "grok-imagine-image")
+        self.assertIs(call_kwargs["tool"], configured_tool.definition)
         self.assertEqual(call_kwargs["provider_cost_credits"], 0.25)
         self.assertEqual(call_kwargs["input_tokens"], 10)
         self.assertEqual(call_kwargs["output_tokens"], 20)
         self.assertEqual(call_kwargs["total_tokens"], 30)
-        self.mock_spending_service.deduct.assert_called_once_with(self.mock_spending_service.validate_pre_flight.call_args.args[0], 3.5)  # ruff: ignore[line-too-long]
+        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 3.5)
 
     def test_chat_sample_calls_validate_pre_flight(self):
         usage = Mock()
@@ -106,10 +123,19 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
         mock_chat = Mock()
         mock_chat.sample.return_value = response
         self.mock_client.chat.create.return_value = mock_chat
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = XAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
 
-        self.decorator.chat.create(model = "grok-4.3").sample()
+        decorator.chat.create(model = "grok-4.3").sample()
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once()
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
 
     def test_chat_sample_missing_cost_tracks_failure_without_deduction(self):
         usage = Mock()
@@ -130,11 +156,20 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_sample_deducts_credits(self):
         mock_response = Mock()
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = XAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
         self.mock_client.image.sample = Mock(return_value = mock_response)
 
-        self.decorator.image.sample(prompt = "test", model = "grok-imagine-image")
+        decorator.image.sample(prompt = "test", model = "grok-imagine-image")
 
-        self.mock_spending_service.deduct.assert_called_once_with(self.mock_spending_service.validate_pre_flight.call_args.args[0], 2.0)  # ruff: ignore[line-too-long]
+        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 2.0)
 
     def test_sample_measures_runtime(self):
         def slow_sample(*args, **kwargs):
@@ -150,10 +185,18 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
 
     def test_sample_calls_validate_pre_flight(self):
         self.mock_client.image.sample = Mock(return_value = Mock())
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        decorator = XAIUsageTrackingDecorator(
+            wrapped_client = self.mock_client,
+            tracking_service = self.mock_tracking_service,
+            spending_service = self.mock_spending_service,
+            configured_tool = configured_tool,
+            rollback_db_session = self.mock_rollback_db_session,
+            output_image_sizes = [self.image_size],
+        )
 
-        self.decorator.image.sample(prompt = "test", model = "grok-imagine-image")
+        decorator.image.sample(prompt = "test", model = "grok-imagine-image")
 
-        configured_tool = self.mock_spending_service.validate_pre_flight.call_args.args[0]
         self.mock_spending_service.validate_pre_flight.assert_called_once_with(
             configured_tool,
             input_image_sizes = None,
@@ -224,11 +267,7 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
         )
 
     def test_no_output_image_sizes(self):
-        configured_tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = "grok-imagine-image"),
-            purpose = ToolType.images_gen,
-            uses_credits = False,
-        )
+        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
         decorator = XAIUsageTrackingDecorator(
             wrapped_client = self.mock_client,
             tracking_service = self.mock_tracking_service,
@@ -242,3 +281,9 @@ class XAIUsageTrackingDecoratorTest(unittest.TestCase):
 
         call_args = self.mock_tracking_service.track_image_model.call_args
         self.assertIsNone(call_args.kwargs["output_image_sizes"])
+        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
+            configured_tool,
+            input_image_sizes = None,
+            output_image_sizes = None,
+        )
+        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 2.0)

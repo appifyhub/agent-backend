@@ -38,9 +38,12 @@ class LLMUsageStatsTest(unittest.TestCase):
         metadata = {
             "input_tokens": 100,
             "output_tokens": 200,
+            "total_tokens": None,
         }
         stats = LLMUsageStats.from_usage_metadata(metadata)
 
+        self.assertEqual(stats.input_tokens, 100)
+        self.assertEqual(stats.output_tokens, 200)
         self.assertEqual(stats.total_tokens, 300)
 
     def test_from_usage_metadata_with_duration(self):
@@ -90,11 +93,8 @@ class LLMUsageStatsTest(unittest.TestCase):
 
     def test_decorate_with_perplexity_stats_with_reasoning_and_citation(self):
         base_stats = stubs.domain.llm_usage_stats(
-            input_tokens = 100,
-            output_tokens = 200,
             total_tokens = 300,
             search_tokens = None,
-            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -114,7 +114,6 @@ class LLMUsageStatsTest(unittest.TestCase):
         base_stats = stubs.domain.llm_usage_stats(
             total_tokens = 300,
             search_tokens = None,
-            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -131,7 +130,6 @@ class LLMUsageStatsTest(unittest.TestCase):
         base_stats = stubs.domain.llm_usage_stats(
             total_tokens = 300,
             search_tokens = None,
-            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -146,11 +144,8 @@ class LLMUsageStatsTest(unittest.TestCase):
 
     def test_decorate_with_perplexity_stats_without_perplexity_data(self):
         base_stats = stubs.domain.llm_usage_stats(
-            input_tokens = 100,
-            output_tokens = 200,
             search_tokens = None,
             total_tokens = 300,
-            remote_runtime_seconds = None,
         )
         usage_metadata = {}
 
@@ -167,7 +162,6 @@ class LLMUsageStatsTest(unittest.TestCase):
             input_tokens = None,
             output_tokens = None,
             search_tokens = None,
-            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {
@@ -185,7 +179,6 @@ class LLMUsageStatsTest(unittest.TestCase):
         base_stats = stubs.domain.llm_usage_stats(
             total_tokens = 300,
             search_tokens = None,
-            remote_runtime_seconds = None,
         )
         usage_metadata = {
             "output_token_details": {

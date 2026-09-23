@@ -19,9 +19,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.repo = self.sql.usage_record_repo()
-        self.user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), connect_key = "TEST-KEY-1234"),
-        )
+        self.user = self.sql.user_repo().save(stubs.domain.user())
 
     def tearDown(self):
         self.sql.end_session()
@@ -37,7 +35,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             api_call_cost_credits = 0.0,
             maintenance_fee_credits = 0.1,
             total_cost_credits = 0.7,
-            runtime_seconds = 1.5,
             output_image_sizes = ["1024x1024"],
             output_video_size = "1k",
             output_video_duration_seconds = 5,
@@ -231,7 +228,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 10,
                 runtime_seconds = 1.0,
             ),
@@ -241,7 +237,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 5,
                 runtime_seconds = 1.0,
             ),
@@ -383,14 +378,12 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -431,7 +424,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 10,
             ),
         )
@@ -477,7 +469,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -499,7 +490,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -522,7 +512,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -554,7 +543,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 10,
             ),
         )
@@ -580,7 +568,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 10,
             ),
         )
@@ -606,7 +593,6 @@ class UsageRecordRepositoryTest(unittest.TestCase):
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 10,
             ),
         )
@@ -628,14 +614,18 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_by_user_includes_incoming_transfer_as_counterpart(self):
         other_user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), telegram_user_id = 987654321, whatsapp_user_id = "whatsapp-other", connect_key = "OTHER-KEY"),
+            stubs.domain.user(
+                id = uuid4(),
+                telegram_user_id = 987654321,
+                whatsapp_user_id = "whatsapp-other",
+                connect_key = "OTHER-KEY",
+            ),
         )
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -658,14 +648,18 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_by_user_excludes_incoming_transfer_when_transfers_excluded(self):
         other_user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), telegram_user_id = 987654321, whatsapp_user_id = "whatsapp-other", connect_key = "OTHER-KEY"),
+            stubs.domain.user(
+                id = uuid4(),
+                telegram_user_id = 987654321,
+                whatsapp_user_id = "whatsapp-other",
+                connect_key = "OTHER-KEY",
+            ),
         )
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -686,14 +680,18 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_by_user_only_transfers_includes_counterpart(self):
         other_user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), telegram_user_id = 987654321, whatsapp_user_id = "whatsapp-other", connect_key = "OTHER-KEY"),
+            stubs.domain.user(
+                id = uuid4(),
+                telegram_user_id = 987654321,
+                whatsapp_user_id = "whatsapp-other",
+                connect_key = "OTHER-KEY",
+            ),
         )
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
             ),
         )
         self.repo.create(
@@ -715,14 +713,18 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
     def test_get_aggregates_includes_incoming_transfer_as_counterpart(self):
         other_user = self.sql.user_repo().save(
-            stubs.domain.user(id = uuid4(), telegram_user_id = 987654321, whatsapp_user_id = "whatsapp-other", connect_key = "OTHER-KEY"),
+            stubs.domain.user(
+                id = uuid4(),
+                telegram_user_id = 987654321,
+                whatsapp_user_id = "whatsapp-other",
+                connect_key = "OTHER-KEY",
+            ),
         )
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
                 tool = GPT_5_5,
-                tool_purpose = ToolType.chat,
                 total_cost_credits = 10,
             ),
         )
