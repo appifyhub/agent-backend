@@ -1,42 +1,22 @@
 import unittest
-from datetime import datetime
 from unittest.mock import MagicMock, Mock, mock_open, patch
-from uuid import UUID
 
 import requests
+import stubs
 from langchain_core.messages import AIMessage
-from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
 from di.di import DI
-from features.external_tools.external_tool import ExternalTool, ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_6_SONNET
 from features.support.user_support_service import UserSupportService
-from features.users.user import User
 
 
 class UserSupportServiceTest(unittest.TestCase):
 
-    user: User
     mock_di: DI
-    mock_configured_tool: tuple[ExternalTool, SecretStr, ToolType]
     service: UserSupportService
 
     def setUp(self):
-        self.user = User(
-            id = UUID(int = 1),
-            full_name = "Test User",
-            telegram_username = "test_username",
-            telegram_chat_id = "test_chat_id",
-            telegram_user_id = 1,
-            open_ai_key = SecretStr("test_api_key"),
-            anthropic_key = SecretStr("test_anthropic_key"),
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
         self.mock_di = Mock(spec = DI)
-        self.mock_di.invoker.return_value = self.user
         self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
         self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
         self.mock_di.chat_langchain_model = Mock()
@@ -47,14 +27,14 @@ class UserSupportServiceTest(unittest.TestCase):
             mock_shortener.execute.return_value = long_url
             return mock_shortener
         self.mock_di.url_shortener = MagicMock(side_effect = mock_url_shortener)
-        self.mock_configured_tool = (CLAUDE_4_6_SONNET, SecretStr("test_key"), ToolType.copywriting)
+        configured_tool = stubs.domain.configured_tool()
         self.service = UserSupportService(
             user_input = "Test input",
             github_author = "test_github",
             include_platform_handle = True,
             include_full_name = True,
             request_type_str = "bug",
-            configured_tool = self.mock_configured_tool,
+            configured_tool = configured_tool,
             di = self.mock_di,
         )
 
@@ -62,13 +42,14 @@ class UserSupportServiceTest(unittest.TestCase):
         # noinspection PyUnresolvedReferences
         self.assertEqual(self.service._UserSupportService__request_type, UserSupportService.RequestType.bug)
 
+        configured_tool = stubs.domain.configured_tool()
         service = UserSupportService(
             user_input = "Test input",
             github_author = "test_github",
             include_platform_handle = True,
             include_full_name = True,
             request_type_str = "invalid_type",
-            configured_tool = self.mock_configured_tool,
+            configured_tool = configured_tool,
             di = self.mock_di,
         )
         # noinspection PyUnresolvedReferences
@@ -86,6 +67,7 @@ class UserSupportServiceTest(unittest.TestCase):
     def test_generate_issue_description(self, mock_prompt_generator, mock_load_template):
         mock_load_template.return_value = "test template"
         mock_prompt_generator.return_value = "test prompt"
+        self.mock_di.invoker = stubs.domain.user()
 
         with patch.object(self.service, "_UserSupportService__copywriter") as mock_llm:
             mock_llm.invoke.return_value = AIMessage(content = [

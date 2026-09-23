@@ -3,24 +3,19 @@ import unittest
 from unittest.mock import MagicMock, Mock, call, patch
 from uuid import UUID
 
+import stubs
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
-from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.storage.attachment_storage import PublicAttachment
-from features.chat.config.chat_config import ChatConfig
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_image
-from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import GPT_5_NANO, IMAGE_GEN_GROK_IMAGINE_QUALITY
 from features.external_tools.intelligence_presets import default_tool_for
 from features.images import smart_image_generator
 from features.images.image_api_utils import map_to_model_parameters
 from features.images.smart_image_generator import SmartImageGenerator
-from features.users.user import User
 from util.error_codes import IMAGE_GENERATION_FAILED, MISSING_CONTENT
 from util.errors import ExternalServiceError, ValidationError
 
@@ -28,68 +23,45 @@ from util.errors import ExternalServiceError, ValidationError
 class SmartImageGeneratorTest(unittest.TestCase):
 
     def setUp(self):
-        self.invoker_id = UUID(int = 1)
-        self.chat_id = UUID(int = 2)
-        self.copywriter_tool = ConfiguredTool(
-            definition = GPT_5_NANO,
-            token = SecretStr("copywriter-token"),
-            purpose = ToolType.copywriting,
-            payer_id = self.invoker_id,
-            uses_credits = True,
-        )
-        self.image_tool = ConfiguredTool(
-            definition = IMAGE_GEN_GROK_IMAGINE_QUALITY,
-            token = SecretStr("xai-token"),
-            purpose = ToolType.images_gen,
-            payer_id = self.invoker_id,
-            uses_credits = True,
-        )
-        self.chat = ChatConfig(
-            chat_id = self.chat_id,
-            external_id = "12345",
-            chat_type = ChatConfigDB.ChatType.telegram,
-            media_mode = ChatConfigDB.MediaMode.photo,
-        )
         self.copywriter = Mock()
         self.copywriter.invoke.return_value = AIMessage(content = "Enhanced image prompt")
         self.di = Mock(spec = DI)
         self.di.chat_langchain_model.return_value = self.copywriter
-        self.di.require_invoker_chat.return_value = self.chat
-        self.di.require_invoker_chat_type.return_value = self.chat.chat_type
-        self.di.invoker = User(id = self.invoker_id)
+        self.di.invoker = stubs.domain.user()
 
     def _generator(
         self,
         attachment_ids: list[str] | None = None,
         urls: list[str] | None = None,
+        copywriter_tool = None,
+        image_tool = None,
     ) -> SmartImageGenerator:
         return SmartImageGenerator(
             raw_prompt = "Make them shake hands",
             attachment_ids = attachment_ids or [],
             urls = urls or [],
-            configured_copywriter_tool = self.copywriter_tool,
-            configured_image_gen_tool = self.image_tool,
+            configured_copywriter_tool = copywriter_tool or stubs.domain.configured_tool(
+                definition = GPT_5_NANO,
+                purpose = ToolType.copywriting,
+            ),
+            configured_image_gen_tool = image_tool or stubs.domain.configured_tool(
+                definition = IMAGE_GEN_GROK_IMAGINE_QUALITY,
+                purpose = ToolType.images_gen,
+            ),
             di = self.di,
         )
 
-    def _attachment(self, attachment_id: str, last_url: str = "s3://bucket/image.png") -> ChatAttachment:
-        return ChatAttachment(
-            id = attachment_id,
-            chat_id = self.chat_id,
-            uploader_user_id = self.invoker_id,
-            last_url = last_url,
-            mime_type = "image/png",
-            extension = "png",
-        )
-
     def test_constructor_rejects_empty_prompt_before_resolving_attachments(self):
+        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
+
         with self.assertRaises(ValidationError) as context:
             SmartImageGenerator(
                 raw_prompt = " ",
                 attachment_ids = ["attachment"],
                 urls = [],
-                configured_copywriter_tool = self.copywriter_tool,
-                configured_image_gen_tool = self.image_tool,
+                configured_copywriter_tool = copywriter_tool,
+                configured_image_gen_tool = image_tool,
                 di = self.di,
             )
 
@@ -98,6 +70,10 @@ class SmartImageGeneratorTest(unittest.TestCase):
 
     def test_execute_upscales_synchronously_before_starting_worker(self):
         events = []
+        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
         worker = Mock()
         worker.start.side_effect = lambda: events.append("worker")
         self.di.spending_service.validate_pre_flight.side_effect = lambda *_, **__: events.append("preflight")
@@ -120,7 +96,7 @@ class SmartImageGeneratorTest(unittest.TestCase):
         ) as prompt_upscaler:
             slots.acquire.return_value = True
 
-            result = self._generator().execute()
+            result = self._generator(image_tool = image_tool).execute()
 
         self.assertEqual(events, ["preflight", "copywriter", "worker"])
         self.assertEqual(result, {
@@ -129,7 +105,7 @@ class SmartImageGeneratorTest(unittest.TestCase):
             "used_reference_images": 0,
             "ignored_reference_images": 0,
         })
-        prompt_upscaler.assert_called_once_with(self.chat.chat_type, 0)
+        prompt_upscaler.assert_called_once_with(chat.chat_type, 0)
         self.assertEqual(self.copywriter.invoke.call_args.args[0], [
             SystemMessage("Copywriter system prompt"),
             HumanMessage("Make them shake hands"),
@@ -143,12 +119,14 @@ class SmartImageGeneratorTest(unittest.TestCase):
         slots.acquire.assert_called_once_with(blocking = False)
         slots.release.assert_not_called()
         self.di.spending_service.validate_pre_flight.assert_called_once_with(
-            self.image_tool,
+            image_tool,
             input_image_sizes = None,
             output_image_sizes = ["2K"],
         )
 
     def test_llm_tool_parses_references_and_returns_immediate_acknowledgement(self):
+        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
         generator = Mock()
         generator.execute.return_value = {
             "status": "started",
@@ -156,7 +134,7 @@ class SmartImageGeneratorTest(unittest.TestCase):
             "used_reference_images": 2,
             "ignored_reference_images": 1,
         }
-        self.di.tool_choice_resolver.require_tool.side_effect = [self.copywriter_tool, self.image_tool]
+        self.di.tool_choice_resolver.require_tool.side_effect = [copywriter_tool, image_tool]
         self.di.smart_image_generator.return_value = generator
 
         result = json.loads(generate_image(
@@ -183,8 +161,8 @@ class SmartImageGeneratorTest(unittest.TestCase):
             raw_prompt = "Make them shake hands",
             attachment_ids = ["first", "second"],
             urls = ["https://example.com/first.png", "https://example.com/second.png"],
-            configured_copywriter_tool = self.copywriter_tool,
-            configured_image_gen_tool = self.image_tool,
+            configured_copywriter_tool = copywriter_tool,
+            configured_image_gen_tool = image_tool,
             aspect_ratio = "16:9",
             output_size = "2K",
         )
@@ -199,13 +177,15 @@ class SmartImageGeneratorTest(unittest.TestCase):
         })
 
     def test_execute_retains_first_supported_reference_before_upscaling_and_worker_handoff(self):
-        first = self._attachment("first")
-        ignored = self._attachment("ignored")
+        first = stubs.domain.chat_attachment(id = "first")
+        ignored = stubs.domain.chat_attachment(id = "ignored")
+        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
         self.di.chat_attachment_service.resolve_image_attachments.return_value = [first, ignored]
-        self.di.chat_attachment_service.create_public_url.return_value = PublicAttachment(
-            id = "first",
+        self.di.chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(
             url = "https://example.com/first.png",
-            valid_until = 1,
         )
         self.di.attachment_storage.open.return_value = MagicMock()
         worker = Mock()
@@ -231,6 +211,7 @@ class SmartImageGeneratorTest(unittest.TestCase):
             result = self._generator(
                 attachment_ids = ["first", "ignored"],
                 urls = ["https://example.com/reference.png"],
+                image_tool = image_tool,
             ).execute()
 
         self.assertEqual(result, {
@@ -246,11 +227,11 @@ class SmartImageGeneratorTest(unittest.TestCase):
         self.di.chat_attachment_service.create_public_url.assert_called_once_with(first)
         self.di.attachment_storage.open.assert_called_once_with(first)
         self.di.spending_service.validate_pre_flight.assert_called_once_with(
-            self.image_tool,
+            image_tool,
             input_image_sizes = ["4k"],
             output_image_sizes = ["2K"],
         )
-        prompt_upscaler.assert_called_once_with(self.chat.chat_type, 1)
+        prompt_upscaler.assert_called_once_with(chat.chat_type, 1)
         worker_kwargs = thread.call_args.kwargs["kwargs"]
         self.assertEqual(worker_kwargs["parameters"].input_image, "https://example.com/first.png")
         self.assertEqual(worker_kwargs["parameters"].prompt, "Enhanced image prompt")
@@ -283,6 +264,9 @@ class SmartImageGeneratorTest(unittest.TestCase):
         thread.assert_not_called()
 
     def test_execute_rejects_busy_service_after_upscaling(self):
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
         with patch.object(
             smart_image_generator,
             "IMAGE_GENERATION_SLOTS",
@@ -306,6 +290,9 @@ class SmartImageGeneratorTest(unittest.TestCase):
 
     def test_execute_does_not_acquire_slot_when_upscaling_fails(self):
         self.copywriter.invoke.side_effect = RuntimeError("Copywriter unavailable")
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
 
         with patch.object(
             smart_image_generator,
@@ -328,6 +315,9 @@ class SmartImageGeneratorTest(unittest.TestCase):
     def test_execute_releases_slot_when_worker_cannot_start(self):
         worker = Mock()
         worker.start.side_effect = RuntimeError("Thread unavailable")
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
 
         with patch.object(
             smart_image_generator,
@@ -350,9 +340,12 @@ class SmartImageGeneratorTest(unittest.TestCase):
         slots.release.assert_called_once_with()
 
     def test_background_worker_releases_generation_scope_then_sets_upload_action_and_delivers(self):
-        first = self._attachment("first")
+        invoker_id = UUID(int = 1)
+        chat_id = UUID(int = 2)
+        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
+        first = stubs.domain.chat_attachment(id = "first")
         parameters = map_to_model_parameters(
-            self.image_tool.definition,
+            image_tool.definition,
             prompt = "Enhanced image prompt",
             input_urls = ["https://example.com/first.png"],
         )
@@ -386,14 +379,14 @@ class SmartImageGeneratorTest(unittest.TestCase):
             "IMAGE_GENERATION_SLOTS",
         ) as slots:
             smart_image_generator._run_image_worker(
-                configured_image_gen_tool = self.image_tool,
+                configured_image_gen_tool = image_tool,
                 parameters = parameters,
                 input_attachments = [first],
                 input_image_urls = ["https://example.com/first.png"],
                 input_image_sizes = ["2k"],
                 output_image_sizes = ["2k"],
-                invoker_id = self.invoker_id,
-                invoker_chat_id = self.chat_id,
+                invoker_id = invoker_id,
+                invoker_chat_id = chat_id,
                 external_chat_id = "12345",
                 media_mode = ChatConfigDB.MediaMode.photo,
             )
@@ -405,9 +398,9 @@ class SmartImageGeneratorTest(unittest.TestCase):
             "upload action",
             "image delivery started",
         ])
-        di_factory.assert_called_once_with(worker_db, self.invoker_id.hex, self.chat_id.hex)
+        di_factory.assert_called_once_with(worker_db, invoker_id.hex, chat_id.hex)
         worker_di.simple_image_generator.assert_called_once_with(
-            configured_tool = self.image_tool,
+            configured_tool = image_tool,
             parameters = parameters,
             input_attachments = [first],
             input_image_urls = ["https://example.com/first.png"],
@@ -426,7 +419,12 @@ class SmartImageGeneratorTest(unittest.TestCase):
         slots.release.assert_called_once_with()
 
     def test_background_worker_notifies_chat_with_formatted_failure(self):
-        parameters = map_to_model_parameters(self.image_tool.definition, prompt = "Enhanced image prompt")
+        invoker_id = UUID(int = 1)
+        chat_id = UUID(int = 2)
+        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
+        chat = stubs.domain.chat_config()
+        parameters = map_to_model_parameters(image_tool.definition, prompt = "Enhanced image prompt")
         known_error = ExternalServiceError("Replicate unavailable", IMAGE_GENERATION_FAILED)
         cases = [
             (known_error, None, known_error),
@@ -462,10 +460,10 @@ class SmartImageGeneratorTest(unittest.TestCase):
                     generator.execute.side_effect = raised_error
                 else:
                     generator.execute.return_value = None
-                notification_di.require_invoker_chat.return_value = self.chat
-                notification_di.tool_choice_resolver.require_tool.return_value = self.copywriter_tool
+                notification_di.require_invoker_chat.return_value = chat
+                notification_di.tool_choice_resolver.require_tool.return_value = copywriter_tool
                 notification_di.sys_announcements_service.return_value.execute.return_value = (
-                    self.chat,
+                    chat,
                     AIMessage(content = "Localized image failure notification"),
                 )
 
@@ -482,14 +480,14 @@ class SmartImageGeneratorTest(unittest.TestCase):
                     "IMAGE_GENERATION_SLOTS",
                 ) as slots:
                     smart_image_generator._run_image_worker(
-                        configured_image_gen_tool = self.image_tool,
+                        configured_image_gen_tool = image_tool,
                         parameters = parameters,
                         input_attachments = [],
                         input_image_urls = [],
                         input_image_sizes = None,
                         output_image_sizes = ["2k"],
-                        invoker_id = self.invoker_id,
-                        invoker_chat_id = self.chat_id,
+                        invoker_id = invoker_id,
+                        invoker_chat_id = chat_id,
                         external_chat_id = "12345",
                         media_mode = ChatConfigDB.MediaMode.photo,
                     )
@@ -500,8 +498,8 @@ class SmartImageGeneratorTest(unittest.TestCase):
                 )
                 notification_di.sys_announcements_service.assert_called_once_with(
                     raw_information = f"Your image could not be generated or delivered.\n\n{str(expected_error)}",
-                    target_chat = self.chat,
-                    configured_tool = self.copywriter_tool,
+                    target_chat = chat,
+                    configured_tool = copywriter_tool,
                 )
                 notification_di.platform_bot_sdk.return_value.send_text_message.assert_called_once_with(
                     chat_id = "12345",

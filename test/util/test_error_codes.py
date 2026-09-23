@@ -3,19 +3,19 @@ import unittest
 
 from util import error_codes
 
+VALID_RANGES = [
+    (1000, 1999),  # Validation
+    (2000, 2999),  # Not Found
+    (3000, 3999),  # Authorization
+    (4000, 4999),  # Authentication
+    (5000, 5999),  # External Service
+    (6000, 6999),  # Rate Limit
+    (7000, 7999),  # Configuration
+    (8000, 8999),  # Internal
+]
+
 
 class ErrorCodesTest(unittest.TestCase):
-
-    __VALID_RANGES = [
-        (1000, 1999),  # Validation
-        (2000, 2999),  # Not Found
-        (3000, 3999),  # Authorization
-        (4000, 4999),  # Authentication
-        (5000, 5999),  # External Service
-        (6000, 6999),  # Rate Limit
-        (7000, 7999),  # Configuration
-        (8000, 8999),  # Internal
-    ]
 
     @staticmethod
     def __active_error_codes() -> dict[str, int]:
@@ -37,7 +37,7 @@ class ErrorCodesTest(unittest.TestCase):
 
     def test_error_codes_in_valid_category_ranges(self):
         for name, value in self.__active_error_codes().items():
-            in_range = any(low <= value <= high for low, high in self.__VALID_RANGES)
+            in_range = any(low <= value <= high for low, high in VALID_RANGES)
             self.assertTrue(in_range, f"{name}={value} is not in any valid category range")
 
     def test_reserved_error_codes_are_not_reused(self):
@@ -49,7 +49,7 @@ class ErrorCodesTest(unittest.TestCase):
         allocated_codes = set(self.__active_error_codes().values()) | error_codes.RESERVED_ERROR_CODES
         allocated_codes.remove(error_codes.UNEXPECTED_ERROR)
 
-        for low, high in self.__VALID_RANGES:
+        for low, high in VALID_RANGES:
             category_codes = sorted(code for code in allocated_codes if low <= code <= high)
             expected_codes = list(range(low + 1, category_codes[-1] + 1))
             self.assertEqual(category_codes, expected_codes)

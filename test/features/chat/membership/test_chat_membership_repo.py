@@ -1,14 +1,10 @@
 import unittest
+from uuid import UUID
 
+import stubs
 from db.sql_util import SQLUtil
-from pydantic import SecretStr
 
-from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
-from features.chat.config.chat_config import ChatConfig
-from features.chat.membership.chat_membership import ChatMembership
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
-from features.users.user import User
 
 
 class ChatMembershipRepoTest(unittest.TestCase):
@@ -20,16 +16,14 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.sql = SQLUtil()
         self.repo = self.sql.chat_membership_repo()
         self.chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "chat1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "chat1",
+            ),
         )
         self.user = self.sql.user_repo().save(
-            User(
-                full_name = "Test User",
-                telegram_username = "testuser",
-                telegram_chat_id = "123456",
+            stubs.domain.user(
                 telegram_user_id = 123456,
-                open_ai_key = SecretStr("test-key"),
-                group = UserDB.Group.standard,
             ),
         )
 
@@ -42,12 +36,9 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_save_creates_new_membership(self):
-        membership = ChatMembership(
+        membership = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
-            is_admin = False,
-            use_about_me = True,
-            use_custom_prompt = True,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
@@ -65,12 +56,11 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertEqual(result.max_iterations, 3)
 
     def test_get_returns_saved_membership(self):
-        membership = ChatMembership(
+        membership = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
             is_admin = True,
             use_about_me = False,
-            use_custom_prompt = True,
             max_output_tokens = 1000,
             max_chat_history_depth = 10,
             max_iterations = 7,
@@ -88,19 +78,16 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertEqual(result.max_iterations, 7)
 
     def test_save_upserts_existing_membership(self):
-        original = ChatMembership(
+        original = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
-            is_admin = False,
-            use_about_me = True,
-            use_custom_prompt = True,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
         )
         self.repo.save(original)
 
-        updated = ChatMembership(
+        updated = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
             is_admin = True,
@@ -124,22 +111,23 @@ class ChatMembershipRepoTest(unittest.TestCase):
 
     def test_get_all_for_user_returns_memberships(self):
         second_chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "chat2", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "chat2",
+            ),
         )
-        self.repo.save(ChatMembership(
-            user_id = self.user.id,
-            chat_id = self.chat.chat_id,
-            is_admin = False,
-            use_about_me = True,
-            use_custom_prompt = True,
-        ))
-        self.repo.save(ChatMembership(
-            user_id = self.user.id,
-            chat_id = second_chat.chat_id,
-            is_admin = True,
-            use_about_me = False,
-            use_custom_prompt = False,
-        ))
+        self.repo.save(
+            stubs.domain.chat_membership(
+                user_id = self.user.id,
+                chat_id = self.chat.chat_id,
+            ),
+        )
+        self.repo.save(
+            stubs.domain.chat_membership(
+                user_id = self.user.id,
+                chat_id = second_chat.chat_id,
+            ),
+        )
 
         results = self.repo.get_all_for_user(self.user.id)
 
@@ -155,29 +143,26 @@ class ChatMembershipRepoTest(unittest.TestCase):
 
     def test_get_all_for_chat_returns_memberships(self):
         second_user = self.sql.user_repo().save(
-            User(
-                full_name = "Second User",
-                telegram_username = "second",
-                telegram_chat_id = "654321",
+            stubs.domain.user(
+                id = UUID("33333333-3333-4333-8333-c33333333333"),
                 telegram_user_id = 654321,
-                open_ai_key = SecretStr("key2"),
-                group = UserDB.Group.standard,
+                whatsapp_user_id = None,
+                connect_key = "SCND-USER-2026",
             ),
         )
-        self.repo.save(ChatMembership(
-            user_id = self.user.id,
-            chat_id = self.chat.chat_id,
-            is_admin = True,
-            use_about_me = True,
-            use_custom_prompt = True,
-        ))
-        self.repo.save(ChatMembership(
-            user_id = second_user.id,
-            chat_id = self.chat.chat_id,
-            is_admin = False,
-            use_about_me = False,
-            use_custom_prompt = True,
-        ))
+        self.repo.save(
+            stubs.domain.chat_membership(
+                user_id = self.user.id,
+                chat_id = self.chat.chat_id,
+                is_admin = True,
+            ),
+        )
+        self.repo.save(
+            stubs.domain.chat_membership(
+                user_id = second_user.id,
+                chat_id = self.chat.chat_id,
+            ),
+        )
 
         results = self.repo.get_all_for_chat(self.chat.chat_id)
 

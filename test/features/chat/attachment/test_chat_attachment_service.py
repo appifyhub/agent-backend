@@ -5,15 +5,14 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from uuid import UUID
+from uuid import UUID, uuid4
+
+import stubs
 
 from api.auth import verify_jwt_token, verify_public_attachment_token
-from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.chat_attachment_service import (
     ChatAttachmentService,
-    RemoteAttachmentContent,
 )
-from features.chat.attachment.storage.attachment_storage import PublicAttachment
 from util.errors import ExternalServiceError, NotFoundError, ValidationError
 
 
@@ -22,36 +21,42 @@ class ChatAttachmentServiceTest(unittest.TestCase):
     def setUp(self):
         self.di = SimpleNamespace(
             invoker_id = UUID(int = 1).hex,
-            invoker = SimpleNamespace(id = UUID(int = 1)),
+            invoker = stubs.domain.user(id = UUID(int = 1)),
             attachment_storage = Mock(SERVES_PUBLIC_URLS = False),
             chat_attachment_repo = Mock(),
-            require_invoker_chat = Mock(return_value = SimpleNamespace(chat_id = UUID(int = 2))),
+            require_invoker_chat = Mock(return_value = stubs.domain.chat_config(chat_id = UUID(int = 2))),
         )
         self.di.chat_attachment_repo.save.side_effect = lambda attachment: attachment
         self.di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
         self.di.attachment_storage.put_file.side_effect = lambda metadata, file_path: f"s3://the-agent/{metadata.uri}"
         self.di.attachment_storage.owns_uri.side_effect = lambda uri: bool(uri) and uri.startswith("s3://the-agent/")
         self.service = ChatAttachmentService(self.di)
-        self.attachment = ChatAttachment(
-            id = "attachment-id",
-            chat_id = UUID(int = 2),
-            uploader_user_id = UUID(int = 1),
-            message_id = "message-id",
-        )
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_content_stores_content_and_saves_updated_metadata(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
         mock_config.s3_bucket = "the-agent"
         content = b"\x89PNG\r\n\x1a\ncontent"
         expected_storage_uri = "s3://the-agent/chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id.png"
 
-        result = self.service.save(self.attachment, content)
+        result = self.service.save(attachment, content)
 
         self.di.attachment_storage.put.assert_called_once()
         stored_metadata, stored_content = self.di.attachment_storage.put.call_args.args
-        self.assertEqual(stored_metadata.id, self.attachment.id)
+        self.assertEqual(stored_metadata.id, attachment.id)
         self.assertEqual(stored_metadata.mime_type, "image/png")
         self.assertEqual(stored_metadata.extension, "png")
         self.assertIsNone(stored_metadata.last_url)
@@ -59,7 +64,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(stored_content, content)
 
         self.di.chat_attachment_repo.save.assert_called_once_with(result)
-        self.assertEqual(result.id, self.attachment.id)
+        self.assertEqual(result.id, attachment.id)
         self.assertEqual(result.size, len(content))
         self.assertEqual(result.mime_type, "image/png")
         self.assertEqual(result.extension, "png")
@@ -70,8 +75,8 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         token = public_url.url.rsplit("/", 1)[1]
         public_claims = verify_public_attachment_token(token)
         jwt_claims = verify_jwt_token(token)
-        self.assertEqual(public_claims.attachment_id, self.attachment.id)
-        self.assertEqual(public_claims.chat_id, self.attachment.chat_id.hex)
+        self.assertEqual(public_claims.attachment_id, attachment.id)
+        self.assertEqual(public_claims.chat_id, attachment.chat_id.hex)
         self.assertEqual(public_claims.issuer_user_id, self.di.invoker_id)
         self.assertLessEqual(abs(public_url.valid_until - jwt_claims["exp"]), 1)
 
@@ -81,11 +86,16 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         mock_config.attachment_public_token_ttl_seconds = 600
         mock_config.s3_bucket = "the-agent"
         old_uri = "chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "attachment-id",
+            external_id = None,
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
+            message_id = None,
+            size = None,
             last_url = f"s3://the-agent/{old_uri}",
+            extension = None,
+            mime_type = None,
         )
         content = b"\x89PNG\r\n\x1a\ncontent"
 
@@ -101,12 +111,16 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
         mock_config.s3_bucket = "the-agent"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "attachment-id",
+            external_id = None,
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
+            message_id = None,
+            size = None,
             extension = "png",
             last_url = "s3://the-agent/chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id.png",
+            mime_type = None,
         )
         content = b"\x89PNG\r\n\x1a\ncontent"
 
@@ -120,13 +134,14 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
         mock_config.s3_bucket = "the-agent"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "attachment-id",
+            external_id = None,
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
             message_id = "message-id",
-            mime_type = "image/jpeg",
-            extension = "jpg",
+            size = None,
+            last_url = None,
         )
 
         result = self.service.save(attachment, b"\x89PNG\r\n\x1a\ncontent")
@@ -136,8 +151,20 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_content_normalizes_parameterized_mime_type(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.s3_bucket = "the-agent"
-        attachment = replace(self.attachment, mime_type = "audio/ogg; codecs=opus")
+        attachment = replace(attachment, mime_type = "audio/ogg; codecs=opus")
 
         result = self.service.save(attachment, b"audio data")
 
@@ -152,12 +179,16 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
         mock_config.s3_bucket = "the-agent"
-        attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "attachment-id",
+            external_id = None,
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
             message_id = "message-id",
+            size = None,
             last_url = "https://example.com/document.pdf?token=abc",
+            extension = None,
+            mime_type = None,
         )
 
         result = self.service.save(attachment, b"%PDF-1.4")
@@ -170,9 +201,16 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         mock_config.s3_bucket = "the-agent"
 
         result = self.service.save(
-            ChatAttachment(
+            stubs.domain.chat_attachment(
+                id = uuid4().hex[:8],
+                external_id = None,
                 chat_id = UUID(int = 2),
                 uploader_user_id = UUID(int = 1),
+                message_id = None,
+                size = None,
+                last_url = None,
+                extension = None,
+                mime_type = None,
             ),
             content = b"video data",
             remote_url = "https://example.com/video.webm?token=abc",
@@ -182,13 +220,37 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(result.extension, "webm")
 
     def test_save_with_content_rejects_empty_content(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         with self.assertRaises(ValidationError):
-            self.service.save(self.attachment, b"")
+            self.service.save(attachment, b"")
 
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     def test_save_with_file_stores_path_and_saves_matching_metadata(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         content = b"\x89PNG\r\n\x1a\ncontent"
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -196,7 +258,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             source.write_bytes(content)
 
             result = self.service.save(
-                self.attachment,
+                attachment,
                 file_path = source,
                 remote_url = "https://example.com/photo.png",
             )
@@ -216,12 +278,24 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.di.chat_attachment_repo.save.assert_called_once_with(result)
 
     def test_save_with_file_uses_remote_url_for_video_type_fallback(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("source")
             source.write_bytes(b"video data")
 
             result = self.service.save(
-                self.attachment,
+                attachment,
                 file_path = source,
                 remote_url = "https://example.com/video.webm?token=abc",
             )
@@ -230,11 +304,23 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(result.extension, "webm")
 
     def test_save_with_file_path_api_and_remote_url_fetcher_stores_fetched_content(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         content = b"%PDF-1.4"
         result = self.service.save(
-            self.attachment,
+            attachment,
             remote_url = "https://example.com/document",
-            remote_url_fetcher = lambda _: RemoteAttachmentContent(
+            remote_url_fetcher = lambda _: stubs.domain.remote_attachment_content(
                 content = content,
                 response_mime_type = "application/pdf",
             ),
@@ -248,29 +334,65 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.di.attachment_storage.put_file.assert_not_called()
 
     def test_save_with_file_rejects_missing_file(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("missing")
 
             with self.assertRaises(ValidationError):
-                self.service.save(self.attachment, file_path = source)
+                self.service.save(attachment, file_path = source)
 
         self.di.attachment_storage.put_file.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     def test_save_with_empty_file_saves_existing_metadata(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("empty")
             source.touch()
 
-            result = self.service.save(self.attachment, file_path = source)
+            result = self.service.save(attachment, file_path = source)
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.attachment_storage.put_file.assert_not_called()
-        self.di.chat_attachment_repo.save.assert_called_once_with(self.attachment)
+        self.di.chat_attachment_repo.save.assert_called_once_with(attachment)
 
     def test_save_with_file_deletes_old_object_when_extension_changes(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         old_uri = "chats/00000000-0000-0000-0000-000000000002/attachments/attachment-id"
-        attachment = replace(self.attachment, last_url = f"s3://the-agent/{old_uri}")
+        attachment = replace(attachment, last_url = f"s3://the-agent/{old_uri}")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("source.png")
@@ -284,6 +406,18 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(self.di.attachment_storage.delete.call_args.args[0].uri, old_uri)
 
     def test_save_with_file_does_not_remove_source_when_storage_fails(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         self.di.attachment_storage.put_file.side_effect = ExternalServiceError("failed", "attachment_storage_failed")
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -291,7 +425,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
 
             with self.assertRaises(ExternalServiceError):
-                self.service.save(self.attachment, file_path = source)
+                self.service.save(attachment, file_path = source)
 
             self.assertTrue(source.exists())
 
@@ -299,26 +433,50 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_no_file_and_own_public_url_returns_existing_attachment(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
-        public_url = self.service.create_public_url(self.attachment)
-        new_attachment = replace(self.attachment, id = "new-attachment-id")
-        self.di.chat_attachment_repo.get.return_value = self.attachment
+        public_url = self.service.create_public_url(attachment)
+        new_attachment = replace(attachment, id = "new-attachment-id")
+        self.di.chat_attachment_repo.get.return_value = attachment
 
         result = self.service.save(new_attachment, remote_url = public_url.url)
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
         self.di.attachment_storage.put_file.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_empty_file_and_own_public_url_returns_existing_attachment(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
-        public_url = self.service.create_public_url(self.attachment)
-        new_attachment = replace(self.attachment, id = "new-attachment-id")
-        self.di.chat_attachment_repo.get.return_value = self.attachment
+        public_url = self.service.create_public_url(attachment)
+        new_attachment = replace(attachment, id = "new-attachment-id")
+        self.di.chat_attachment_repo.get.return_value = attachment
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("empty")
@@ -326,28 +484,52 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
             result = self.service.save(new_attachment, remote_url = public_url.url, file_path = source)
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
         self.di.attachment_storage.put_file.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     def test_save_without_file_path_saves_existing_metadata(self):
-        result = self.service.save(self.attachment)
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
 
-        self.assertEqual(result, self.attachment)
+        result = self.service.save(attachment)
+
+        self.assertEqual(result, attachment)
         self.di.attachment_storage.put_file.assert_not_called()
-        self.di.chat_attachment_repo.save.assert_called_once_with(self.attachment)
+        self.di.chat_attachment_repo.save.assert_called_once_with(attachment)
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_remote_url_fetches_content_and_stores_attachment(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
         mock_config.s3_bucket = "the-agent"
         content = b"%PDF-1.4"
 
         result = self.service.save(
-            self.attachment,
+            attachment,
             remote_url = "https://example.com/document.pdf",
-            remote_url_fetcher = lambda _: RemoteAttachmentContent(
+            remote_url_fetcher = lambda _: stubs.domain.remote_attachment_content(
                 content = content,
                 response_mime_type = "application/pdf",
             ),
@@ -365,11 +547,23 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.di.chat_attachment_repo.save.assert_called_once_with(result)
 
     def test_save_with_remote_url_rejects_missing_content(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         with self.assertRaises(ExternalServiceError):
             self.service.save(
-                self.attachment,
+                attachment,
                 remote_url = "https://example.com/photo.png",
-                remote_url_fetcher = lambda _: RemoteAttachmentContent(content = b""),
+                remote_url_fetcher = lambda _: stubs.domain.remote_attachment_content(content = b""),
             )
 
         self.di.attachment_storage.put.assert_not_called()
@@ -377,70 +571,129 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_own_public_url_returns_existing_attachment(self, mock_config):
-        mock_config.public_api_base_url = "http://api.example"
-        mock_config.attachment_public_token_ttl_seconds = 600
-        public_url = self.service.create_public_url(self.attachment)
-        new_attachment = ChatAttachment(
-            id = "new-attachment-id",
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
         )
-        self.di.chat_attachment_repo.get.return_value = self.attachment
+
+        mock_config.public_api_base_url = "http://api.example"
+        mock_config.attachment_public_token_ttl_seconds = 600
+        public_url = self.service.create_public_url(attachment)
+        new_attachment = stubs.domain.chat_attachment(
+            id = "new-attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = None,
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+        self.di.chat_attachment_repo.get.return_value = attachment
 
         result = self.service.save(new_attachment, remote_url = public_url.url)
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_own_private_url_returns_existing_attachment(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
-        self.di.chat_attachment_repo.get.return_value = self.attachment
+        self.di.chat_attachment_repo.get.return_value = attachment
 
         result = self.service.save(
-            self.attachment,
+            attachment,
             remote_url = "http://api.example/attachments/private/attachment-id",
         )
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_own_storage_uri_returns_existing_attachment(self, mock_config):
-        mock_config.s3_bucket = "the-agent"
-        self.di.chat_attachment_repo.get.return_value = self.attachment
-
-        result = self.service.save(
-            self.attachment,
-            remote_url = f"s3://the-agent/{self.attachment.uri}",
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
         )
 
-        self.assertEqual(result, self.attachment)
+        mock_config.s3_bucket = "the-agent"
+        self.di.chat_attachment_repo.get.return_value = attachment
+
+        result = self.service.save(
+            attachment,
+            remote_url = f"s3://the-agent/{attachment.uri}",
+        )
+
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_own_storage_uri_strips_optional_extension(self, mock_config):
-        mock_config.s3_bucket = "the-agent"
-        stored_attachment = ChatAttachment(
+        attachment = stubs.domain.chat_attachment(
             id = "attachment-id",
+            external_id = None,
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
-            extension = "png",
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
         )
-        self.di.chat_attachment_repo.get.return_value = self.attachment
+
+        mock_config.s3_bucket = "the-agent"
+        stored_attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = None,
+            size = None,
+            last_url = None,
+            extension = "png",
+            mime_type = None,
+        )
+        self.di.chat_attachment_repo.get.return_value = attachment
 
         result = self.service.save(
-            self.attachment,
+            attachment,
             remote_url = f"s3://the-agent/{stored_attachment.uri}",
         )
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
         self.di.attachment_storage.put.assert_not_called()
         self.di.chat_attachment_repo.save.assert_not_called()
@@ -448,29 +701,32 @@ class ChatAttachmentServiceTest(unittest.TestCase):
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_save_with_external_id_returns_existing_stored_attachment(self, mock_config):
         mock_config.s3_bucket = "the-agent"
-        stored_attachment = ChatAttachment(
+        stored_attachment = stubs.domain.chat_attachment(
             id = "stored-id",
             external_id = "ext-1",
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
             message_id = "m1",
             last_url = "s3://the-agent/chats/00000000-0000-0000-0000-000000000002/attachments/stored-id.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
             size = 1024,
         )
         self.di.chat_attachment_repo.get_by_external_id.return_value = stored_attachment
-        new_attachment = ChatAttachment(
+        new_attachment = stubs.domain.chat_attachment(
+            id = uuid4().hex[:8],
             external_id = "ext-1",
             chat_id = UUID(int = 2),
             uploader_user_id = UUID(int = 1),
             message_id = "m2",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
         )
 
         result = self.service.save(
             new_attachment,
             remote_url = "ext-1",
-            remote_url_fetcher = lambda _: RemoteAttachmentContent(content = b"should-not-fetch"),
+            remote_url_fetcher = lambda _: stubs.domain.remote_attachment_content(content = b"should-not-fetch"),
         )
 
         self.assertEqual(result, stored_attachment)
@@ -479,24 +735,60 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.di.chat_attachment_repo.save.assert_not_called()
 
     def test_save_without_content_saves_existing_metadata(self):
-        result = self.service.save(self.attachment)
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
 
-        self.assertEqual(result, self.attachment)
+        result = self.service.save(attachment)
+
+        self.assertEqual(result, attachment)
         self.di.attachment_storage.put.assert_not_called()
-        self.di.chat_attachment_repo.save.assert_called_once_with(self.attachment)
+        self.di.chat_attachment_repo.save.assert_called_once_with(attachment)
 
     def test_get_returns_attachment(self):
-        self.di.chat_attachment_repo.get.return_value = self.attachment
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
+        self.di.chat_attachment_repo.get.return_value = attachment
 
         result = self.service.get("attachment-id")
 
-        self.assertEqual(result, self.attachment)
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_called_once_with("attachment-id")
 
     def test_get_returns_attachment_instance(self):
-        result = self.service.get(self.attachment)
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
 
-        self.assertEqual(result, self.attachment)
+        result = self.service.get(attachment)
+
+        self.assertEqual(result, attachment)
         self.di.chat_attachment_repo.get.assert_not_called()
 
     def test_get_rejects_missing_attachment(self):
@@ -529,11 +821,23 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_resolve_attachments_resolves_ids_and_urls(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
         mock_config.s3_bucket = "the-agent"
         mock_config.web_timeout_s = 5
-        self.di.chat_attachment_repo.get.return_value = self.attachment
-        self.di.require_invoker_chat = Mock(return_value = SimpleNamespace(chat_id = UUID(int = 2)))
+        self.di.chat_attachment_repo.get.return_value = attachment
+        self.di.require_invoker_chat = Mock(return_value = stubs.domain.chat_config(chat_id = UUID(int = 2)))
 
         with patch("features.chat.attachment.chat_attachment_service.requests") as mock_requests:
             mock_response = Mock()
@@ -545,15 +849,27 @@ class ChatAttachmentServiceTest(unittest.TestCase):
             result = self.service.resolve_attachments(["attachment-id"], ["http://example.com/photo.png"])
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0], self.attachment)
+        self.assertEqual(result[0], attachment)
         self.assertEqual(result[1].mime_type, "image/png")
         self.assertEqual(result[1].extension, "png")
         self.di.attachment_storage.put.assert_called_once()
 
     def test_resolve_image_attachments_accepts_supported_mime_type_or_extension(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         attachments = [
-            replace(self.attachment, mime_type = "image/png"),
-            replace(self.attachment, id = "extension-only", extension = "webp"),
+            replace(attachment, mime_type = "image/png"),
+            replace(attachment, id = "extension-only", extension = "webp"),
         ]
 
         with patch.object(self.service, "resolve_attachments", return_value = attachments) as resolve_attachments:
@@ -563,7 +879,19 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         resolve_attachments.assert_called_once_with(["attachment-id"], ["https://example.com/image.webp"])
 
     def test_resolve_image_attachments_rejects_non_image(self):
-        attachment = replace(self.attachment, mime_type = "video/mp4", extension = "mp4")
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
+        attachment = replace(attachment, mime_type = "video/mp4", extension = "mp4")
 
         with patch.object(self.service, "resolve_attachments", return_value = [attachment]):
             with self.assertRaises(ValidationError) as context:
@@ -601,47 +929,95 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
     @patch("features.chat.attachment.chat_attachment_service.config")
     def test_create_public_url_does_not_persist_delivery_metadata(self, mock_config):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         mock_config.public_api_base_url = "http://api.example"
         mock_config.attachment_public_token_ttl_seconds = 600
 
-        result = self.service.create_public_url(self.attachment)
+        result = self.service.create_public_url(attachment)
 
         self.di.chat_attachment_repo.save.assert_not_called()
-        self.assertEqual(result.id, self.attachment.id)
+        self.assertEqual(result.id, attachment.id)
         self.assertTrue(result.url.startswith("http://api.example/attachments/public/"))
         self.assertIsNotNone(result.valid_until)
 
     def test_create_public_url_returns_direct_cdn_url_when_storage_serves_public_urls(self):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         self.di.attachment_storage.SERVES_PUBLIC_URLS = True
-        self.di.attachment_storage.public_attachment_for.return_value = PublicAttachment(
-            id = self.attachment.id,
+        self.di.attachment_storage.public_attachment_for.return_value = stubs.domain.public_attachment(
+            id = attachment.id,
             url = "https://cdn-id.ucarecd.net/uuid/attachment-id.png",
             valid_until = 12345,
         )
 
-        result = self.service.create_public_url(self.attachment)
+        result = self.service.create_public_url(attachment)
 
-        self.di.attachment_storage.public_attachment_for.assert_called_once_with(self.attachment)
-        self.assertEqual(result.id, self.attachment.id)
+        self.di.attachment_storage.public_attachment_for.assert_called_once_with(attachment)
+        self.assertEqual(result.id, attachment.id)
         self.assertEqual(result.url, "https://cdn-id.ucarecd.net/uuid/attachment-id.png")
         self.assertEqual(result.valid_until, 12345)
         self.di.chat_attachment_repo.save.assert_not_called()
 
     @patch("features.chat.attachment.chat_attachment_service.log")
     def test_cleanup_old_attachments_deletes_rows_and_storage(self, _):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         cutoff = datetime(2026, 1, 1)
-        self.di.chat_attachment_repo.delete_stale.return_value = [self.attachment]
+        self.di.chat_attachment_repo.delete_stale.return_value = [attachment]
 
         result = self.service.cleanup_old_attachments(cutoff)
 
         self.di.chat_attachment_repo.delete_stale.assert_called_once_with(cutoff)
-        self.di.attachment_storage.delete.assert_called_once_with(self.attachment)
+        self.di.attachment_storage.delete.assert_called_once_with(attachment)
         self.assertEqual(result, 1)
 
     @patch("features.chat.attachment.chat_attachment_service.log")
     def test_cleanup_old_attachments_tolerates_storage_failures(self, _):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         cutoff = datetime(2026, 1, 1)
-        self.di.chat_attachment_repo.delete_stale.return_value = [self.attachment]
+        self.di.chat_attachment_repo.delete_stale.return_value = [attachment]
         self.di.attachment_storage.delete.side_effect = RuntimeError("S3 down")
 
         result = self.service.cleanup_old_attachments(cutoff)
@@ -650,19 +1026,43 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
     @patch("features.chat.attachment.chat_attachment_service.log")
     def test_cleanup_orphaned_attachments_deletes_rows_and_storage(self, _):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         cutoff = datetime(2026, 1, 1)
-        self.di.chat_attachment_repo.delete_stale.return_value = [self.attachment]
+        self.di.chat_attachment_repo.delete_stale.return_value = [attachment]
 
         result = self.service.cleanup_orphaned_attachments(cutoff)
 
         self.di.chat_attachment_repo.delete_stale.assert_called_once_with(cutoff, only_orphans = True)
-        self.di.attachment_storage.delete.assert_called_once_with(self.attachment)
+        self.di.attachment_storage.delete.assert_called_once_with(attachment)
         self.assertEqual(result, 1)
 
     @patch("features.chat.attachment.chat_attachment_service.log")
     def test_cleanup_orphaned_attachments_tolerates_storage_failures(self, _):
+        attachment = stubs.domain.chat_attachment(
+            id = "attachment-id",
+            external_id = None,
+            chat_id = UUID(int = 2),
+            uploader_user_id = UUID(int = 1),
+            message_id = "message-id",
+            size = None,
+            last_url = None,
+            extension = None,
+            mime_type = None,
+        )
+
         cutoff = datetime(2026, 1, 1)
-        self.di.chat_attachment_repo.delete_stale.return_value = [self.attachment]
+        self.di.chat_attachment_repo.delete_stale.return_value = [attachment]
         self.di.attachment_storage.delete.side_effect = RuntimeError("S3 down")
 
         result = self.service.cleanup_orphaned_attachments(cutoff)

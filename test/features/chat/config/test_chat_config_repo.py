@@ -1,11 +1,10 @@
 import unittest
 from uuid import uuid4
 
+import stubs
 from db.sql_util import SQLUtil
 
 from db.model.chat_config import ChatConfigDB
-from features.chat.config.chat_config import ChatConfig
-from features.chat.config.chat_config_remote_data import ChatConfigRemoteData
 from features.chat.config.chat_config_repo import ChatConfigRepository
 
 
@@ -21,27 +20,15 @@ class ChatConfigRepositoryTest(unittest.TestCase):
     def tearDown(self):
         self.sql.end_session()
 
-    def _chat_config(
-        self,
-        external_id: str = "chat1",
-        title: str = "Chat One",
-        is_private: bool = True,
-        chat_type: ChatConfigDB.ChatType = ChatConfigDB.ChatType.telegram,
-    ) -> ChatConfig:
-        return ChatConfig(
-            external_id = external_id,
-            language_iso_code = "en",
-            language_name = "English",
-            title = title,
-            is_private = is_private,
+    def test_save_creates_chat_config(self):
+        chat_config = stubs.domain.chat_config(
+            chat_id = None,
+            external_id = "chat1",
+            title = "Chat One",
             reply_chance_percent = 75,
             release_notifications = ChatConfigDB.ReleaseNotifications.minor,
             media_mode = ChatConfigDB.MediaMode.file,
-            chat_type = chat_type,
         )
-
-    def test_save_creates_chat_config(self):
-        chat_config = self._chat_config()
 
         result = self.repo.save(chat_config)
 
@@ -57,7 +44,7 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertEqual(result.chat_type, chat_config.chat_type)
 
     def test_get_returns_saved_chat_config(self):
-        created = self.repo.save(self._chat_config())
+        created = self.repo.save(stubs.domain.chat_config(chat_id = None))
 
         result = self.repo.get(created.chat_id)
 
@@ -71,18 +58,26 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_all_returns_saved_chat_configs(self):
-        first = self.repo.save(self._chat_config(external_id = "chat1"))
-        second = self.repo.save(self._chat_config(
-            external_id = "chat2",
-            chat_type = ChatConfigDB.ChatType.background,
-        ))
+        first = self.repo.save(stubs.domain.chat_config(chat_id = None, external_id = "chat1"))
+        second = self.repo.save(
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "chat2",
+                chat_type = ChatConfigDB.ChatType.background,
+            ),
+        )
 
         results = self.repo.get_all()
 
         self.assertEqual({result.chat_id for result in results}, {first.chat_id, second.chat_id})
 
     def test_get_by_external_identifiers_returns_saved_chat_config(self):
-        created = self.repo.save(self._chat_config(external_id = "chat1"))
+        created = self.repo.save(
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "chat1",
+            ),
+        )
 
         result = self.repo.get_by_external_identifiers(
             external_id = "chat1",
@@ -101,8 +96,8 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_save_updates_existing_chat_config(self):
-        created = self.repo.save(self._chat_config())
-        update = ChatConfig(
+        created = self.repo.save(stubs.domain.chat_config(chat_id = None))
+        update = stubs.domain.chat_config(
             chat_id = created.chat_id,
             external_id = "updated-chat",
             language_iso_code = "fr",
@@ -129,7 +124,7 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertEqual(result.chat_type, update.chat_type)
 
     def test_delete_removes_chat_config(self):
-        created = self.repo.save(self._chat_config())
+        created = self.repo.save(stubs.domain.chat_config(chat_id = None))
 
         result = self.repo.delete(created.chat_id)
 
@@ -143,9 +138,8 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_save_remote_data_creates_private_chat_with_defaults(self):
-        remote_data = ChatConfigRemoteData(
+        remote_data = stubs.domain.chat_config_remote_data(
             external_id = "remote-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "Remote Chat",
             language_iso_code = "en",
         )
@@ -164,9 +158,8 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertEqual(result.chat_type, remote_data.chat_type)
 
     def test_save_remote_data_creates_public_chat_with_release_notifications_none(self):
-        remote_data = ChatConfigRemoteData(
+        remote_data = stubs.domain.chat_config_remote_data(
             external_id = "public-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "Public Chat",
             is_private = False,
         )
@@ -177,14 +170,15 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertEqual(result.release_notifications, ChatConfigDB.ReleaseNotifications.none)
 
     def test_save_remote_data_updates_existing_remote_fields_only(self):
-        created = self.repo.save(self._chat_config(
+        created = self.repo.save(
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "remote-chat",
+                title = "Old Title",
+            ),
+        )
+        remote_data = stubs.domain.chat_config_remote_data(
             external_id = "remote-chat",
-            title = "Old Title",
-            is_private = True,
-        ))
-        remote_data = ChatConfigRemoteData(
-            external_id = "remote-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             title = "New Title",
             is_private = False,
             language_iso_code = "fr",
@@ -204,14 +198,16 @@ class ChatConfigRepositoryTest(unittest.TestCase):
         self.assertEqual(result.chat_type, created.chat_type)
 
     def test_save_remote_data_preserves_existing_fields_for_null_remote_values(self):
-        created = self.repo.save(self._chat_config(
+        created = self.repo.save(
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "remote-chat",
+                title = "Old Title",
+                is_private = False,
+            ),
+        )
+        remote_data = stubs.domain.chat_config_remote_data(
             external_id = "remote-chat",
-            title = "Old Title",
-            is_private = False,
-        ))
-        remote_data = ChatConfigRemoteData(
-            external_id = "remote-chat",
-            chat_type = ChatConfigDB.ChatType.telegram,
             language_iso_code = "fr",
         )
 

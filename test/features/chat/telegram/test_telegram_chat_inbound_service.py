@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from itertools import count
 from unittest.mock import MagicMock, Mock, patch
 
+import stubs
 from db.sql_util import SQLUtil
 from pydantic import SecretStr
 from sqlalchemy import Connection, event
@@ -11,25 +12,10 @@ from db.model.chat_config import ChatConfigDB
 from db.model.chat_message import ChatMessageDB
 from db.model.user import UserDB
 from di.di import DI
-from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
-from features.chat.config.chat_config import ChatConfig
-from features.chat.message.chat_message import ChatMessage
-from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
-from features.chat.telegram.model.attachment.document import Document
-from features.chat.telegram.model.attachment.photo_size import PhotoSize
-from features.chat.telegram.model.attachment.video import Video
-from features.chat.telegram.model.chat import Chat
-from features.chat.telegram.model.message import Message
-from features.chat.telegram.model.text_quote import TextQuote
-from features.chat.telegram.model.update import Update
-from features.chat.telegram.model.user import User as TelegramUser
 from features.chat.telegram.telegram_chat_inbound_service import TELEGRAM_MAX_DOWNLOAD_FILE_SIZE_BYTES, TelegramChatInboundService
 from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
 from features.integrations.integrations import resolve_agent_user
-from features.users.user import User
-from features.users.user_remote_data import UserRemoteData
 from util.config import config
 from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
@@ -62,7 +48,6 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
     resolver: TelegramChatInboundService
 
     def setUp(self):
-        self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.telegram)
         self.sql = SQLUtil()
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
@@ -77,7 +62,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_attachment_service = ChatAttachmentService(self.mock_di)
         # noinspection PyPropertyAccess
         self.mock_di.telegram_bot_api = MagicMock()
-        self.mock_di.telegram_bot_api.download_file.return_value = b"\xFF\xD8\xFF\xE0fake-jpeg"
+        self.mock_di.telegram_bot_api.download_file.return_value = b"\xff\xd8\xff\xe0fake-jpeg"
         # noinspection PyPropertyAccess
         self.mock_di.attachment_storage = MagicMock()
         self.mock_di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
@@ -92,13 +77,13 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.sql.end_session()
 
     def test_ingest_update_empty(self):
-        result = self.resolver.ingest_update(Update(update_id = 1))
+        result = self.resolver.ingest_update(stubs.external.telegram_update(update_id = 1))
 
         self.assertIsNone(result)
 
     def test_ingest_message_no_author(self):
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 10,
             date = int(datetime.now().timestamp()),
             text = "This is a message",
@@ -114,12 +99,12 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.raw_message_text, "This is a message")
 
     def test_ingest_message_ignores_unsupported_anonymous_service_message(self):
-        message = Message(
-            chat = Chat(id = -1001474547339, type = "supergroup", title = "Hot Fintech Tips"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = -1001474547339, type = "supergroup", title = "Hot Fintech Tips"),
             message_id = 104648,
             date = int(datetime.now().timestamp()),
             **{
-                "from": TelegramUser(
+                "from": stubs.external.telegram_user(
                     id = 1087968824,
                     first_name = "Group",
                     username = "GroupAnonymousBot",
@@ -136,28 +121,29 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_membership_service.ensure_for_inbound.assert_not_called()
 
     def test_ingest_message_no_author_with_attachment_raises(self):
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 10,
             date = int(datetime.now().timestamp()),
-            document = Document(file_id = "e1", file_unique_id = "u1", mime_type = "image/jpeg"),
+            document = stubs.external.telegram_document(file_id = "e1", file_unique_id = "u1", mime_type = "image/jpeg"),
         )
 
         with self.assertRaises(InternalError):
             self.resolver.ingest_message(message)
 
     def test_ingest_message_from_agent_skips_remote_attachments(self):
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        agent_user = resolve_agent_user(ChatConfigDB.ChatType.telegram)
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 10,
             date = int(datetime.now().timestamp()),
             text = "This is a message",
-            document = Document(file_id = "e1", file_unique_id = "u1", mime_type = "image/jpeg"),
+            document = stubs.external.telegram_document(file_id = "e1", file_unique_id = "u1", mime_type = "image/jpeg"),
             **{
-                "from": TelegramUser(
-                    id = self.agent_user.telegram_user_id,
-                    first_name = self.agent_user.full_name,
-                    username = self.agent_user.telegram_username,
+                "from": stubs.external.telegram_user(
+                    id = agent_user.telegram_user_id,
+                    first_name = agent_user.full_name,
+                    username = agent_user.telegram_username,
                     is_bot = True,
                 ),
             },
@@ -168,7 +154,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         result = self.resolver.ingest_message(message)
 
         assert result.author is not None
-        self.assertEqual(result.author.telegram_user_id, self.agent_user.telegram_user_id)
+        self.assertEqual(result.author.telegram_user_id, agent_user.telegram_user_id)
         self.assertIsNone(result.author.telegram_chat_id)
         self.assertEqual(result.attachments, [])
         self.mock_di.telegram_domain_mapper.map_attachments.assert_not_called()
@@ -177,18 +163,17 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_message_repo.save.assert_called_once()
 
     def test_ingest_message_with_attachment_uses_local_attachment_id(self):
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 10,
             date = int(datetime.now().timestamp()),
             caption = "This is a message",
-            document = Document(file_id = "e1", file_unique_id = "u1", mime_type = "image/jpeg"),
+            document = stubs.external.telegram_document(file_id = "e1", file_unique_id = "u1", mime_type = "image/jpeg"),
             **{
-                "from": TelegramUser(
+                "from": stubs.external.telegram_user(
                     id = 1,
                     first_name = "New User",
                     username = "username",
-                    is_bot = False,
                 ),
             },
         )
@@ -213,24 +198,21 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_ingest_message_with_video_uses_download_path_and_preserves_missing_mime_type(self):
         self.mock_di.telegram_bot_api.download_file.return_value = b"\x00\x00\x00\x18ftypmp42"
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 10,
             date = int(datetime.now().timestamp()),
             caption = "Video caption",
-            video = Video(
+            video = stubs.external.telegram_video(
                 file_id = "video1",
                 file_unique_id = "unique-video",
-                width = 1920,
-                height = 1080,
                 duration = 5,
             ),
             **{
-                "from": TelegramUser(
+                "from": stubs.external.telegram_user(
                     id = 1,
                     first_name = "New User",
                     username = "username",
-                    is_bot = False,
                 ),
             },
         )
@@ -244,13 +226,13 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.mock_di.telegram_bot_api.download_file.assert_called_once_with("video1")
 
     def test_ingest_message_with_oversized_photo_skips_attachment_download(self):
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 10,
             date = int(datetime.now().timestamp()),
             caption = "Oversized photo caption",
             photo = [
-                PhotoSize(
+                stubs.external.telegram_photo_size(
                     file_id = "photo-too-large",
                     file_unique_id = "unique-photo",
                     width = 4096,
@@ -259,11 +241,10 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
                 ),
             ],
             **{
-                "from": TelegramUser(
+                "from": stubs.external.telegram_user(
                     id = 1,
                     first_name = "New User",
                     username = "username",
-                    is_bot = False,
                 ),
             },
         )
@@ -277,18 +258,21 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "1",
+            ),
         )
-        uploader = self.sql.user_repo().save(User(full_name = "Agent", telegram_user_id = 123))
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Agent", telegram_user_id = 123))
         self.sql.chat_message_repo().save(
-            ChatMessage(
+            stubs.domain.chat_message(
                 chat_id = chat.chat_id,
                 message_id = "19",
                 text = "Original caption\n\n📎 [ remote123 ]",
             ),
         )
         self.sql.chat_attachment_repo().save(
-            ChatAttachment(
+            stubs.domain.chat_attachment(
                 id = "local123",
                 chat_id = chat.chat_id,
                 uploader_user_id = uploader.id,
@@ -296,18 +280,18 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
                 mime_type = "image/png",
             ),
         )
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 20,
             date = int(datetime.now().timestamp()),
             text = "Please use this",
-            reply_to_message = Message(
-                chat = Chat(id = 1, type = "private"),
+            reply_to_message = stubs.external.telegram_message(
+                chat = stubs.external.telegram_chat(id = 1),
                 message_id = 19,
                 date = int(datetime.now().timestamp()),
             ),
             **{
-                "from": TelegramUser(id = 1, first_name = "New User", username = "username", is_bot = False),
+                "from": stubs.external.telegram_user(id = 1, first_name = "New User", username = "username"),
             },
         )
 
@@ -319,14 +303,14 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertNotIn("remote123", result.message.text)
 
     def test_ingest_message_formats_native_quote_outside_mapper(self):
-        message = Message(
-            chat = Chat(id = 1, type = "private"),
+        message = stubs.external.telegram_message(
+            chat = stubs.external.telegram_chat(id = 1),
             message_id = 20,
             date = int(datetime.now().timestamp()),
             text = "Current message",
-            quote = TextQuote(text = "Selected quote", position = 0),
+            quote = stubs.external.telegram_text_quote(),
             **{
-                "from": TelegramUser(id = 1, first_name = "New User", username = "username", is_bot = False),
+                "from": stubs.external.telegram_user(id = 1, first_name = "New User", username = "username"),
             },
         )
 
@@ -340,7 +324,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_store_author_new(self):
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             telegram_user_id = 1,
             full_name = "New User",
             telegram_chat_id = "c1",
@@ -361,14 +345,15 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.created_at, datetime.now().date())
 
     def test_store_author_by_username(self):
-        existing_user_data = User(
+        existing_user_data = stubs.domain.user(
             telegram_user_id = None,
             telegram_username = "unique_username",
+            telegram_chat_id = None,
             full_name = "Existing User",
         )
         existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             telegram_user_id = None,
             telegram_username = "unique_username",
             full_name = "Updated User",
@@ -394,7 +379,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
     @patch("features.users.user_repo.UserRepository.count")
     def test_store_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
         mock_count.return_value = config.max_users  # reach maximum immediately
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             telegram_user_id = 1,
             full_name = "New User",
             telegram_chat_id = "c1",
@@ -408,7 +393,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         mock_count.assert_called_once()
 
     def test_store_author_existing(self):
-        existing_user_data = User(
+        existing_user_data = stubs.domain.user(
             telegram_user_id = 1,
             full_name = "Existing User",
             telegram_chat_id = "c1",
@@ -432,7 +417,6 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
             tool_choice_vision = "openai",
             tool_choice_hearing = "openai",
             tool_choice_images_gen = "replicate",
-            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_search = "perplexity",
             tool_choice_embedding = "openai",
             tool_choice_api_fiat_exchange = "rapidapi",
@@ -442,7 +426,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         )
         existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             telegram_user_id = 1,
             full_name = "Updated User",
             telegram_chat_id = "c2",
@@ -491,7 +475,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_api_twitter, existing_user.tool_choice_api_twitter)
 
     def test_store_author_preserves_name_when_empty(self):
-        existing_user_data = User(
+        existing_user_data = stubs.domain.user(
             telegram_user_id = 1,
             full_name = "Existing User",
             telegram_chat_id = "c1",
@@ -499,7 +483,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         existing_user = self.sql.user_repo().save(existing_user_data)
 
         # Test with None full_name
-        mapped_data_none = UserRemoteData(
+        mapped_data_none = stubs.domain.user_remote_data(
             telegram_user_id = 1,
             full_name = None,
             telegram_chat_id = "c2",
@@ -512,7 +496,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.telegram_chat_id, existing_user.telegram_chat_id)
 
         # Test with empty string full_name
-        mapped_data_empty = UserRemoteData(
+        mapped_data_empty = stubs.domain.user_remote_data(
             telegram_user_id = 1,
             full_name = "",
             telegram_chat_id = "c3",
@@ -526,9 +510,12 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_store_message_new(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "c1",
+            ),
         )
-        mapped_data = ChatMessageRemoteData(
+        mapped_data = stubs.domain.chat_message_remote_data(
             message_id = "m1",
             sent_at = datetime.now(),
             text = "Raw message",
@@ -549,9 +536,12 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_store_message_with_existing(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "c1",
+            ),
         )
-        old_message_data = ChatMessage(
+        old_message_data = stubs.domain.chat_message(
             chat_id = chat.chat_id,
             message_id = "m1",
             author_id = None,
@@ -560,8 +550,8 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         )
         self.sql.chat_message_repo().save(old_message_data)
 
-        new_author = self.sql.user_repo().save(User(full_name = "First Last", telegram_chat_id = "c1"))
-        mapped_data = ChatMessageRemoteData(
+        new_author = self.sql.user_repo().save(stubs.domain.user(full_name = "First Last", telegram_chat_id = "c1"))
+        mapped_data = stubs.domain.chat_message_remote_data(
             message_id = "m1",
             sent_at = datetime.now(),
             text = "Raw updated message",
@@ -581,20 +571,27 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_store_message_preserves_existing_author_when_unresolved(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "c1",
+            ),
         )
-        author = self.sql.user_repo().save(User(
-            full_name = "Existing Author",
-            telegram_user_id = 1,
-        ))
-        self.sql.chat_message_repo().save(ChatMessage(
-            chat_id = chat.chat_id,
-            message_id = "m1",
-            author_id = author.id,
-            sent_at = datetime.now() - timedelta(days = 1),
-            text = "Old message",
-        ))
-        mapped_data = ChatMessageRemoteData(
+        author = self.sql.user_repo().save(
+            stubs.domain.user(
+                full_name = "Existing Author",
+                telegram_user_id = 1,
+            ),
+        )
+        self.sql.chat_message_repo().save(
+            stubs.domain.chat_message(
+                chat_id = chat.chat_id,
+                message_id = "m1",
+                author_id = author.id,
+                sent_at = datetime.now() - timedelta(days = 1),
+                text = "Old message",
+            ),
+        )
+        mapped_data = stubs.domain.chat_message_remote_data(
             message_id = "m1",
             sent_at = datetime.now(),
             text = "Raw edited message",
@@ -610,16 +607,17 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_store_attachment_new(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "c1",
+            ),
         )
-        uploader = self.sql.user_repo().save(User(full_name = "Uploader", telegram_user_id = 123))
-        self.sql.chat_message_repo().save(ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"))
-        mapped_data = ChatAttachmentRemoteData(
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader", telegram_user_id = 123))
+        self.sql.chat_message_repo().save(stubs.domain.chat_message(chat_id = chat.chat_id, message_id = "m1", text = "x"))
+        mapped_data = stubs.domain.chat_attachment_remote_data(
             external_id = "e1",
             message_id = "m1",
             last_url = "path/to/file.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
         )
 
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
@@ -638,11 +636,14 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
     def test_store_attachment_existing(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.telegram),
+            stubs.domain.chat_config(
+                chat_id = None,
+                external_id = "c1",
+            ),
         )
-        self.sql.chat_message_repo().save(ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"))
-        uploader = self.sql.user_repo().save(User(full_name = "Uploader", telegram_user_id = 123))
-        old_attachment_data = ChatAttachment(
+        self.sql.chat_message_repo().save(stubs.domain.chat_message(chat_id = chat.chat_id, message_id = "m1", text = "x"))
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader", telegram_user_id = 123))
+        old_attachment_data = stubs.domain.chat_attachment(
             id = "i1",
             external_id = "e1",
             chat_id = chat.chat_id,
@@ -650,12 +651,10 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
             message_id = "m1",
             size = 1,
             last_url = f"s3://{config.s3_bucket}/chats/{chat.chat_id}/attachments/i1.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
         )
         self.sql.chat_attachment_repo().save(old_attachment_data)
 
-        mapped_data = ChatAttachmentRemoteData(external_id = "e1", message_id = "m1")
+        mapped_data = stubs.domain.chat_attachment_remote_data(external_id = "e1", message_id = "m1")
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
         saved_attachment = self.sql.chat_attachment_repo().get("i1")
 

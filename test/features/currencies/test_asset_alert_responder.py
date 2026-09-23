@@ -1,18 +1,15 @@
 import unittest
-from datetime import datetime
 from unittest.mock import Mock
 from uuid import UUID
 
+import stubs
 from langchain_core.messages import AIMessage
 
-from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
-from features.chat.config.chat_config import ChatConfig
 from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.currencies.asset_alert_responder import respond_with_asset_alerts
-from features.currencies.asset_alert_service import DATETIME_PRINT_FORMAT, AssetAlertService
-from features.currencies.asset_price import AssetType
+from features.currencies.asset_alert_service import AssetAlertService
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
@@ -31,7 +28,10 @@ class AssetAlertResponderTest(unittest.TestCase):
         self.mock_di = Mock(spec = DI)
 
         self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
-        self.mock_di.chat_config_repo.get = self.__make_chat_config
+        self.mock_di.chat_config_repo.get.side_effect = lambda chat_id: stubs.domain.chat_config(
+            chat_id = chat_id,
+            external_id = str(chat_id.int),
+        )
 
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
@@ -64,7 +64,10 @@ class AssetAlertResponderTest(unittest.TestCase):
         self.mock_di.clone.return_value = self.mock_scoped_di
 
     def test_sys_announcements_service_normalizes_structured_content(self):
-        chat = self.__make_chat_config(UUID(int = 1))
+        chat = stubs.domain.chat_config(
+            chat_id = UUID(int = 1),
+            external_id = "1",
+        )
         copywriter = Mock()
         copywriter.invoke.return_value = AIMessage(content = [
             {"type": "thinking", "thinking": "Hidden reasoning"},
@@ -79,39 +82,17 @@ class AssetAlertResponderTest(unittest.TestCase):
         self.assertEqual(resolved_chat, chat)
         self.assertEqual(response.content, "System announcement")
 
-    @staticmethod
-    def __make_chat_config(chat_id: UUID) -> ChatConfig:
-        return ChatConfig(
-            chat_id = chat_id,
-            external_id = str(chat_id.int),
-            title = "Test Chat",
-            is_private = False,
-            reply_chance_percent = 100,
-            release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            language_name = "English",
-            language_iso_code = "en",
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-
     # noinspection PyUnusedLocal
     def test_successful_announcements(self):
         # Create actual TriggeredAlert objects
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            AssetAlertService.TriggeredAlert(
-                chat_id = UUID(int = 123), owner_id = test_owner_id,
-                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
-                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
-                price_change_percent = 10,
-            ),
-            AssetAlertService.TriggeredAlert(
-                chat_id = UUID(int = 456), owner_id = test_owner_id,
-                asset_type = AssetType.crypto, asset_id = "ETH", currency = "EUR", threshold_percent = 3,
-                old_price = 2000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_price = 2100, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
-                price_change_percent = 5,
+            stubs.domain.triggered_alert(chat_id = UUID(int = 123), owner_id = test_owner_id),
+            stubs.domain.triggered_alert(
+                chat_id = UUID(int = 456),
+                owner_id = test_owner_id,
+                asset_id = "ETH",
+                currency = "EUR",
             ),
         ]
 
@@ -165,12 +146,9 @@ class AssetAlertResponderTest(unittest.TestCase):
     def test_announcement_creation_failure(self):
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            AssetAlertService.TriggeredAlert(
-                chat_id = UUID(int = 123), owner_id = test_owner_id,
-                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
-                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
-                price_change_percent = 10,
+            stubs.domain.triggered_alert(
+                chat_id = UUID(int = 123),
+                owner_id = test_owner_id,
             ),
         ]
 
@@ -204,12 +182,9 @@ class AssetAlertResponderTest(unittest.TestCase):
         # Create actual TriggeredAlert objects
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            AssetAlertService.TriggeredAlert(
-                chat_id = UUID(int = 123), owner_id = test_owner_id,
-                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
-                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
-                price_change_percent = 10,
+            stubs.domain.triggered_alert(
+                chat_id = UUID(int = 123),
+                owner_id = test_owner_id,
             ),
         ]
 
@@ -235,12 +210,9 @@ class AssetAlertResponderTest(unittest.TestCase):
         # Create actual TriggeredAlert objects
         test_owner_id = UUID(int = 1)
         triggered_alerts = [
-            AssetAlertService.TriggeredAlert(
-                chat_id = UUID(int = 123), owner_id = test_owner_id,
-                asset_type = AssetType.crypto, asset_id = "BTC", currency = "USD", threshold_percent = 5,
-                old_price = 10000, old_price_time = datetime(2023, 1, 1).strftime(DATETIME_PRINT_FORMAT),
-                new_price = 11000, new_price_time = datetime(2023, 1, 2).strftime(DATETIME_PRINT_FORMAT),
-                price_change_percent = 10,
+            stubs.domain.triggered_alert(
+                chat_id = UUID(int = 123),
+                owner_id = test_owner_id,
             ),
         ]
 

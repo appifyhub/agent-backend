@@ -2,9 +2,9 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta
 
+import stubs
 from db.sql_util import SQLUtil
 
-from features.tools_cache.tools_cache import ToolsCache
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 
 
@@ -23,7 +23,7 @@ class ToolsCacheRepositoryTest(unittest.TestCase):
     def test_save_creates_tools_cache(self):
         created_at = datetime(2026, 1, 1, 12, 0, 0)
         expires_at = datetime(2026, 1, 2, 12, 0, 0)
-        tools_cache = ToolsCache(
+        tools_cache = stubs.domain.tools_cache(
             key = "key",
             value = "value",
             created_at = created_at,
@@ -35,7 +35,7 @@ class ToolsCacheRepositoryTest(unittest.TestCase):
         self.assertEqual(result, tools_cache)
 
     def test_get_returns_saved_tools_cache(self):
-        created = self.repo.save(ToolsCache(key = "key", value = "value"))
+        created = self.repo.save(stubs.domain.tools_cache(key = "key"))
 
         result = self.repo.get(created.key)
 
@@ -47,23 +47,23 @@ class ToolsCacheRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_all_tools_caches(self):
-        first = self.repo.save(ToolsCache(key = "key1", value = "value1"))
-        second = self.repo.save(ToolsCache(key = "key2", value = "value2"))
+        first = self.repo.save(stubs.domain.tools_cache(key = "key1"))
+        second = self.repo.save(stubs.domain.tools_cache(key = "key2"))
 
         results = self.repo.get_all()
 
         self.assertEqual({result.key for result in results}, {first.key, second.key})
 
     def test_get_all_applies_pagination(self):
-        self.repo.save(ToolsCache(key = "key1", value = "value1"))
-        self.repo.save(ToolsCache(key = "key2", value = "value2"))
+        self.repo.save(stubs.domain.tools_cache(key = "key1"))
+        self.repo.save(stubs.domain.tools_cache(key = "key2"))
 
         results = self.repo.get_all(skip = 0, limit = 1)
 
         self.assertEqual(len(results), 1)
 
     def test_save_replaces_all_mutable_fields(self):
-        created = self.repo.save(ToolsCache(
+        created = self.repo.save(stubs.domain.tools_cache(
             key = "key",
             value = "old-value",
             created_at = datetime(2026, 1, 1, 12, 0, 0),
@@ -81,9 +81,8 @@ class ToolsCacheRepositoryTest(unittest.TestCase):
         self.assertEqual(result, replacement)
 
     def test_save_can_clear_expiration(self):
-        created = self.repo.save(ToolsCache(
+        created = self.repo.save(stubs.domain.tools_cache(
             key = "key",
-            value = "value",
             expires_at = datetime(2026, 1, 2, 12, 0, 0),
         ))
 
@@ -93,7 +92,7 @@ class ToolsCacheRepositoryTest(unittest.TestCase):
         self.assertFalse(result.is_expired())
 
     def test_delete_returns_deleted_tools_cache(self):
-        created = self.repo.save(ToolsCache(key = "key", value = "value"))
+        created = self.repo.save(stubs.domain.tools_cache(key = "key"))
 
         result = self.repo.delete(created.key)
 
@@ -107,19 +106,16 @@ class ToolsCacheRepositoryTest(unittest.TestCase):
 
     def test_delete_expired(self):
         now = datetime.now()
-        self.repo.save(ToolsCache(
+        self.repo.save(stubs.domain.tools_cache(
             key = "expired",
-            value = "value",
             expires_at = now - timedelta(days = 1),
         ))
-        self.repo.save(ToolsCache(
+        self.repo.save(stubs.domain.tools_cache(
             key = "future",
-            value = "value",
             expires_at = now + timedelta(days = 1),
         ))
-        self.repo.save(ToolsCache(
+        self.repo.save(stubs.domain.tools_cache(
             key = "never",
-            value = "value",
             expires_at = None,
         ))
 

@@ -3,21 +3,16 @@ import unittest
 from unittest.mock import MagicMock, Mock, call, patch
 from uuid import UUID
 
+import stubs
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from pydantic import SecretStr
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
-from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.storage.attachment_storage import PublicAttachment
-from features.chat.config.chat_config import ChatConfig
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_video
-from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import GPT_5_NANO, VIDEO_GEN_P_VIDEO
 from features.external_tools.intelligence_presets import default_tool_for
-from features.users.user import User
 from features.videos import smart_video_generator
 from features.videos.smart_video_generator import SmartVideoGenerator
 from features.videos.video_api_utils import map_to_model_parameters
@@ -28,58 +23,45 @@ from util.errors import ExternalServiceError, ValidationError
 class SmartVideoGeneratorTest(unittest.TestCase):
 
     def setUp(self):
-        self.invoker_id = UUID(int = 1)
-        self.chat_id = UUID(int = 2)
-        self.copywriter_tool = ConfiguredTool(
-            definition = GPT_5_NANO,
-            token = SecretStr("copywriter-token"),
-            purpose = ToolType.copywriting,
-            payer_id = self.invoker_id,
-            uses_credits = True,
-        )
-        self.video_tool = ConfiguredTool(
-            definition = VIDEO_GEN_P_VIDEO,
-            token = SecretStr("replicate-token"),
-            purpose = ToolType.videos_gen,
-            payer_id = self.invoker_id,
-            uses_credits = True,
-        )
-        self.chat = ChatConfig(
-            chat_id = self.chat_id,
-            external_id = "12345",
-            chat_type = ChatConfigDB.ChatType.telegram,
-            media_mode = ChatConfigDB.MediaMode.photo,
-        )
         self.copywriter = Mock()
         self.copywriter.invoke.return_value = AIMessage(content = "Enhanced video prompt")
         self.di = Mock(spec = DI)
         self.di.chat_langchain_model.return_value = self.copywriter
-        self.di.require_invoker_chat.return_value = self.chat
-        self.di.require_invoker_chat_type.return_value = self.chat.chat_type
-        self.di.invoker = User(id = self.invoker_id)
+        self.di.invoker = stubs.domain.user()
 
     def _generator(
         self,
         attachment_ids: list[str] | None = None,
         urls: list[str] | None = None,
+        copywriter_tool = None,
+        video_tool = None,
     ) -> SmartVideoGenerator:
         return SmartVideoGenerator(
             raw_prompt = "Make them shake hands",
             attachment_ids = attachment_ids or [],
             urls = urls or [],
-            configured_copywriter_tool = self.copywriter_tool,
-            configured_video_gen_tool = self.video_tool,
+            configured_copywriter_tool = copywriter_tool or stubs.domain.configured_tool(
+                definition = GPT_5_NANO,
+                purpose = ToolType.copywriting,
+            ),
+            configured_video_gen_tool = video_tool or stubs.domain.configured_tool(
+                definition = VIDEO_GEN_P_VIDEO,
+                purpose = ToolType.videos_gen,
+            ),
             di = self.di,
         )
 
     def test_constructor_rejects_empty_prompt_before_resolving_attachments(self):
+        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        video_tool = stubs.domain.configured_tool(definition = VIDEO_GEN_P_VIDEO, purpose = ToolType.videos_gen)
+
         with self.assertRaises(ValidationError) as context:
             SmartVideoGenerator(
                 raw_prompt = " ",
                 attachment_ids = ["attachment"],
                 urls = [],
-                configured_copywriter_tool = self.copywriter_tool,
-                configured_video_gen_tool = self.video_tool,
+                configured_copywriter_tool = copywriter_tool,
+                configured_video_gen_tool = video_tool,
                 di = self.di,
             )
 
@@ -88,6 +70,9 @@ class SmartVideoGeneratorTest(unittest.TestCase):
 
     def test_execute_screenwrites_synchronously_before_starting_worker(self):
         events = []
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
         worker = Mock()
         worker.start.side_effect = lambda: events.append("worker")
         self.copywriter.invoke.side_effect = lambda messages: (
@@ -135,6 +120,8 @@ class SmartVideoGeneratorTest(unittest.TestCase):
         slots.release.assert_not_called()
 
     def test_llm_tool_parses_references_and_returns_immediate_acknowledgement(self):
+        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        video_tool = stubs.domain.configured_tool(definition = VIDEO_GEN_P_VIDEO, purpose = ToolType.videos_gen)
         generator = Mock()
         generator.execute.return_value = {
             "status": "started",
@@ -142,7 +129,7 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             "used_reference_images": 2,
             "ignored_reference_images": 1,
         }
-        self.di.tool_choice_resolver.require_tool.side_effect = [self.copywriter_tool, self.video_tool]
+        self.di.tool_choice_resolver.require_tool.side_effect = [copywriter_tool, video_tool]
         self.di.smart_video_generator.return_value = generator
 
         result = json.loads(generate_video(
@@ -170,8 +157,8 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             raw_prompt = "Make them shake hands",
             attachment_ids = ["first", "second"],
             urls = ["https://example.com/first.png", "https://example.com/second.png"],
-            configured_copywriter_tool = self.copywriter_tool,
-            configured_video_gen_tool = self.video_tool,
+            configured_copywriter_tool = copywriter_tool,
+            configured_video_gen_tool = video_tool,
             duration = "long",
             aspect_ratio = "16:9",
             output_size = "2K",
@@ -188,26 +175,15 @@ class SmartVideoGeneratorTest(unittest.TestCase):
 
     def test_execute_truncates_references_before_screenwriting_and_worker_handoff(self):
         attachments = [
-            ChatAttachment(
-                id = "first",
-                chat_id = self.chat_id,
-                uploader_user_id = self.invoker_id,
-                mime_type = "image/png",
-                extension = "png",
-            ),
-            ChatAttachment(
-                id = "ignored",
-                chat_id = self.chat_id,
-                uploader_user_id = self.invoker_id,
-                mime_type = "image/png",
-                extension = "png",
-            ),
+            stubs.domain.chat_attachment(id = "first"),
+            stubs.domain.chat_attachment(id = "ignored"),
         ]
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
         self.di.chat_attachment_service.resolve_image_attachments.return_value = attachments
-        self.di.chat_attachment_service.create_public_url.return_value = PublicAttachment(
-            id = "first",
+        self.di.chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(
             url = "https://example.com/first.png",
-            valid_until = 1,
         )
         worker = Mock()
 
@@ -244,12 +220,15 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             ["https://example.com/reference.png"],
         )
         self.di.chat_attachment_service.create_public_url.assert_called_once_with(attachments[0])
-        screenwriter.assert_called_once_with(self.chat.chat_type, 1)
+        screenwriter.assert_called_once_with(chat.chat_type, 1)
         parameters = thread.call_args.kwargs["kwargs"]["parameters"]
         self.assertEqual(parameters.image, "https://example.com/first.png")
         self.assertIsNone(parameters.reference_images)
 
     def test_execute_rejects_busy_service_after_screenwriting(self):
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
         with patch.object(
             smart_video_generator,
             "VIDEO_GENERATION_SLOTS",
@@ -273,6 +252,9 @@ class SmartVideoGeneratorTest(unittest.TestCase):
 
     def test_execute_does_not_acquire_slot_when_screenwriting_fails(self):
         self.copywriter.invoke.side_effect = RuntimeError("Copywriter unavailable")
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
 
         with patch.object(
             smart_video_generator,
@@ -297,6 +279,9 @@ class SmartVideoGeneratorTest(unittest.TestCase):
     def test_execute_releases_slot_when_worker_cannot_start(self):
         worker = Mock()
         worker.start.side_effect = RuntimeError("Thread unavailable")
+        chat = stubs.domain.chat_config()
+        self.di.require_invoker_chat.return_value = chat
+        self.di.require_invoker_chat_type.return_value = chat.chat_type
 
         with patch.object(
             smart_video_generator,
@@ -319,7 +304,10 @@ class SmartVideoGeneratorTest(unittest.TestCase):
         slots.release.assert_called_once_with()
 
     def test_background_worker_reuses_generation_scope_for_delivery(self):
-        parameters = map_to_model_parameters(VIDEO_GEN_P_VIDEO, prompt = "Enhanced video prompt")
+        invoker_id = UUID(int = 1)
+        chat_id = UUID(int = 2)
+        video_tool = stubs.domain.configured_tool(definition = VIDEO_GEN_P_VIDEO, purpose = ToolType.videos_gen)
+        parameters = map_to_model_parameters(video_tool.definition, prompt = "Enhanced video prompt")
         events = []
         worker_context = MagicMock()
         worker_db = Mock()
@@ -349,10 +337,10 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             "VIDEO_GENERATION_SLOTS",
         ) as slots:
             smart_video_generator._run_video_worker(
-                configured_video_gen_tool = self.video_tool,
+                configured_video_gen_tool = video_tool,
                 parameters = parameters,
-                invoker_id = self.invoker_id,
-                invoker_chat_id = self.chat_id,
+                invoker_id = invoker_id,
+                invoker_chat_id = chat_id,
                 external_chat_id = "12345",
                 media_mode = ChatConfigDB.MediaMode.photo,
             )
@@ -362,8 +350,8 @@ class SmartVideoGeneratorTest(unittest.TestCase):
             events,
             ["generation completed", "accounting transaction released", "upload action", "video delivery started"],
         )
-        di_factory.assert_called_once_with(worker_db, self.invoker_id.hex, self.chat_id.hex)
-        worker_di.simple_video_generator.assert_called_once_with(self.video_tool, parameters)
+        di_factory.assert_called_once_with(worker_db, invoker_id.hex, chat_id.hex)
+        worker_di.simple_video_generator.assert_called_once_with(video_tool, parameters)
         worker_di.rollback_db_session.assert_called_once_with()
         platform_sdk.set_chat_action.assert_called_once_with(chat_id = "12345", action = "upload_video")
         platform_sdk.smart_send_video.assert_called_once_with(
@@ -375,7 +363,12 @@ class SmartVideoGeneratorTest(unittest.TestCase):
         slots.release.assert_called_once_with()
 
     def test_background_worker_notifies_chat_with_formatted_failure(self):
-        parameters = map_to_model_parameters(VIDEO_GEN_P_VIDEO, prompt = "Enhanced video prompt")
+        invoker_id = UUID(int = 1)
+        chat_id = UUID(int = 2)
+        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        video_tool = stubs.domain.configured_tool(definition = VIDEO_GEN_P_VIDEO, purpose = ToolType.videos_gen)
+        chat = stubs.domain.chat_config()
+        parameters = map_to_model_parameters(video_tool.definition, prompt = "Enhanced video prompt")
         known_error = ExternalServiceError("Replicate unavailable", VIDEO_GENERATION_FAILED)
         cases = [
             (known_error, known_error),
@@ -397,10 +390,10 @@ class SmartVideoGeneratorTest(unittest.TestCase):
                 generation_di = Mock(spec = DI)
                 notification_di = Mock(spec = DI)
                 generation_di.simple_video_generator.return_value.execute.side_effect = raised_error
-                notification_di.require_invoker_chat.return_value = self.chat
-                notification_di.tool_choice_resolver.require_tool.return_value = self.copywriter_tool
+                notification_di.require_invoker_chat.return_value = chat
+                notification_di.tool_choice_resolver.require_tool.return_value = copywriter_tool
                 notification_di.sys_announcements_service.return_value.execute.return_value = (
-                    self.chat,
+                    chat,
                     AIMessage(content = "Localized video failure notification"),
                 )
 
@@ -417,10 +410,10 @@ class SmartVideoGeneratorTest(unittest.TestCase):
                     "VIDEO_GENERATION_SLOTS",
                 ) as slots:
                     smart_video_generator._run_video_worker(
-                        configured_video_gen_tool = self.video_tool,
+                        configured_video_gen_tool = video_tool,
                         parameters = parameters,
-                        invoker_id = self.invoker_id,
-                        invoker_chat_id = self.chat_id,
+                        invoker_id = invoker_id,
+                        invoker_chat_id = chat_id,
                         external_chat_id = "12345",
                         media_mode = ChatConfigDB.MediaMode.photo,
                     )
@@ -431,8 +424,8 @@ class SmartVideoGeneratorTest(unittest.TestCase):
                 )
                 notification_di.sys_announcements_service.assert_called_once_with(
                     raw_information = f"Your video could not be generated or delivered.\n\n{str(expected_error)}",
-                    target_chat = self.chat,
-                    configured_tool = self.copywriter_tool,
+                    target_chat = chat,
+                    configured_tool = copywriter_tool,
                 )
                 notification_di.platform_bot_sdk.return_value.send_text_message.assert_called_once_with(
                     chat_id = "12345",

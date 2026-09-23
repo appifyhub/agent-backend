@@ -8,8 +8,11 @@ from util.errors import ExternalServiceError
 from util.functions import (
     detect_image_format,
     extract_url_from_replicate_result,
+    generate_deterministic_short_uuid,
     generate_short_uuid,
     mask_secret,
+    normalize_phone_number,
+    normalize_username,
     obfuscate_url,
     parse_ai_message_content,
     parse_gumroad_form,
@@ -188,27 +191,23 @@ class FunctionsTest(unittest.TestCase):
         self.assertRegex(result, r"^[0-9a-f]{8}$")
 
     def test_generate_deterministic_short_uuid_consistency(self):
-        from util.functions import generate_deterministic_short_uuid
         seed = "test_file_id_123"
         result1 = generate_deterministic_short_uuid(seed)
         result2 = generate_deterministic_short_uuid(seed)
         self.assertEqual(result1, result2)
 
     def test_generate_deterministic_short_uuid_format(self):
-        from util.functions import generate_deterministic_short_uuid
         result = generate_deterministic_short_uuid("test_seed")
         self.assertEqual(len(result), 8)
         # Should only contain hexadecimal characters
         self.assertRegex(result, r"^[0-9a-f]{8}$")
 
     def test_generate_deterministic_short_uuid_different_seeds(self):
-        from util.functions import generate_deterministic_short_uuid
         result1 = generate_deterministic_short_uuid("seed1")
         result2 = generate_deterministic_short_uuid("seed2")
         self.assertNotEqual(result1, result2)
 
     def test_generate_deterministic_short_uuid_realistic_telegram_ids(self):
-        from util.functions import generate_deterministic_short_uuid
         # Test with realistic Telegram file IDs
         telegram_file_id = "BAADBQADBgADmEjNSW5XPx5aVTaiAg"
         result1 = generate_deterministic_short_uuid(telegram_file_id)
@@ -286,51 +285,39 @@ class FunctionsTest(unittest.TestCase):
         self.assertIn("unknown", str(context.exception))
 
     def test_normalize_phone_number_none(self):
-        from util.functions import normalize_phone_number
         self.assertIsNone(normalize_phone_number(None))
 
     def test_normalize_phone_number_empty(self):
-        from util.functions import normalize_phone_number
         self.assertEqual(normalize_phone_number(""), "")
 
     def test_normalize_phone_number_plus_and_dashes(self):
-        from util.functions import normalize_phone_number
         self.assertEqual(normalize_phone_number("+1-234-567-8900"), "12345678900")
 
     def test_normalize_phone_number_spaces_parentheses(self):
-        from util.functions import normalize_phone_number
         self.assertEqual(normalize_phone_number("(123) 456 7890"), "1234567890")
 
     def test_normalize_phone_number_mixed_chars(self):
-        from util.functions import normalize_phone_number
         self.assertEqual(normalize_phone_number("wa:+38 044-123-45-67 ext.89"), "38044123456789")
 
     def test_normalize_phone_number_strips_leading_double_zero(self):
-        from util.functions import normalize_phone_number
         self.assertEqual(normalize_phone_number("0049123456789"), "49123456789")
 
     def test_normalize_username_none(self):
-        from util.functions import normalize_username
         self.assertIsNone(normalize_username(None))
 
     def test_normalize_username_empty(self):
-        from util.functions import normalize_username
         self.assertEqual(normalize_username(""), "")
 
     def test_normalize_username_with_at(self):
-        from util.functions import normalize_username
         self.assertEqual(normalize_username("@username"), "username")
 
     def test_normalize_username_with_plus(self):
-        from util.functions import normalize_username
         self.assertEqual(normalize_username("+username"), "username")
 
     def test_normalize_username_with_spaces(self):
-        from util.functions import normalize_username
         self.assertEqual(normalize_username("user name"), "username")
 
     def test_normalize_username_mixed_chars(self):
-        from util.functions import normalize_username
         self.assertEqual(normalize_username("@ +user name+"), "username")
 
     def test_parse_ai_message_content_string(self):

@@ -2,26 +2,21 @@ import io
 import os
 import tempfile
 import unittest
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
-from uuid import UUID
 
+import stubs
 from PIL import Image
 
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
 from di.di import DI
-from features.chat.config.chat_config import ChatConfig
 from features.integrations.integration_config import (
     TELEGRAM_MAX_PHOTO_SIZE_BYTES,
     TELEGRAM_MAX_VIDEO_SIZE_BYTES,
     WHATSAPP_MAX_VIDEO_SIZE_BYTES,
 )
 from features.integrations.platform_bot_sdk import ChatAccess, PlatformBotSDK
-from features.users.user import User
-from features.videos.video_file_utils import VideoMetadata
 from util.config import config
 from util.errors import ConfigurationError, ExternalServiceError
 
@@ -30,13 +25,10 @@ def _make_di() -> DI:
     di = Mock(spec = DI)
     di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.telegram
     di.chat_config_repo = Mock()
-    di.chat_config_repo.get_by_external_identifiers.return_value = SimpleNamespace(
-        chat_id = UUID(int = 1),
+    di.chat_config_repo.get_by_external_identifiers.return_value = stubs.domain.chat_config(
         external_id = "tg-chat-1",
-        media_mode = ChatConfigDB.MediaMode.photo,
-        chat_type = ChatConfigDB.ChatType.telegram,
     )
-    di.invoker = SimpleNamespace(id = UUID(int = 2))
+    di.invoker = stubs.domain.user()
     di.telegram_bot_sdk = Mock()
     di.telegram_bot_sdk.send_photo = Mock(return_value = "sent")
     di.telegram_bot_sdk.send_document = Mock(return_value = "document-sent")
@@ -46,16 +38,10 @@ def _make_di() -> DI:
     di.whatsapp_bot_sdk.send_document = Mock(return_value = "document-sent")
     di.whatsapp_bot_sdk.send_video = Mock(return_value = "video-sent")
     di.chat_attachment_service = Mock()
-    stored_attachment = SimpleNamespace(
-        id = "stored-attachment",
-        last_url = "s3://the-agent/chats/chat-id/attachments/stored-attachment",
-        extension = "mp4",
-        mime_type = "video/mp4",
-    )
+    stored_attachment = stubs.domain.chat_attachment(id = "stored-attachment")
     di.chat_attachment_service.save.return_value = stored_attachment
-    di.chat_attachment_service.create_public_url.return_value = SimpleNamespace(
+    di.chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(
         url = _public_attachment_url("stored-attachment"),
-        valid_until = 0,
     )
     return di
 
@@ -125,18 +111,9 @@ class PlatformBotSDKTest(unittest.TestCase):
         context.__enter__.return_value = (
             original_path,
             prepared_path,
-            VideoMetadata(
+            stubs.domain.video_metadata(
                 container = container,
-                video_codecs = ("h264",),
-                audio_codecs = ("aac",),
-                pixel_formats = ("yuv420p",),
-                video_stream_count = 1,
-                audio_stream_count = 1,
-                width = 1280,
-                height = 720,
-                duration_seconds = 10,
                 size_bytes = len(prepared or original),
-                has_fast_start = True,
             ),
         )
         return context, original_path, prepared_path, context.__enter__.return_value[2]
@@ -321,7 +298,7 @@ class PlatformBotSDKTest(unittest.TestCase):
                 photo_url = "http://example.com/img.png",
                 caption = "caption",
                 thumbnail = "http://example.com/thumb.png",
-        )
+            )
         di.telegram_bot_sdk.send_photo.assert_called_once_with(
             di.chat_config_repo.get_by_external_identifiers.return_value,
             di.chat_attachment_service.save.return_value,
@@ -447,7 +424,7 @@ class PlatformBotSDKTest(unittest.TestCase):
     def test_send_video_prepares_for_telegram_and_routes_native_attachment(self):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
-        prepared_attachment = SimpleNamespace(id = "prepared")
+        prepared_attachment = stubs.domain.chat_attachment(id = "prepared")
 
         with patch.object(sdk, "prepare_outgoing_video_attachment", return_value = prepared_attachment) as mock_prepare:
             result = sdk.send_video(
@@ -471,7 +448,7 @@ class PlatformBotSDKTest(unittest.TestCase):
         di = _make_di()
         di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
         sdk = PlatformBotSDK(di = di)
-        prepared_attachment = SimpleNamespace(id = "prepared")
+        prepared_attachment = stubs.domain.chat_attachment(id = "prepared")
 
         with patch.object(
             sdk,
@@ -576,31 +553,14 @@ class PlatformBotSDKTest(unittest.TestCase):
 
 class ResolveChatAccessTest(unittest.TestCase):
 
-    def _make_chat(self, chat_type: ChatConfigDB.ChatType, is_private: bool, external_id: str = "chat1") -> ChatConfig:
-        return ChatConfig(
-            chat_id = UUID(int = 1),
-            external_id = external_id,
-            is_private = is_private,
-            chat_type = chat_type,
-        )
-
-    def _make_user(self, telegram_user_id: int | None = 1, telegram_chat_id: str | None = None) -> User:
-        return User(
-            id = UUID(int = 2),
-            telegram_user_id = telegram_user_id,
-            telegram_chat_id = telegram_chat_id,
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
-
     def _make_member(self, status: str) -> SimpleNamespace:
         return SimpleNamespace(status = status)
 
     def test_own_private_chat_returns_owner(self):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = True, external_id = "chat1")
-        user = self._make_user(telegram_chat_id = "chat1")
+        chat = stubs.domain.chat_config(external_id = "chat1")
+        user = stubs.domain.user(telegram_chat_id = "chat1")
 
         self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.owner)
         di.telegram_bot_sdk.get_chat_member.assert_not_called()
@@ -608,8 +568,8 @@ class ResolveChatAccessTest(unittest.TestCase):
     def test_private_chat_not_owned_returns_none(self):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = True, external_id = "other_chat")
-        user = self._make_user(telegram_chat_id = "chat1")
+        chat = stubs.domain.chat_config(external_id = "other_chat")
+        user = stubs.domain.user(telegram_chat_id = "chat1")
 
         self.assertIsNone(sdk.resolve_chat_access(chat, user))
         di.telegram_bot_sdk.get_chat_member.assert_not_called()
@@ -618,8 +578,8 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("creator")
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.admin)
 
@@ -627,8 +587,8 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("administrator")
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.admin)
 
@@ -636,8 +596,8 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("member")
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.member)
 
@@ -645,8 +605,8 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("restricted")
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.member)
 
@@ -654,8 +614,8 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("left")
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertIsNone(sdk.resolve_chat_access(chat, user))
 
@@ -663,8 +623,8 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("kicked")
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertIsNone(sdk.resolve_chat_access(chat, user))
 
@@ -672,16 +632,16 @@ class ResolveChatAccessTest(unittest.TestCase):
         di = _make_di()
         di.telegram_bot_sdk.get_chat_member.return_value = None
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = 42)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user()
 
         self.assertIsNone(sdk.resolve_chat_access(chat, user))
 
     def test_telegram_group_no_telegram_user_id_returns_none(self):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.telegram, is_private = False)
-        user = self._make_user(telegram_user_id = None)
+        chat = stubs.domain.chat_config(is_private = False)
+        user = stubs.domain.user(telegram_user_id = None)
 
         self.assertIsNone(sdk.resolve_chat_access(chat, user))
         di.telegram_bot_sdk.get_chat_member.assert_not_called()
@@ -689,8 +649,11 @@ class ResolveChatAccessTest(unittest.TestCase):
     def test_whatsapp_group_returns_none(self):
         di = _make_di()
         sdk = PlatformBotSDK(di = di)
-        chat = self._make_chat(ChatConfigDB.ChatType.whatsapp, is_private = False)
-        user = self._make_user()
+        chat = stubs.domain.chat_config(
+            is_private = False,
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        )
+        user = stubs.domain.user()
 
         self.assertIsNone(sdk.resolve_chat_access(chat, user))
 

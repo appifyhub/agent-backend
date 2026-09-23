@@ -5,7 +5,6 @@ Custom linting script to enforce spacing rules:
 """
 
 import ast
-import re
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -36,43 +35,30 @@ class SpacingChecker(ast.NodeVisitor):
 
     def _check_keyword_spacing(self, keyword: ast.keyword) -> None:
         """Check if a keyword argument has proper spacing around equals sign."""
-        # Get the line content
-        line_num = keyword.lineno - 1  # Convert to 0-based index
+        keyword_name = keyword.arg
+        if keyword_name is None:
+            return
+
+        line_num = keyword.lineno - 1
         if line_num >= len(self.source_lines):
             return
 
         line = self.source_lines[line_num]
+        keyword_start = len(line.encode("utf-8")[:keyword.col_offset].decode("utf-8"))
+        search_start = keyword_start + len(keyword_name)
+        search_end = len(line)
+        if keyword.value.lineno == keyword.lineno:
+            search_end = len(line.encode("utf-8")[:keyword.value.col_offset].decode("utf-8"))
 
-        # Find the keyword argument in the line
-        # Pattern: keyword_name = value (we want spaces around =)
-        # We need to be careful about multiple keyword args on same line
-
-        # Look for the keyword name followed by equals
-        # keyword.arg is guaranteed to be not None due to check in visit_Call
-        assert keyword.arg is not None
-        keyword_pattern = rf"\b{re.escape(keyword.arg)}\s*=\s*"
-        matches = list(re.finditer(keyword_pattern, line))
-
-        if not matches:
+        equals_pos = line.find("=", search_start, search_end)
+        if equals_pos == -1:
             return
 
-        # For each match, check if it has proper spacing
-        for match in matches:
-            start_pos = match.start()
-            # Find the equals sign position
-            equals_pos = line.find("=", start_pos)
-            if equals_pos == -1:
-                continue
-
-            # Check spacing around equals sign
-            has_space_before = equals_pos > 0 and line[equals_pos - 1] == " "
-            has_space_after = equals_pos + 1 < len(line) and line[equals_pos + 1] == " "
-
-            if not (has_space_before and has_space_after):
-                # Calculate column position for the equals sign
-                col = equals_pos
-                violation_msg = f"Missing spaces around '=' in keyword argument '{keyword.arg}'"
-                self.violations.append((keyword.lineno, col + 1, violation_msg))
+        has_space_before = equals_pos > 0 and line[equals_pos - 1] == " "
+        has_space_after = equals_pos + 1 < len(line) and line[equals_pos + 1] == " "
+        if not (has_space_before and has_space_after):
+            violation_msg = f"Missing spaces around '=' in keyword argument '{keyword_name}'"
+            self.violations.append((keyword.lineno, equals_pos + 1, violation_msg))
 
     def _check_class_spacing(self, node: ast.ClassDef) -> None:
         """Check if a class definition has exactly one blank line after the class declaration."""
@@ -245,25 +231,32 @@ def fix_spacing_violations(content: str, violations: List[Tuple[int, int, str]])
         else:
             keyword_violations.append(violation)
 
-    # Fix class spacing violations first (in reverse order to maintain line numbers)
-    for line_num, col, _ in sorted(class_violations, reverse = True):
-        line_idx = line_num - 1  # Convert to 0-based
-        if line_idx >= 0 and line_idx < len(lines):
-            # Insert a blank line before the current line
-            lines.insert(line_idx, "")
-
-    # Fix keyword spacing violations
+    # Fix keyword spacing before inserting lines so source locations stay valid
     for line_num, col, _ in sorted(keyword_violations, reverse = True):
-        line_idx = line_num - 1  # Convert to 0-based
+        line_idx = line_num - 1
         if line_idx >= len(lines):
             continue
 
         line = lines[line_idx]
+        equals_idx = col - 1
+        if equals_idx >= len(line) or line[equals_idx] != "=":
+            continue
 
-        # Find keyword arguments without proper spacing and fix them
-        # Pattern to match: word=value or word= value or word =value
-        fixed_line = re.sub(r"(\w+)\s*=\s*", r"\1 = ", line)
-        lines[line_idx] = fixed_line
+        left = equals_idx
+        while left > 0 and line[left - 1] in " \t":
+            left -= 1
+
+        right = equals_idx + 1
+        while right < len(line) and line[right] in " \t":
+            right += 1
+
+        lines[line_idx] = f"{line[:left]} = {line[right:]}"
+
+    # Insert class spacing in reverse order to maintain line numbers
+    for line_num, _, _ in sorted(class_violations, reverse = True):
+        line_idx = line_num - 1
+        if 0 <= line_idx < len(lines):
+            lines.insert(line_idx, "")
 
     return "\n".join(lines) + "\n" if content.endswith("\n") else "\n".join(lines)
 
