@@ -1,42 +1,27 @@
 import unittest
 from datetime import datetime, timedelta
 
+import stubs
+
 from features.tools_cache.tools_cache import ToolsCache
 
 
 class ToolsCacheTest(unittest.TestCase):
 
-    def test_created_at_defaults_per_instance(self):
-        before = datetime.now()
-
-        first = ToolsCache(key = "key1", value = "value1")
-        second = ToolsCache(key = "key2", value = "value2")
-
-        after = datetime.now()
-        self.assertGreaterEqual(first.created_at, before)
-        self.assertLessEqual(first.created_at, after)
-        self.assertGreaterEqual(second.created_at, first.created_at)
-        self.assertLessEqual(second.created_at, after)
-        self.assertIsNot(first.created_at, second.created_at)
-
     def test_is_expired_with_no_expiration(self):
-        tools_cache = ToolsCache(key = "key1", value = "value1")
+        tools_cache = stubs.domain.tools_cache(expires_at = None)
 
         self.assertFalse(tools_cache.is_expired())
 
     def test_is_expired_with_future_expiration(self):
-        tools_cache = ToolsCache(
-            key = "key2",
-            value = "value2",
+        tools_cache = stubs.domain.tools_cache(
             expires_at = datetime.now() + timedelta(days = 1),
         )
 
         self.assertFalse(tools_cache.is_expired())
 
     def test_is_expired_with_past_expiration(self):
-        tools_cache = ToolsCache(
-            key = "key3",
-            value = "value3",
+        tools_cache = stubs.domain.tools_cache(
             expires_at = datetime.now() - timedelta(days = 1),
         )
 

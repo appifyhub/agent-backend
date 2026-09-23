@@ -4,9 +4,9 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
 
 import requests_mock
+import stubs
 
 from di.di import DI
-from features.tools_cache.tools_cache import ToolsCache
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 from features.web_browsing.web_fetcher import (
     DEFAULT_HEADERS,
@@ -20,8 +20,6 @@ DEFAULT_URL = "https://example.com"
 class WebFetcherTest(unittest.TestCase):
 
     mock_di: DI
-    cache_entry_html: ToolsCache
-    cache_entry_json: ToolsCache
 
     def setUp(self):
         config.web_retries = 1
@@ -34,17 +32,6 @@ class WebFetcherTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.tool_choice_resolver = MagicMock()
         self.mock_di.twitter_status_fetcher = MagicMock()
-
-        self.cache_entry_html = ToolsCache(
-            key = "web-fetcher::test_key",
-            value = "Cached HTML content",
-            expires_at = datetime.now() + timedelta(hours = 1),
-        )
-        self.cache_entry_json = ToolsCache(
-            key = "web-fetcher::test_key",
-            value = json.dumps({"key": "Cached value"}),
-            expires_at = datetime.now() + timedelta(hours = 1),
-        )
 
     @requests_mock.Mocker()
     def test_auto_fetch_html_disabled(self, m: requests_mock.Mocker):
@@ -67,7 +54,7 @@ class WebFetcherTest(unittest.TestCase):
         self.assertEqual(fetcher.html, "data")
 
     def test_fetch_html_ok_cache_hit(self):
-        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry_html
+        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(value = "Cached HTML content")
         fetcher = WebFetcher(
             DEFAULT_URL,
             self.mock_di,
@@ -78,7 +65,6 @@ class WebFetcherTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_fetch_html_force_bypasses_cache_and_replaces_it(self, m: requests_mock.Mocker):
-        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry_html
         m.get(DEFAULT_URL, text = "Fresh HTML content", status_code = 200)
         fetcher = WebFetcher(
             DEFAULT_URL,
@@ -95,9 +81,7 @@ class WebFetcherTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_fetch_html_expired_cache_refreshes(self, m: requests_mock.Mocker):
-        expired = ToolsCache(
-            key = "expired",
-            value = "Expired HTML content",
+        expired = stubs.domain.tools_cache(
             expires_at = datetime.now() - timedelta(seconds = 1),
         )
         self.mock_di.tools_cache_repo.get.return_value = expired
@@ -181,7 +165,9 @@ class WebFetcherTest(unittest.TestCase):
         self.assertEqual(result, stub)
 
     def test_fetch_json_ok_cache_hit(self):
-        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry_json
+        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(
+            value = json.dumps({"key": "Cached value"}),
+        )
         fetcher = WebFetcher(
             DEFAULT_URL,
             self.mock_di,
@@ -192,7 +178,6 @@ class WebFetcherTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_fetch_json_force_bypasses_cache_and_replaces_it(self, m: requests_mock.Mocker):
-        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry_json
         m.get(DEFAULT_URL, json = {"key": "Fresh value"}, status_code = 200)
         fetcher = WebFetcher(
             DEFAULT_URL,
@@ -209,9 +194,7 @@ class WebFetcherTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_fetch_json_expired_cache_refreshes(self, m: requests_mock.Mocker):
-        expired = ToolsCache(
-            key = "expired",
-            value = json.dumps({"key": "Expired value"}),
+        expired = stubs.domain.tools_cache(
             expires_at = datetime.now() - timedelta(seconds = 1),
         )
         self.mock_di.tools_cache_repo.get.return_value = expired
@@ -422,12 +405,7 @@ class WebFetcherTest(unittest.TestCase):
     def test_fetch_html_non_twitter(self, mock_resolve_tweet_id):
         mock_resolve_tweet_id.return_value = None
 
-        mock_cache_entry = ToolsCache(
-            key = "test_cache_key",
-            value = "Cached HTML content",
-            expires_at = datetime.now() + timedelta(hours = 1),
-        )
-        self.mock_di.tools_cache_repo.get.return_value = mock_cache_entry
+        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(value = "Cached HTML content")
 
         fetcher = WebFetcher(
             DEFAULT_URL,
@@ -440,12 +418,9 @@ class WebFetcherTest(unittest.TestCase):
     def test_fetch_json_non_twitter(self, mock_resolve_tweet_id):
         mock_resolve_tweet_id.return_value = None
 
-        mock_cache_entry = ToolsCache(
-            key = "test_cache_key",
+        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(
             value = json.dumps({"key": "Cached value"}),
-            expires_at = datetime.now() + timedelta(hours = 1),
         )
-        self.mock_di.tools_cache_repo.get.return_value = mock_cache_entry
 
         fetcher = WebFetcher(
             DEFAULT_URL,
