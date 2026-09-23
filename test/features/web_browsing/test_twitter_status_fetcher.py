@@ -2,15 +2,16 @@ import json
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
-from uuid import UUID
 
 import requests
 import requests_mock
+import stubs
 from pydantic import SecretStr
 from requests_mock import Mocker
 
 from di.di import DI
-from features.external_tools.tool_choice_resolver import ConfiguredTool
+from features.external_tools.external_tool import ToolType
+from features.external_tools.external_tool_library import GPT_5_5, X_READ_POST
 from features.tools_cache.tools_cache import ToolsCache
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 from features.web_browsing.twitter_status_fetcher import (
@@ -25,22 +26,12 @@ from util.config import config
 
 class TwitterStatusFetcherTest(unittest.TestCase):
 
-    tweet_id: str
-    api_url: str
-    cache_entry: ToolsCache
     mock_di: DI
-    mock_x_api_tool: ConfiguredTool
-    mock_vision_tool: ConfiguredTool
 
     def setUp(self):
-        config.web_timeout_s = 0
         self.tweet_id = "123456789"
         self.api_url = f"https://api.x.com/2/tweets/{self.tweet_id}"
-        self.cache_entry = ToolsCache(
-            key = "twitter-status-fetcher::123456789",
-            value = "This is cached tweet content",
-            expires_at = datetime.now() + timedelta(minutes = 5),
-        )
+        config.web_timeout_s = 0
 
         # Set up DI container
         self.mock_di = Mock(spec = DI)
@@ -50,50 +41,26 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         self.mock_di.computer_vision_analyzer = MagicMock()
 
         # Mock invoker and chat for usage tracking
-        mock_user = Mock()
-        mock_user.id = UUID(int = 1)
-        self.mock_di.invoker = mock_user
-
-        mock_chat = Mock()
-        mock_chat.chat_id = UUID(int = 2)
-        self.mock_di.require_invoker_chat = MagicMock(return_value = mock_chat)
+        self.mock_di.invoker = stubs.domain.user()
+        self.mock_di.require_invoker_chat = MagicMock(return_value = stubs.domain.chat_config())
 
         # Mock tracked_http_get to return a mock that delegates to requests.get
         mock_http_client = MagicMock()
         mock_http_client.get = requests.get
         self.mock_di.tracked_http_get = MagicMock(return_value = mock_http_client)
 
-        # Set up configured tools
-        mock_x_tool = MagicMock()
-        mock_x_tool.id = "x.api-v2-post.read"
-        self.mock_x_api_tool = ConfiguredTool(
-            definition = mock_x_tool,
-            token = SecretStr("test_x_bearer_token"),
-            purpose = MagicMock(),
-            payer_id = UUID(int = 1),
-            uses_credits = False,
-        )
-
-        mock_vision_tool = MagicMock()
-        mock_vision_tool.id = "vision-tool-id"
-        self.mock_vision_tool = ConfiguredTool(
-            definition = mock_vision_tool,
-            token = SecretStr("test_vision_token"),
-            purpose = MagicMock(),
-            payer_id = UUID(int = 1),
-            uses_credits = False,
-        )
-
     # noinspection PyUnusedLocal
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_execute_cache_hit(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_repo.get.return_value = self.cache_entry
+        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(value = "This is cached tweet content")
 
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.execute()
@@ -103,9 +70,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_execute_expired_cache_refreshes(self, m: Mocker, mock_sleep):
-        expired = ToolsCache(
-            key = "expired",
-            value = "Expired tweet content",
+        expired = stubs.domain.tools_cache(
             expires_at = datetime.now() - timedelta(seconds = 1),
         )
         self.mock_di.tools_cache_repo.get.side_effect = [expired, None]
@@ -117,10 +82,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
             },
         )
 
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.execute()
@@ -156,10 +123,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
             },
         )
 
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.execute()
@@ -176,10 +145,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         # Mock API error response
         m.get(self.api_url, status_code = 500)
 
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         with self.assertRaises(requests.exceptions.HTTPError):
@@ -213,10 +184,16 @@ class TwitterStatusFetcherTest(unittest.TestCase):
             },
         )
 
+        x_api_tool = stubs.domain.configured_tool(
+            definition = X_READ_POST,
+            token = SecretStr("test_x_bearer_token"),
+            purpose = ToolType.api_twitter,
+        )
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         fetcher.execute()
@@ -275,10 +252,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
             },
         )
 
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.execute()
@@ -313,10 +292,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
             },
         )
 
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.execute()
@@ -388,10 +369,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 },
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -425,9 +408,7 @@ class TwitterStatusFetcherTest(unittest.TestCase):
     @requests_mock.Mocker()
     @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
     def test_as_structured_parses_cached_media_variants(self, m: Mocker, _):
-        raw_cache_key = ToolsCache.create_key("twitter-status-fetcher-json", self.tweet_id)
-        self.mock_di.tools_cache_repo.get.return_value = ToolsCache(
-            key = raw_cache_key,
+        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(
             value = json.dumps({
                 "data": {"text": "Cached video"},
                 "includes": {
@@ -447,12 +428,13 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                     ],
                 },
             }),
-            expires_at = datetime.now() + timedelta(minutes = 5),
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
 
@@ -469,10 +451,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
             self.api_url,
             json = {"data": {"text": "Test", "lang": "en"}, "includes": {"users": [{"username": "u"}]}},
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         fetcher.as_structured()
@@ -494,10 +478,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 },
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
-            tweet_id = "123456789",
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            tweet_id = self.tweet_id,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         fetcher.as_structured()
@@ -527,10 +513,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "poster"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -560,10 +548,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "me"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -595,10 +585,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "poster"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -626,10 +618,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "poster"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -651,10 +645,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "quoter"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -678,10 +674,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "replier"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()
@@ -708,10 +706,12 @@ class TwitterStatusFetcherTest(unittest.TestCase):
                 "includes": {"users": [{"username": "both"}]},
             },
         )
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         fetcher = TwitterStatusFetcher(
             tweet_id = self.tweet_id,
-            x_api_tool = self.mock_x_api_tool,
-            vision_tool = self.mock_vision_tool,
+            x_api_tool = x_api_tool,
+            vision_tool = vision_tool,
             di = self.mock_di,
         )
         result = fetcher.as_structured()

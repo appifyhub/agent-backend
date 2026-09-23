@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from itertools import count
 from unittest.mock import MagicMock, Mock, patch
 
+import stubs
 from db.sql_util import SQLUtil
 from pydantic import SecretStr
 from sqlalchemy import Connection, event
@@ -11,28 +12,10 @@ from db.model.chat_config import ChatConfigDB
 from db.model.chat_message import ChatMessageDB
 from db.model.user import UserDB
 from di.di import DI
-from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.chat_attachment_remote_data import ChatAttachmentRemoteData
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
-from features.chat.config.chat_config import ChatConfig
-from features.chat.message.chat_message import ChatMessage
-from features.chat.message.chat_message_remote_data import ChatMessageRemoteData
-from features.chat.whatsapp.model.attachment.media_attachment import MediaAttachment
-from features.chat.whatsapp.model.attachment.text import Text
-from features.chat.whatsapp.model.change import Change
-from features.chat.whatsapp.model.contact import Contact
-from features.chat.whatsapp.model.context import Context
-from features.chat.whatsapp.model.entry import Entry
-from features.chat.whatsapp.model.message import Message
-from features.chat.whatsapp.model.metadata import Metadata
-from features.chat.whatsapp.model.profile import Profile
-from features.chat.whatsapp.model.update import Update
-from features.chat.whatsapp.model.value import Value
 from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.integrations.integrations import resolve_agent_user
-from features.users.user import User
-from features.users.user_remote_data import UserRemoteData
 from util.config import config
 from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
@@ -65,7 +48,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
     resolver: WhatsAppChatInboundService
 
     def setUp(self):
-        self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.whatsapp)
         self.sql = SQLUtil()
         self.mock_di = Mock(spec = DI)
         # noinspection PyPropertyAccess
@@ -80,7 +62,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_attachment_service = ChatAttachmentService(self.mock_di)
         # noinspection PyPropertyAccess
         self.mock_di.whatsapp_bot_api = MagicMock()
-        self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xFF\xD8\xFF\xE0fake-jpeg"
+        self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xff\xd8\xff\xe0fake-jpeg"
         # noinspection PyPropertyAccess
         self.mock_di.attachment_storage = MagicMock()
         self.mock_di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
@@ -94,47 +76,33 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
     def tearDown(self):
         self.sql.end_session()
 
-    @staticmethod
-    def __value(
-        messages: list[Message],
-        contacts: list[Contact] | None = None,
-        wa_id: str = "1",
-        full_name: str | None = "New User",
-    ) -> Value:
-        if contacts is None:
-            contacts = [Contact(profile = Profile(name = full_name), wa_id = wa_id)]
-        return Value(
-            messaging_product = "whatsapp",
-            metadata = Metadata(display_phone_number = "123", phone_number_id = "phone-id"),
-            contacts = contacts,
-            messages = messages,
-        )
-
     def test_ingest_update_empty(self):
-        result = self.resolver.ingest_update(Update(object = "whatsapp_business_account", entry = []))
+        result = self.resolver.ingest_update(stubs.external.whatsapp_update(entry = []))
 
         self.assertEqual(result, [])
 
     def test_ingest_update_orders_raw_messages_oldest_first(self):
         now = int(datetime.now().timestamp())
-        latest = Message(
+        latest = stubs.external.whatsapp_message(
             id = "latest",
-            **{"from": "1"},
             timestamp = str(now),
-            type = "text",
-            text = Text(body = "Latest"),
-        )
-        oldest = Message(
-            id = "oldest",
+            text = stubs.external.whatsapp_text(body = "Latest"),
             **{"from": "1"},
-            timestamp = str(now - 10),
-            type = "text",
-            text = Text(body = "Oldest"),
         )
-        value = self.__value([latest, oldest])
-        update = Update(
-            object = "whatsapp_business_account",
-            entry = [Entry(id = "entry", changes = [Change(value = value, field = "messages")])],
+        oldest = stubs.external.whatsapp_message(
+            id = "oldest",
+            timestamp = str(now - 10),
+            text = stubs.external.whatsapp_text(body = "Oldest"),
+            **{"from": "1"},
+        )
+        value = stubs.external.whatsapp_value(messages = [latest, oldest])
+        update = stubs.external.whatsapp_update(
+            entry = [
+                stubs.external.whatsapp_entry(
+                    id = "entry",
+                    changes = [stubs.external.whatsapp_change(value = value)],
+                ),
+            ],
         )
 
         results = self.resolver.ingest_update(update)
@@ -142,15 +110,14 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual([result.message.message_id for result in results], ["oldest", "latest"])
 
     def test_ingest_message_no_author(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "m1",
-            **{"from": ""},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
-            text = Text(body = "This is a message"),
+            text = stubs.external.whatsapp_text(body = "This is a message"),
+            **{"from": ""},
         )
 
-        result = self.resolver.ingest_message(message, self.__value([message], contacts = []))
+        result = self.resolver.ingest_message(message, stubs.external.whatsapp_value(messages = [message], contacts = []))
 
         self.assertIsNone(result.author)
         self.assertEqual(result.message.message_id, "m1")
@@ -159,33 +126,49 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.raw_message_text, "This is a message")
 
     def test_ingest_message_no_author_with_attachment_raises(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "m1",
-            **{"from": ""},
             timestamp = str(int(datetime.now().timestamp())),
             type = "image",
-            image = MediaAttachment(id = "e1", mime_type = "image/jpeg"),
+            text = None,
+            image = stubs.external.whatsapp_media_attachment(id = "e1"),
+            **{"from": ""},
         )
 
         with self.assertRaises(InternalError):
-            self.resolver.ingest_message(message, self.__value([message], contacts = []))
+            self.resolver.ingest_message(message, stubs.external.whatsapp_value(messages = [message], contacts = []))
 
     def test_ingest_message_from_agent_skips_remote_attachments(self):
-        agent_id = self.agent_user.whatsapp_user_id
+        agent_user = resolve_agent_user(ChatConfigDB.ChatType.whatsapp)
+        agent_id = agent_user.whatsapp_user_id
         assert agent_id is not None
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "m1",
-            **{"from": agent_id},
             timestamp = str(int(datetime.now().timestamp())),
             type = "image",
-            image = MediaAttachment(id = "e1", mime_type = "image/jpeg", caption = "This is a message"),
+            text = None,
+            image = stubs.external.whatsapp_media_attachment(
+                id = "e1",
+                caption = "This is a message",
+            ),
+            **{"from": agent_id},
         )
         original_save = self.mock_di.chat_message_repo.save
         self.mock_di.chat_message_repo.save = Mock(wraps = original_save)
 
         result = self.resolver.ingest_message(
             message,
-            self.__value([message], wa_id = agent_id, full_name = self.agent_user.full_name),
+            stubs.external.whatsapp_value(
+                messages = [message],
+                contacts = [
+                    stubs.external.whatsapp_contact(
+                        profile = stubs.external.whatsapp_profile(
+                            name = agent_user.full_name,
+                        ),
+                        wa_id = agent_id,
+                    ),
+                ],
+            ),
         )
 
         assert result.author is not None
@@ -197,17 +180,21 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_message_repo.save.assert_called_once()
 
     def test_ingest_message_with_attachment_uses_local_attachment_id(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "m1",
-            **{"from": "1"},
             timestamp = str(int(datetime.now().timestamp())),
             type = "image",
-            image = MediaAttachment(id = "e1", mime_type = "image/jpeg", caption = "This is a message"),
+            text = None,
+            image = stubs.external.whatsapp_media_attachment(
+                id = "e1",
+                caption = "This is a message",
+            ),
+            **{"from": "1"},
         )
         original_save = self.mock_di.chat_message_repo.save
         self.mock_di.chat_message_repo.save = Mock(wraps = original_save)
 
-        result = self.resolver.ingest_message(message, self.__value([message]))
+        result = self.resolver.ingest_message(message, stubs.external.whatsapp_value(messages = [message]))
 
         assert result.author is not None
         attachment_id = generate_deterministic_short_uuid("e1")
@@ -224,19 +211,20 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.mock_di.chat_membership_service.ensure_for_inbound.assert_called_once_with(result.author, result.chat)
 
     def test_ingest_message_with_video_uses_authenticated_download_path(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "video-message",
-            **{"from": "1"},
             timestamp = str(int(datetime.now().timestamp())),
             type = "video",
-            video = MediaAttachment(
+            text = None,
+            video = stubs.external.whatsapp_media_attachment(
                 id = "video1",
                 mime_type = "video/mp4",
                 caption = "Video caption",
             ),
+            **{"from": "1"},
         )
 
-        result = self.resolver.ingest_message(message, self.__value([message]))
+        result = self.resolver.ingest_message(message, stubs.external.whatsapp_value(messages = [message]))
 
         self.assertEqual(result.raw_message_text, "Video caption")
         self.assertEqual(len(result.attachments), 1)
@@ -246,18 +234,19 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
+            stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        uploader = self.sql.user_repo().save(User(full_name = "Agent", whatsapp_user_id = "123"))
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Agent", whatsapp_user_id = "123"))
         self.sql.chat_message_repo().save(
-            ChatMessage(
+            stubs.domain.chat_message(
                 chat_id = chat.chat_id,
                 message_id = "old-message",
+                author_id = None,
                 text = "Original caption\n\n📎 [ remote123 ]",
             ),
         )
         self.sql.chat_attachment_repo().save(
-            ChatAttachment(
+            stubs.domain.chat_attachment(
                 id = "local123",
                 chat_id = chat.chat_id,
                 uploader_user_id = uploader.id,
@@ -265,18 +254,17 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
                 mime_type = "image/png",
             ),
         )
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "new-message",
-            **{"from": "c1"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
-            text = Text(body = "Please use this"),
-            context = Context(id = "old-message"),
+            text = stubs.external.whatsapp_text(body = "Please use this"),
+            context = stubs.external.whatsapp_context(id = "old-message"),
+            **{"from": "c1"},
         )
 
         result = self.resolver.ingest_message(
             message,
-            self.__value([message], wa_id = "c1"),
+            stubs.external.whatsapp_value(messages = [message], contacts = [stubs.external.whatsapp_contact(wa_id = "c1")]),
         )
 
         self.assertIn(">>>> Original caption", result.message.text)
@@ -289,7 +277,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_store_author_new(self):
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
@@ -308,13 +296,13 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.created_at, datetime.now().date())
 
     def test_store_author_by_whatsapp_user_id(self):
-        existing_user_data = User(
+        existing_user_data = stubs.domain.user(
             whatsapp_user_id = "1234567890",
             full_name = "Existing User",
         )
         existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1234567890",
             full_name = "Updated User",
         )
@@ -337,7 +325,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
     @patch("features.users.user_repo.UserRepository.count")
     def test_store_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
         mock_count.return_value = config.max_users  # reach maximum immediately
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = "New User",
         )
@@ -350,7 +338,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         mock_count.assert_called_once()
 
     def test_store_author_existing(self):
-        existing_user_data = User(
+        existing_user_data = stubs.domain.user(
             whatsapp_user_id = "1",
             full_name = "Existing User",
             open_ai_key = SecretStr("sk-key"),
@@ -366,14 +354,12 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             custom_prompt = SecretStr("Custom instructions to preserve"),
             credit_balance = 123.45,
             group = UserDB.Group.developer,
-            # Add all tool choice fields to test preservation
             tool_choice_chat = "openai",
             tool_choice_reasoning = "anthropic",
             tool_choice_copywriting = "perplexity",
             tool_choice_vision = "openai",
             tool_choice_hearing = "openai",
             tool_choice_images_gen = "replicate",
-            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_search = "perplexity",
             tool_choice_embedding = "openai",
             tool_choice_api_fiat_exchange = "rapidapi",
@@ -383,7 +369,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         )
         existing_user = self.sql.user_repo().save(existing_user_data)
 
-        mapped_data = UserRemoteData(
+        mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = "Updated User",
         )
@@ -430,14 +416,14 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_choice_api_twitter, existing_user.tool_choice_api_twitter)
 
     def test_store_author_preserves_name_when_empty(self):
-        existing_user_data = User(
+        existing_user_data = stubs.domain.user(
             whatsapp_user_id = "1",
             full_name = "Existing User",
         )
         existing_user = self.sql.user_repo().save(existing_user_data)
 
         # Test with None full_name
-        mapped_data_none = UserRemoteData(
+        mapped_data_none = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = None,
         )
@@ -448,7 +434,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
 
         # Test with empty string full_name
-        mapped_data_empty = UserRemoteData(
+        mapped_data_empty = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = "",
         )
@@ -460,9 +446,9 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
     def test_store_message_new(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
+            stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        mapped_data = ChatMessageRemoteData(
+        mapped_data = stubs.domain.chat_message_remote_data(
             message_id = "m1",
             sent_at = datetime.now(),
             text = "Raw message",
@@ -483,9 +469,9 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
     def test_store_message_with_existing(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
+            stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        old_message = ChatMessage(
+        old_message = stubs.domain.chat_message(
             chat_id = chat.chat_id,
             message_id = "m1",
             author_id = None,
@@ -494,8 +480,8 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         )
         self.sql.chat_message_repo().save(old_message)
 
-        new_author = self.sql.user_repo().save(User(full_name = "First Last", whatsapp_user_id = "c1"))
-        mapped_data = ChatMessageRemoteData(
+        new_author = self.sql.user_repo().save(stubs.domain.user(full_name = "First Last", whatsapp_user_id = "c1"))
+        mapped_data = stubs.domain.chat_message_remote_data(
             message_id = "m1",
             sent_at = datetime.now(),
             text = "Raw updated message",
@@ -515,18 +501,16 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
     def test_store_attachment_new(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
+            stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        uploader = self.sql.user_repo().save(User(full_name = "Uploader", whatsapp_user_id = "123"))
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader", whatsapp_user_id = "123"))
         self.sql.chat_message_repo().save(
-            ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"),
+            stubs.domain.chat_message(chat_id = chat.chat_id, message_id = "m1", author_id = None, text = "x"),
         )
-        mapped_data = ChatAttachmentRemoteData(
+        mapped_data = stubs.domain.chat_attachment_remote_data(
             external_id = "e1",
             message_id = "m1",
             last_url = "path/to/file.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
         )
 
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
@@ -545,13 +529,13 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
     def test_store_attachment_existing(self):
         chat = self.sql.chat_config_repo().save(
-            ChatConfig(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
+            stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
         self.sql.chat_message_repo().save(
-            ChatMessage(chat_id = chat.chat_id, message_id = "m1", text = "x"),
+            stubs.domain.chat_message(chat_id = chat.chat_id, message_id = "m1", author_id = None, text = "x"),
         )
-        uploader = self.sql.user_repo().save(User(full_name = "Uploader", whatsapp_user_id = "123"))
-        old_attachment_data = ChatAttachment(
+        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader", whatsapp_user_id = "123"))
+        old_attachment_data = stubs.domain.chat_attachment(
             id = "i1",
             external_id = "e1",
             chat_id = chat.chat_id,
@@ -559,12 +543,10 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             message_id = "m1",
             size = 1,
             last_url = f"s3://{config.s3_bucket}/chats/{chat.chat_id}/attachments/i1.jpg",
-            extension = "jpg",
-            mime_type = "image/jpeg",
         )
         self.sql.chat_attachment_repo().save(old_attachment_data)
 
-        mapped_data = ChatAttachmentRemoteData(external_id = "e1", message_id = "m1")
+        mapped_data = stubs.domain.chat_attachment_remote_data(external_id = "e1", message_id = "m1")
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
         saved_attachment = self.sql.chat_attachment_repo().get("i1")
 

@@ -3,22 +3,14 @@ from dataclasses import replace
 from datetime import date
 from uuid import UUID
 
+import stubs
 from pydantic import SecretStr
 
 from db.model.user import UserDB
-from features.users.user import User
 from features.users.user_mapper import apply_remote_data, apply_to_db_model, db, domain, from_remote_data
-from features.users.user_remote_data import UserRemoteData
 
 
 class UserMapperTest(unittest.TestCase):
-
-    user_id: UUID
-    created_at: date
-
-    def setUp(self):
-        self.user_id = UUID("11111111-1111-1111-1111-111111111111")
-        self.created_at = date(2026, 1, 1)
 
     def test_domain_returns_none_for_none_input(self):
         self.assertIsNone(domain(None))
@@ -27,110 +19,187 @@ class UserMapperTest(unittest.TestCase):
         self.assertIsNone(db(None))
 
     def test_domain_maps_all_fields_and_wraps_secrets(self):
-        db_model = self.__db_model()
+        db_model = stubs.db.user_db(
+            full_name = "Mapper DB User",
+            about_me = "db about",
+            custom_prompt = "db prompt",
+            telegram_username = "db-telegram",
+            telegram_chat_id = "db-chat",
+            whatsapp_user_id = "db-whatsapp",
+            whatsapp_phone_number = "+15550000001",
+            open_ai_key = "db-open-ai",
+            anthropic_key = "db-anthropic",
+            google_ai_key = "db-google",
+            perplexity_key = "db-perplexity",
+            replicate_key = "db-replicate",
+            rapid_api_key = "db-rapid",
+            coinmarketcap_key = "db-coinmarketcap",
+            twelve_data_api_key = "db-twelve-data",
+            x_key = "db-x",
+            x_ai_key = "db-x-ai",
+            tool_choice_chat = "db-chat-tool",
+            tool_choice_reasoning = "db-reasoning-tool",
+            tool_choice_copywriting = "db-copywriting-tool",
+            tool_choice_vision = "db-vision-tool",
+            tool_choice_hearing = "db-hearing-tool",
+            tool_choice_images_gen = "db-images-tool",
+            tool_choice_videos_gen = "db-videos-tool",
+            tool_choice_search = "db-search-tool",
+            tool_choice_embedding = "db-embedding-tool",
+            tool_choice_api_fiat_exchange = "db-fiat-tool",
+            tool_choice_api_crypto_exchange = "db-crypto-tool",
+            tool_choice_api_stock_quote = "db-stock-tool",
+            tool_choice_api_twitter = "db-twitter-tool",
+            connect_key = "DB-CONNECT-KEY",
+        )
 
         result = domain(db_model)
 
-        self.assertEqual(result.id, self.user_id)
-        self.assertEqual(result.created_at, self.created_at)
-        self.assertEqual(result.full_name, "Test User")
-        self.assertEqual(result.about_me.get_secret_value(), "about")
-        self.assertEqual(result.custom_prompt.get_secret_value(), "prompt")
-        self.assertEqual(result.telegram_username, "telegram-user")
-        self.assertEqual(result.telegram_chat_id, "tg-chat")
-        self.assertEqual(result.telegram_user_id, 123)
-        self.assertEqual(result.whatsapp_user_id, "wa-user")
-        self.assertEqual(result.whatsapp_phone_number.get_secret_value(), "15550001111")
-        self.assertEqual(result.open_ai_key.get_secret_value(), "open-ai")
-        self.assertEqual(result.anthropic_key.get_secret_value(), "anthropic")
-        self.assertEqual(result.google_ai_key.get_secret_value(), "google")
-        self.assertEqual(result.perplexity_key.get_secret_value(), "perplexity")
-        self.assertEqual(result.replicate_key.get_secret_value(), "replicate")
-        self.assertEqual(result.rapid_api_key.get_secret_value(), "rapid")
-        self.assertEqual(result.coinmarketcap_key.get_secret_value(), "coinmarketcap")
-        self.assertEqual(result.twelve_data_api_key.get_secret_value(), "twelve-data")
-        self.assertEqual(result.x_key.get_secret_value(), "x")
-        self.assertEqual(result.x_ai_key.get_secret_value(), "x-ai")
-        self.assertEqual(result.tool_choice_chat, "chat-tool")
-        self.assertEqual(result.tool_choice_reasoning, "reasoning-tool")
-        self.assertEqual(result.tool_choice_copywriting, "copywriting-tool")
-        self.assertEqual(result.tool_choice_vision, "vision-tool")
-        self.assertEqual(result.tool_choice_hearing, "hearing-tool")
-        self.assertEqual(result.tool_choice_images_gen, "images-gen-tool")
-        self.assertEqual(result.tool_choice_videos_gen, "videos-gen-tool")
-        self.assertEqual(result.tool_choice_search, "search-tool")
-        self.assertEqual(result.tool_choice_embedding, "embedding-tool")
-        self.assertEqual(result.tool_choice_api_fiat_exchange, "fiat-tool")
-        self.assertEqual(result.tool_choice_api_crypto_exchange, "crypto-tool")
-        self.assertEqual(result.tool_choice_api_stock_quote, "stock-tool")
-        self.assertEqual(result.tool_choice_api_twitter, "twitter-tool")
-        self.assertEqual(result.credit_balance, 123.45)
-        self.assertTrue(result.is_on_waitlist)
-        self.assertTrue(result.is_invited_to_start)
-        self.assertTrue(result.are_policies_accepted)
-        self.assertEqual(result.connect_key, "CONN-KEY-0001")
-        self.assertEqual(result.group, UserDB.Group.developer)
+        self.assertEqual(result.id, db_model.id)
+        self.assertEqual(result.created_at, db_model.created_at)
+        self.assertEqual(result.full_name, db_model.full_name)
+        self.assertEqual(result.about_me.get_secret_value(), db_model.about_me)
+        self.assertEqual(result.custom_prompt.get_secret_value(), db_model.custom_prompt)
+        self.assertEqual(result.telegram_username, db_model.telegram_username)
+        self.assertEqual(result.telegram_chat_id, db_model.telegram_chat_id)
+        self.assertEqual(result.telegram_user_id, db_model.telegram_user_id)
+        self.assertEqual(result.whatsapp_user_id, db_model.whatsapp_user_id)
+        self.assertEqual(result.whatsapp_phone_number.get_secret_value(), db_model.whatsapp_phone_number)
+        self.assertEqual(result.open_ai_key.get_secret_value(), db_model.open_ai_key)
+        self.assertEqual(result.anthropic_key.get_secret_value(), db_model.anthropic_key)
+        self.assertEqual(result.google_ai_key.get_secret_value(), db_model.google_ai_key)
+        self.assertEqual(result.perplexity_key.get_secret_value(), db_model.perplexity_key)
+        self.assertEqual(result.replicate_key.get_secret_value(), db_model.replicate_key)
+        self.assertEqual(result.rapid_api_key.get_secret_value(), db_model.rapid_api_key)
+        self.assertEqual(result.coinmarketcap_key.get_secret_value(), db_model.coinmarketcap_key)
+        self.assertEqual(result.twelve_data_api_key.get_secret_value(), db_model.twelve_data_api_key)
+        self.assertEqual(result.x_key.get_secret_value(), db_model.x_key)
+        self.assertEqual(result.x_ai_key.get_secret_value(), db_model.x_ai_key)
+        self.assertEqual(result.tool_choice_chat, db_model.tool_choice_chat)
+        self.assertEqual(result.tool_choice_reasoning, db_model.tool_choice_reasoning)
+        self.assertEqual(result.tool_choice_copywriting, db_model.tool_choice_copywriting)
+        self.assertEqual(result.tool_choice_vision, db_model.tool_choice_vision)
+        self.assertEqual(result.tool_choice_hearing, db_model.tool_choice_hearing)
+        self.assertEqual(result.tool_choice_images_gen, db_model.tool_choice_images_gen)
+        self.assertEqual(result.tool_choice_videos_gen, db_model.tool_choice_videos_gen)
+        self.assertEqual(result.tool_choice_search, db_model.tool_choice_search)
+        self.assertEqual(result.tool_choice_embedding, db_model.tool_choice_embedding)
+        self.assertEqual(result.tool_choice_api_fiat_exchange, db_model.tool_choice_api_fiat_exchange)
+        self.assertEqual(result.tool_choice_api_crypto_exchange, db_model.tool_choice_api_crypto_exchange)
+        self.assertEqual(result.tool_choice_api_stock_quote, db_model.tool_choice_api_stock_quote)
+        self.assertEqual(result.tool_choice_api_twitter, db_model.tool_choice_api_twitter)
+        self.assertEqual(result.credit_balance, db_model.credit_balance)
+        self.assertEqual(result.is_on_waitlist, db_model.is_on_waitlist)
+        self.assertEqual(result.is_invited_to_start, db_model.is_invited_to_start)
+        self.assertEqual(result.are_policies_accepted, db_model.are_policies_accepted)
+        self.assertEqual(result.connect_key, db_model.connect_key)
+        self.assertEqual(result.group, db_model.group)
 
     def test_db_maps_all_fields_and_unwraps_secrets(self):
-        domain_model = self.__domain_model()
+        domain_model = stubs.domain.user(
+            full_name = "Mapper Domain User",
+            about_me = SecretStr("domain about"),
+            custom_prompt = SecretStr("domain prompt"),
+            telegram_username = "domain-telegram",
+            telegram_chat_id = "domain-chat",
+            whatsapp_user_id = "domain-whatsapp",
+            whatsapp_phone_number = SecretStr("+15550000002"),
+            open_ai_key = SecretStr("domain-open-ai"),
+            anthropic_key = SecretStr("domain-anthropic"),
+            google_ai_key = SecretStr("domain-google"),
+            perplexity_key = SecretStr("domain-perplexity"),
+            replicate_key = SecretStr("domain-replicate"),
+            rapid_api_key = SecretStr("domain-rapid"),
+            coinmarketcap_key = SecretStr("domain-coinmarketcap"),
+            twelve_data_api_key = SecretStr("domain-twelve-data"),
+            x_key = SecretStr("domain-x"),
+            x_ai_key = SecretStr("domain-x-ai"),
+            tool_choice_chat = "domain-chat-tool",
+            tool_choice_reasoning = "domain-reasoning-tool",
+            tool_choice_copywriting = "domain-copywriting-tool",
+            tool_choice_vision = "domain-vision-tool",
+            tool_choice_hearing = "domain-hearing-tool",
+            tool_choice_images_gen = "domain-images-tool",
+            tool_choice_videos_gen = "domain-videos-tool",
+            tool_choice_search = "domain-search-tool",
+            tool_choice_embedding = "domain-embedding-tool",
+            tool_choice_api_fiat_exchange = "domain-fiat-tool",
+            tool_choice_api_crypto_exchange = "domain-crypto-tool",
+            tool_choice_api_stock_quote = "domain-stock-tool",
+            tool_choice_api_twitter = "domain-twitter-tool",
+            connect_key = "DOMAIN-CONNECT-KEY",
+        )
 
         result = db(domain_model)
 
-        self.assertEqual(result.id, self.user_id)
-        self.assertEqual(result.created_at, self.created_at)
-        self.assertEqual(result.full_name, "Test User")
-        self.assertEqual(result.about_me, "about")
-        self.assertEqual(result.custom_prompt, "prompt")
-        self.assertEqual(result.telegram_username, "telegram-user")
-        self.assertEqual(result.telegram_chat_id, "tg-chat")
-        self.assertEqual(result.telegram_user_id, 123)
-        self.assertEqual(result.whatsapp_user_id, "wa-user")
-        self.assertEqual(result.whatsapp_phone_number, "15550001111")
-        self.assertEqual(result.open_ai_key, "open-ai")
-        self.assertEqual(result.anthropic_key, "anthropic")
-        self.assertEqual(result.google_ai_key, "google")
-        self.assertEqual(result.perplexity_key, "perplexity")
-        self.assertEqual(result.replicate_key, "replicate")
-        self.assertEqual(result.rapid_api_key, "rapid")
-        self.assertEqual(result.coinmarketcap_key, "coinmarketcap")
-        self.assertEqual(result.twelve_data_api_key, "twelve-data")
-        self.assertEqual(result.x_key, "x")
-        self.assertEqual(result.x_ai_key, "x-ai")
-        self.assertEqual(result.tool_choice_images_gen, "images-gen-tool")
-        self.assertEqual(result.tool_choice_videos_gen, "videos-gen-tool")
-        self.assertEqual(result.tool_choice_api_stock_quote, "stock-tool")
-        self.assertEqual(result.tool_choice_api_twitter, "twitter-tool")
-        self.assertEqual(result.credit_balance, 123.45)
-        self.assertTrue(result.is_on_waitlist)
-        self.assertTrue(result.is_invited_to_start)
-        self.assertTrue(result.are_policies_accepted)
-        self.assertEqual(result.connect_key, "CONN-KEY-0001")
-        self.assertEqual(result.group, UserDB.Group.developer)
+        self.assertEqual(result.id, domain_model.id)
+        self.assertEqual(result.created_at, domain_model.created_at)
+        self.assertEqual(result.full_name, domain_model.full_name)
+        self.assertEqual(result.about_me, domain_model.about_me.get_secret_value())
+        self.assertEqual(result.custom_prompt, domain_model.custom_prompt.get_secret_value())
+        self.assertEqual(result.telegram_username, domain_model.telegram_username)
+        self.assertEqual(result.telegram_chat_id, domain_model.telegram_chat_id)
+        self.assertEqual(result.telegram_user_id, domain_model.telegram_user_id)
+        self.assertEqual(result.whatsapp_user_id, domain_model.whatsapp_user_id)
+        self.assertEqual(result.whatsapp_phone_number, domain_model.whatsapp_phone_number.get_secret_value())
+        self.assertEqual(result.open_ai_key, domain_model.open_ai_key.get_secret_value())
+        self.assertEqual(result.anthropic_key, domain_model.anthropic_key.get_secret_value())
+        self.assertEqual(result.google_ai_key, domain_model.google_ai_key.get_secret_value())
+        self.assertEqual(result.perplexity_key, domain_model.perplexity_key.get_secret_value())
+        self.assertEqual(result.replicate_key, domain_model.replicate_key.get_secret_value())
+        self.assertEqual(result.rapid_api_key, domain_model.rapid_api_key.get_secret_value())
+        self.assertEqual(result.coinmarketcap_key, domain_model.coinmarketcap_key.get_secret_value())
+        self.assertEqual(result.twelve_data_api_key, domain_model.twelve_data_api_key.get_secret_value())
+        self.assertEqual(result.x_key, domain_model.x_key.get_secret_value())
+        self.assertEqual(result.x_ai_key, domain_model.x_ai_key.get_secret_value())
+        self.assertEqual(result.tool_choice_chat, domain_model.tool_choice_chat)
+        self.assertEqual(result.tool_choice_reasoning, domain_model.tool_choice_reasoning)
+        self.assertEqual(result.tool_choice_copywriting, domain_model.tool_choice_copywriting)
+        self.assertEqual(result.tool_choice_vision, domain_model.tool_choice_vision)
+        self.assertEqual(result.tool_choice_hearing, domain_model.tool_choice_hearing)
+        self.assertEqual(result.tool_choice_images_gen, domain_model.tool_choice_images_gen)
+        self.assertEqual(result.tool_choice_videos_gen, domain_model.tool_choice_videos_gen)
+        self.assertEqual(result.tool_choice_search, domain_model.tool_choice_search)
+        self.assertEqual(result.tool_choice_embedding, domain_model.tool_choice_embedding)
+        self.assertEqual(result.tool_choice_api_fiat_exchange, domain_model.tool_choice_api_fiat_exchange)
+        self.assertEqual(result.tool_choice_api_crypto_exchange, domain_model.tool_choice_api_crypto_exchange)
+        self.assertEqual(result.tool_choice_api_stock_quote, domain_model.tool_choice_api_stock_quote)
+        self.assertEqual(result.tool_choice_api_twitter, domain_model.tool_choice_api_twitter)
+        self.assertEqual(result.credit_balance, domain_model.credit_balance)
+        self.assertEqual(result.is_on_waitlist, domain_model.is_on_waitlist)
+        self.assertEqual(result.is_invited_to_start, domain_model.is_invited_to_start)
+        self.assertEqual(result.are_policies_accepted, domain_model.are_policies_accepted)
+        self.assertEqual(result.connect_key, domain_model.connect_key)
+        self.assertEqual(result.group, domain_model.group)
 
     def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
-        db_model = self.__db_model()
-        replacement = User(
+        db_model = stubs.db.user_db()
+        original_id = db_model.id
+        original_created_at = db_model.created_at
+        replacement = stubs.domain.user(
             id = UUID("22222222-2222-2222-2222-222222222222"),
             created_at = date(2026, 2, 2),
             full_name = "Updated User",
+            about_me = None,
+            custom_prompt = None,
             telegram_username = "updated-telegram",
             telegram_chat_id = "updated-chat",
             telegram_user_id = 456,
             whatsapp_user_id = "updated-wa",
             whatsapp_phone_number = SecretStr("16660002222"),
             open_ai_key = SecretStr("updated-open-ai"),
+            anthropic_key = None,
+            tool_choice_chat = None,
             credit_balance = 999.0,
-            is_on_waitlist = False,
             is_invited_to_start = False,
             are_policies_accepted = False,
             connect_key = "UPDATED-KEY",
-            group = UserDB.Group.standard,
         )
 
         apply_to_db_model(replacement, db_model)
 
-        self.assertEqual(db_model.id, self.user_id)
-        self.assertEqual(db_model.created_at, self.created_at)
+        self.assertEqual(db_model.id, original_id)
+        self.assertEqual(db_model.created_at, original_created_at)
         self.assertEqual(db_model.full_name, "Updated User")
         self.assertIsNone(db_model.about_me)
         self.assertIsNone(db_model.custom_prompt)
@@ -150,7 +219,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(db_model.group, UserDB.Group.standard)
 
     def test_from_remote_data_uses_remote_fields_and_domain_defaults(self):
-        remote_data = UserRemoteData(
+        remote_data = stubs.domain.user_remote_data(
             full_name = "Remote User",
             telegram_username = "remote-telegram",
             telegram_chat_id = "remote-chat",
@@ -176,8 +245,8 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.group, UserDB.Group.standard)
 
     def test_apply_remote_data_preserves_db_owned_fields_and_existing_full_name(self):
-        existing = self.__domain_model()
-        remote_data = UserRemoteData(
+        existing = stubs.domain.user()
+        remote_data = stubs.domain.user_remote_data(
             full_name = "Remote Name",
             telegram_username = "remote-telegram",
             telegram_chat_id = "remote-chat",
@@ -205,108 +274,20 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.group, existing.group)
 
     def test_apply_remote_data_fills_missing_telegram_chat_id(self):
-        existing = replace(self.__domain_model(), telegram_chat_id = None)
-        remote_data = UserRemoteData(telegram_chat_id = "remote-chat")
+        existing = replace(stubs.domain.user(), telegram_chat_id = None)
+        remote_data = stubs.domain.user_remote_data(telegram_chat_id = "remote-chat")
 
         result = apply_remote_data(existing, remote_data)
 
         self.assertEqual(result.telegram_chat_id, "remote-chat")
 
     def test_apply_remote_data_fills_missing_full_name(self):
-        existing = User(
-            id = self.user_id,
-            created_at = self.created_at,
+        existing = stubs.domain.user(
             full_name = None,
             connect_key = "CONN-KEY-0001",
         )
-        remote_data = UserRemoteData(full_name = "Remote Name")
+        remote_data = stubs.domain.user_remote_data(full_name = "Remote Name")
 
         result = apply_remote_data(existing, remote_data)
 
         self.assertEqual(result.full_name, "Remote Name")
-
-    def __domain_model(self) -> User:
-        return User(
-            id = self.user_id,
-            created_at = self.created_at,
-            full_name = "Test User",
-            about_me = SecretStr("about"),
-            custom_prompt = SecretStr("prompt"),
-            telegram_username = "telegram-user",
-            telegram_chat_id = "tg-chat",
-            telegram_user_id = 123,
-            whatsapp_user_id = "wa-user",
-            whatsapp_phone_number = SecretStr("15550001111"),
-            open_ai_key = SecretStr("open-ai"),
-            anthropic_key = SecretStr("anthropic"),
-            google_ai_key = SecretStr("google"),
-            perplexity_key = SecretStr("perplexity"),
-            replicate_key = SecretStr("replicate"),
-            rapid_api_key = SecretStr("rapid"),
-            coinmarketcap_key = SecretStr("coinmarketcap"),
-            twelve_data_api_key = SecretStr("twelve-data"),
-            x_key = SecretStr("x"),
-            x_ai_key = SecretStr("x-ai"),
-            tool_choice_chat = "chat-tool",
-            tool_choice_reasoning = "reasoning-tool",
-            tool_choice_copywriting = "copywriting-tool",
-            tool_choice_vision = "vision-tool",
-            tool_choice_hearing = "hearing-tool",
-            tool_choice_images_gen = "images-gen-tool",
-            tool_choice_videos_gen = "videos-gen-tool",
-            tool_choice_search = "search-tool",
-            tool_choice_embedding = "embedding-tool",
-            tool_choice_api_fiat_exchange = "fiat-tool",
-            tool_choice_api_crypto_exchange = "crypto-tool",
-            tool_choice_api_stock_quote = "stock-tool",
-            tool_choice_api_twitter = "twitter-tool",
-            credit_balance = 123.45,
-            is_on_waitlist = True,
-            is_invited_to_start = True,
-            are_policies_accepted = True,
-            connect_key = "CONN-KEY-0001",
-            group = UserDB.Group.developer,
-        )
-
-    def __db_model(self) -> UserDB:
-        return UserDB(
-            id = self.user_id,
-            created_at = self.created_at,
-            full_name = "Test User",
-            about_me = "about",
-            custom_prompt = "prompt",
-            telegram_username = "telegram-user",
-            telegram_chat_id = "tg-chat",
-            telegram_user_id = 123,
-            whatsapp_user_id = "wa-user",
-            whatsapp_phone_number = "15550001111",
-            open_ai_key = "open-ai",
-            anthropic_key = "anthropic",
-            google_ai_key = "google",
-            perplexity_key = "perplexity",
-            replicate_key = "replicate",
-            rapid_api_key = "rapid",
-            coinmarketcap_key = "coinmarketcap",
-            twelve_data_api_key = "twelve-data",
-            x_key = "x",
-            x_ai_key = "x-ai",
-            tool_choice_chat = "chat-tool",
-            tool_choice_reasoning = "reasoning-tool",
-            tool_choice_copywriting = "copywriting-tool",
-            tool_choice_vision = "vision-tool",
-            tool_choice_hearing = "hearing-tool",
-            tool_choice_images_gen = "images-gen-tool",
-            tool_choice_videos_gen = "videos-gen-tool",
-            tool_choice_search = "search-tool",
-            tool_choice_embedding = "embedding-tool",
-            tool_choice_api_fiat_exchange = "fiat-tool",
-            tool_choice_api_crypto_exchange = "crypto-tool",
-            tool_choice_api_stock_quote = "stock-tool",
-            tool_choice_api_twitter = "twitter-tool",
-            credit_balance = 123.45,
-            is_on_waitlist = True,
-            is_invited_to_start = True,
-            are_policies_accepted = True,
-            connect_key = "CONN-KEY-0001",
-            group = UserDB.Group.developer,
-        )

@@ -1,8 +1,10 @@
 import unittest
 from unittest.mock import MagicMock
 
+import stubs
+
 from di.di import DI
-from features.currencies.asset_price import AssetType, StockQuote
+from features.currencies.asset_price import AssetType
 from features.currencies.asset_price_service import AssetPriceService
 from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
 from features.currencies.stock_quote_fetcher import StockQuoteFetcher
@@ -17,20 +19,6 @@ class AssetPriceServiceTest(unittest.TestCase):
         self.mock_di.exchange_rate_fetcher = MagicMock(spec = ExchangeRateFetcher)
         self.mock_di.stock_quote_fetcher = MagicMock(spec = StockQuoteFetcher)
         self.service = AssetPriceService(self.mock_di)
-        self.stock_quote = StockQuote(
-            symbol = "AAPL",
-            name = "Apple Inc.",
-            exchange = "NASDAQ",
-            mic_code = "XNAS",
-            native_currency = "USD",
-            native_price = 210.5,
-            timestamp = 1_753_352_400,
-            is_market_open = True,
-            previous_close = 208.75,
-            change = 1.75,
-            percent_change = 0.8383,
-            provider = "twelve-data",
-        )
 
     def test_fiat_inference_normalizes_markers_and_preserves_amount(self):
         self.mock_di.exchange_rate_fetcher.execute.return_value = {
@@ -84,7 +72,7 @@ class AssetPriceServiceTest(unittest.TestCase):
         self.mock_di.stock_quote_fetcher.execute.assert_not_called()
 
     def test_explicit_stock_overrides_aapl_collision(self):
-        self.mock_di.stock_quote_fetcher.execute.return_value = self.stock_quote
+        self.mock_di.stock_quote_fetcher.execute.return_value = stubs.domain.stock_quote(native_price = 210.5)
 
         result = self.service.execute(" aapl ", " usd ", asset_type = " STOCK ")
 
@@ -94,14 +82,11 @@ class AssetPriceServiceTest(unittest.TestCase):
         self.mock_di.exchange_rate_fetcher.execute.assert_not_called()
 
     def test_unknown_marker_is_inferred_as_stock(self):
-        quote = StockQuote(
+        quote = stubs.domain.stock_quote(
             symbol = "BRK.B",
             exchange = "NYSE",
-            native_currency = "USD",
+            mic_code = None,
             native_price = 500,
-            timestamp = 1_753_352_400,
-            is_market_open = False,
-            provider = "twelve-data",
         )
         self.mock_di.stock_quote_fetcher.execute.return_value = quote
 
@@ -111,7 +96,11 @@ class AssetPriceServiceTest(unittest.TestCase):
         self.assertEqual(result.asset, "NYSE:BRK.B")
 
     def test_native_stock_price_preserves_metadata_and_calculates_amount(self):
-        self.mock_di.stock_quote_fetcher.execute.return_value = self.stock_quote
+        self.mock_di.stock_quote_fetcher.execute.return_value = stubs.domain.stock_quote(
+            native_price = 210.5,
+            timestamp = 1_753_352_400,
+            provider = "twelve-data",
+        )
 
         result = self.service.execute("AAPL", "USD", asset_type = "stock", amount = 3)
 
@@ -133,7 +122,7 @@ class AssetPriceServiceTest(unittest.TestCase):
         self.assertEqual(serialized["datetime"], "2025-07-24T10:20:00+00:00")
 
     def test_stock_price_converts_from_native_currency_and_propagates_force(self):
-        self.mock_di.stock_quote_fetcher.execute.return_value = self.stock_quote
+        self.mock_di.stock_quote_fetcher.execute.return_value = stubs.domain.stock_quote(native_price = 210.5)
         self.mock_di.exchange_rate_fetcher.execute.return_value = {
             "rate": 0.8,
             "value": 0.8,
@@ -158,7 +147,7 @@ class AssetPriceServiceTest(unittest.TestCase):
         )
 
     def test_normalized_stock_identity_is_converted_to_provider_qualifier_order(self):
-        self.mock_di.stock_quote_fetcher.execute.return_value = self.stock_quote
+        self.mock_di.stock_quote_fetcher.execute.return_value = stubs.domain.stock_quote(native_price = 210.5)
 
         result = self.service.execute_normalized(
             asset_id = "XNAS:AAPL",

@@ -4,102 +4,45 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock, call, patch
 
+import stubs
 from PIL import Image
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.llm_tools.llm_tool_library import render_social_post
-from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
+from features.external_tools.external_tool_library import GPT_5_5, X_READ_POST
 from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
 from features.social_cards.social_card_models import (
-    SocialAuthor,
     SocialCardMode,
     SocialCardRenderResult,
     SocialCardTemplateResult,
-    SocialDynamicMedia,
-    SocialMediaItem,
     SocialMediaKind,
-    SocialMediaPlacement,
-    SocialPlatformBrand,
-    SocialPost,
 )
 from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
 from features.web_browsing.photo_downloader import PhotoDownloader
-from features.web_browsing.twitter_status_fetcher import TweetData, TweetMediaItem, TweetMediaVariant, TweetUserData
-from util.error_codes import IMAGE_GENERATION_FAILED, INVALID_SOCIAL_CARD_MODE, SOCIAL_CARD_VIDEO_COMPOSITION_FAILED, WEB_FETCH_FAILED
+from util.error_codes import (
+    IMAGE_GENERATION_FAILED,
+    INVALID_SOCIAL_CARD_MODE,
+    SOCIAL_CARD_VIDEO_COMPOSITION_FAILED,
+    WEB_FETCH_FAILED,
+)
 from util.errors import ExternalServiceError, ValidationError
-
-
-def _make_post(with_media: bool = False) -> SocialPost:
-    media = [
-        SocialMediaItem(
-            kind = SocialMediaKind.IMAGE,
-            url = "https://pbs.twimg.com/media/abc.jpg",
-        ),
-    ] if with_media else []
-    return SocialPost(
-        platform = SocialPlatformBrand(
-            platform_id = "x",
-            display_name = "X",
-            logo_light_key = "x_logo_light",
-            logo_dark_key = "x_logo_dark",
-        ),
-        author = SocialAuthor(
-            additional_profile_info = "Test User",
-            handle = "@testuser",
-        ),
-        text = "Hello world",
-        source_url = "https://x.com/user/status/123456789",
-        language = "en",
-        created_at = "2026-05-04T12:00:00Z",
-        media = media,
-    )
-
-
-def _dynamic_media_item(
-    kind: SocialMediaKind = SocialMediaKind.VIDEO,
-    name: str = "video",
-) -> SocialMediaItem:
-    return SocialMediaItem(
-        kind = kind,
-        preview_url = f"https://example.com/{name}-poster.jpg",
-        dynamic_media = SocialDynamicMedia(playback_url = f"https://example.com/{name}.mp4"),
-    )
-
-
-def _make_tweet(media: list[TweetMediaItem] | None = None) -> TweetData:
-    return TweetData(
-        user = TweetUserData(
-            name = "Test User",
-            handle = "testuser",
-            bio = None,
-            profile_image_url = "https://pbs.twimg.com/profile_images/123/photo_normal.jpg",
-        ),
-        text = "Hello world",
-        language = "en",
-        created_at = "2026-05-04T12:00:00Z",
-        media = media or [],
-    )
 
 
 def _make_mock_di() -> DI:
     di = Mock(spec = DI)
     di.url_shortener = MagicMock()
-    di.require_invoker_chat.return_value = MagicMock(chat_id = "chat-1")
-    di.invoker = MagicMock(id = "user-1")
+    di.require_invoker_chat.return_value = stubs.domain.chat_config(
+        external_id = "123",
+    )
+    di.invoker = stubs.domain.user()
     di.chat_attachment_service = MagicMock()
-    di.chat_attachment_service.save.return_value = MagicMock(id = "att-1")
-    di.chat_attachment_service.create_public_url.return_value = MagicMock(
+    di.chat_attachment_service.save.return_value = stubs.domain.chat_attachment(id = "att-1")
+    di.chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(
         url = "https://cdn.example.com/card.png",
     )
     return di
-
-
-def _make_tool(purpose: ToolType) -> ConfiguredTool:
-    tool = MagicMock(spec = ConfiguredTool)
-    tool.purpose = purpose
-    return tool
 
 
 def _write_test_image(path: Path) -> None:
@@ -117,12 +60,11 @@ def _download_test_media(url: str, destination: Path) -> bool:
 def _render_to_path(**kwargs: object) -> SocialCardTemplateResult:
     Path(kwargs["output_path"]).write_bytes(b"png-data")
     assets = kwargs["assets"]
-    return SocialCardTemplateResult(
-        svg = "<svg></svg>",
+    return stubs.domain.social_card_template_result(
         width = 100,
         height = 200,
         media_placements = [
-            SocialMediaPlacement(
+            stubs.domain.social_media_placement(
                 media = asset.media,
                 x = 10,
                 y = 20 + index * 60,
@@ -145,18 +87,18 @@ def _compose_to_path(**kwargs: object) -> None:
 
 class SocialCardOrchestratorTest(unittest.TestCase):
 
-    mock_di: DI
-    mock_x_api_tool: ConfiguredTool
-    mock_vision_tool: ConfiguredTool
     mock_provider: MagicMock
     mock_downloader: MagicMock
 
     def setUp(self):
         self.mock_di = _make_mock_di()
-        self.mock_x_api_tool = _make_tool(ToolType.api_twitter)
-        self.mock_vision_tool = _make_tool(ToolType.vision)
         self.mock_provider = MagicMock()
-        self.mock_provider.fetch.return_value = _make_post()
+        self.mock_provider.fetch.return_value = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         self.mock_downloader = MagicMock()
         self.mock_downloader.download_to.return_value = False
         self.mock_di.social_post_provider_classes.return_value = [TwitterSocialPostProvider]
@@ -164,15 +106,25 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         self.mock_di.photo_downloader.return_value = self.mock_downloader
         self.mock_di.url_shortener.return_value.execute.return_value = "https://short.url/abc"
 
-    def _make_orchestrator(self) -> SocialCardOrchestrator:
-        return SocialCardOrchestrator([self.mock_x_api_tool], self.mock_vision_tool, self.mock_di)
+    def _make_orchestrator(
+        self,
+        x_api_tool = None,
+        vision_tool = None,
+    ) -> SocialCardOrchestrator:
+        return SocialCardOrchestrator(
+            [x_api_tool or stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)],
+            vision_tool or stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision),
+            self.mock_di,
+        )
 
     def _prepare_render_social_post(self, result: SocialCardRenderResult) -> tuple[MagicMock, MagicMock]:
         orchestrator = MagicMock()
         orchestrator.execute.return_value = result
         platform_sdk = MagicMock()
-        self.mock_di.tool_choice_resolver.get_tool.return_value = self.mock_x_api_tool
-        self.mock_di.tool_choice_resolver.require_tool.return_value = self.mock_vision_tool
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
+        self.mock_di.tool_choice_resolver.get_tool.return_value = x_api_tool
+        self.mock_di.tool_choice_resolver.require_tool.return_value = vision_tool
         self.mock_di.social_card_orchestrator.return_value = orchestrator
         self.mock_di.platform_bot_sdk.return_value = platform_sdk
         self.mock_di.require_invoker_chat.return_value.external_id = "123"
@@ -182,6 +134,8 @@ class SocialCardOrchestratorTest(unittest.TestCase):
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_happy_path_returns_image_url(self, mock_renderer):
         mock_renderer.render.side_effect = _render_to_path
+        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
         url = "https://x.com/user/status/123456789"
         saved_paths: list[Path] = []
 
@@ -189,19 +143,19 @@ class SocialCardOrchestratorTest(unittest.TestCase):
             saved_path = Path(kwargs["file_path"])
             self.assertTrue(saved_path.exists())
             saved_paths.append(saved_path)
-            return MagicMock(id = "att-1")
+            return stubs.domain.chat_attachment(id = "att-1")
 
         self.mock_di.chat_attachment_service.save.side_effect = capture_save
 
-        result = self._make_orchestrator().execute(url)
+        result = self._make_orchestrator(x_api_tool, vision_tool).execute(url)
 
         self.assertEqual(result.public_url, "https://cdn.example.com/card.png")
         self.assertEqual(result.mode, SocialCardMode.IMAGE)
         self.mock_provider.fetch.assert_called_once_with(url)
         self.mock_di.social_post_provider.assert_called_once_with(
             TwitterSocialPostProvider,
-            self.mock_x_api_tool,
-            self.mock_vision_tool,
+            x_api_tool,
+            vision_tool,
         )
         mock_renderer.render.assert_called_once()
         self.mock_di.chat_attachment_service.save.assert_called_once()
@@ -215,7 +169,12 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_photo_download_failure_continues(self, mock_renderer):
-        self.mock_provider.fetch.return_value = _make_post(with_media = True)
+        self.mock_provider.fetch.return_value = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [stubs.domain.social_media_item(url = "https://pbs.twimg.com/media/abc.jpg")],
+            link_previews = [],
+            title = None,
+        )
         mock_renderer.render.side_effect = _render_to_path
 
         result = self._make_orchestrator().execute("https://x.com/user/status/123456789")
@@ -264,6 +223,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         self.mock_di.url_shortener.return_value.execute.side_effect = ExternalServiceError("shortener down", 5005)
         mock_renderer.render.side_effect = _render_to_path
         original_url = "https://x.com/user/status/123456789"
+        self.mock_provider.fetch.return_value.source_url = original_url
 
         self._make_orchestrator().execute(original_url)
 
@@ -271,14 +231,23 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_recursive_assets_are_paths_cleaned_after_success(self, mock_renderer):
-        embedded_media = SocialMediaItem(
-            kind = SocialMediaKind.IMAGE,
+        embedded_media = stubs.domain.social_media_item(
             url = "https://example.com/embedded.jpg",
         )
-        embedded = _make_post()
+        embedded = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         embedded.author.avatar_url = "https://example.com/embedded-avatar.jpg"
         embedded.media = [embedded_media]
-        post = _make_post(with_media = True)
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [stubs.domain.social_media_item(url = "https://pbs.twimg.com/media/abc.jpg")],
+            link_previews = [],
+            title = None,
+        )
         post.author.avatar_url = "https://example.com/avatar.jpg"
         post.embedded_post = embedded
         self.mock_provider.fetch.return_value = post
@@ -308,12 +277,17 @@ class SocialCardOrchestratorTest(unittest.TestCase):
     def test_image_mode_downloads_dynamic_poster_without_playback(self, mock_renderer):
         poster_url = "https://example.com/poster.jpg"
         playback_url = "https://example.com/video.mp4"
-        post = _make_post()
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.media = [
-            SocialMediaItem(
+            stubs.domain.social_media_item(
                 kind = SocialMediaKind.VIDEO,
                 preview_url = poster_url,
-                dynamic_media = SocialDynamicMedia(playback_url = playback_url),
+                dynamic_media = stubs.domain.social_dynamic_media(playback_url = playback_url),
             ),
         ]
         self.mock_provider.fetch.return_value = post
@@ -342,8 +316,17 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         mock_renderer,
         mock_compositor,
     ):
-        media = _dynamic_media_item()
-        post = _make_post()
+        media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.VIDEO,
+            preview_url = "https://example.com/video-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/video.mp4"),
+        )
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.media = [media]
         self.mock_provider.fetch.return_value = post
         self.mock_downloader.download_to.side_effect = _download_test_media
@@ -362,7 +345,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
             saved_path = Path(kwargs["file_path"])
             self.assertTrue(saved_path.exists())
             saved_paths.append(saved_path)
-            return MagicMock(id = "att-1")
+            return stubs.domain.chat_attachment(id = "att-1")
 
         mock_compositor.compose.side_effect = compose
         self.mock_di.chat_attachment_service.save.side_effect = save
@@ -393,10 +376,24 @@ class SocialCardOrchestratorTest(unittest.TestCase):
     @patch("features.social_cards.social_card_orchestrator.video_card_compositor")
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_embedded_dynamic_media_stays_static_in_automatic_mode(self, mock_renderer, mock_compositor):
-        embedded_media = _dynamic_media_item(name = "embedded")
-        embedded_post = _make_post()
+        embedded_media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.VIDEO,
+            preview_url = "https://example.com/embedded-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/embedded.mp4"),
+        )
+        embedded_post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         embedded_post.media = [embedded_media]
-        post = _make_post()
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.embedded_post = embedded_post
         self.mock_provider.fetch.return_value = post
         self.mock_downloader.download_to.side_effect = _download_test_media
@@ -414,11 +411,29 @@ class SocialCardOrchestratorTest(unittest.TestCase):
     @patch("features.social_cards.social_card_orchestrator.video_card_compositor")
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_only_main_post_dynamic_media_participates_in_video(self, mock_renderer, mock_compositor):
-        main_media = _dynamic_media_item(name = "main")
-        embedded_media = _dynamic_media_item(name = "embedded")
-        embedded_post = _make_post()
+        main_media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.VIDEO,
+            preview_url = "https://example.com/main-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/main.mp4"),
+        )
+        embedded_media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.VIDEO,
+            preview_url = "https://example.com/embedded-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/embedded.mp4"),
+        )
+        embedded_post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         embedded_post.media = [embedded_media]
-        post = _make_post()
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.media = [main_media]
         post.embedded_post = embedded_post
         self.mock_provider.fetch.return_value = post
@@ -444,8 +459,17 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         mock_renderer,
         mock_compositor,
     ):
-        media = _dynamic_media_item()
-        post = _make_post()
+        media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.VIDEO,
+            preview_url = "https://example.com/video-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/video.mp4"),
+        )
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.media = [media]
         self.mock_provider.fetch.return_value = post
         downloaded_paths: list[Path] = []
@@ -459,7 +483,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
         def save(**kwargs: object):
             saved_paths.append(Path(kwargs["file_path"]))
-            return MagicMock(id = "att-1")
+            return stubs.domain.chat_attachment(id = "att-1")
 
         self.mock_downloader.download_to.side_effect = download_to
         self.mock_di.chat_attachment_service.save.side_effect = save
@@ -475,8 +499,17 @@ class SocialCardOrchestratorTest(unittest.TestCase):
     @patch("features.social_cards.social_card_orchestrator.video_card_compositor")
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_composition_failure_persists_static_fallback(self, mock_renderer, mock_compositor):
-        media = _dynamic_media_item()
-        post = _make_post()
+        media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.VIDEO,
+            preview_url = "https://example.com/video-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/video.mp4"),
+        )
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.media = [media]
         self.mock_provider.fetch.return_value = post
         self.mock_downloader.download_to.side_effect = _download_test_media
@@ -489,7 +522,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
         def save(**kwargs: object):
             saved_paths.append(Path(kwargs["file_path"]))
-            return MagicMock(id = "att-1")
+            return stubs.domain.chat_attachment(id = "att-1")
 
         self.mock_di.chat_attachment_service.save.side_effect = save
 
@@ -502,8 +535,17 @@ class SocialCardOrchestratorTest(unittest.TestCase):
     @patch("features.social_cards.social_card_orchestrator.video_card_compositor")
     @patch("features.social_cards.social_card_orchestrator.card_renderer")
     def test_animated_gif_is_composed_as_video_with_gif_identity(self, mock_renderer, mock_compositor):
-        media = _dynamic_media_item(kind = SocialMediaKind.GIF, name = "animation")
-        post = _make_post()
+        media = stubs.domain.social_media_item(
+            kind = SocialMediaKind.GIF,
+            preview_url = "https://example.com/animation-poster.jpg",
+            dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/animation.mp4"),
+        )
+        post = stubs.domain.social_post(
+            author = stubs.domain.social_author(avatar_url = None),
+            media = [],
+            link_previews = [],
+            title = None,
+        )
         post.media = [media]
         self.mock_provider.fetch.return_value = post
         self.mock_downloader.download_to.side_effect = _download_test_media
@@ -518,7 +560,7 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     def test_render_social_post_routes_video_result_to_video_delivery(self):
         orchestrator, platform_sdk = self._prepare_render_social_post(
-            SocialCardRenderResult(
+            stubs.domain.social_card_render_result(
                 public_url = "https://cdn.example.com/card.mp4",
                 mode = SocialCardMode.VIDEO,
             ),
@@ -546,9 +588,8 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     def test_render_social_post_routes_requested_video_image_fallback_to_photo_delivery(self):
         orchestrator, platform_sdk = self._prepare_render_social_post(
-            SocialCardRenderResult(
+            stubs.domain.social_card_render_result(
                 public_url = "https://cdn.example.com/card.png",
-                mode = SocialCardMode.IMAGE,
             ),
         )
 
@@ -572,9 +613,8 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     def test_render_social_post_passes_image_and_omitted_modes(self):
         orchestrator, _ = self._prepare_render_social_post(
-            SocialCardRenderResult(
+            stubs.domain.social_card_render_result(
                 public_url = "https://cdn.example.com/card.png",
-                mode = SocialCardMode.IMAGE,
             ),
         )
 
@@ -613,9 +653,23 @@ class SocialCardOrchestratorTest(unittest.TestCase):
 
     def test_twitter_provider_transforms_profile_url_normal_to_bigger(self):
         mock_fetcher = MagicMock()
-        mock_fetcher.as_structured.return_value = _make_tweet()
+        mock_fetcher.as_structured.return_value = stubs.external.tweet_data(
+            user = stubs.external.tweet_user_data(
+                name = "Test User",
+                handle = "testuser",
+                bio = None,
+                profile_image_url = "https://pbs.twimg.com/profile_images/123/photo_normal.jpg",
+            ),
+            text = "Hello world",
+            media = [],
+            link_previews = [],
+        )
         self.mock_di.twitter_status_fetcher.return_value = mock_fetcher
-        provider = TwitterSocialPostProvider(self.mock_di, self.mock_x_api_tool, self.mock_vision_tool)
+        provider = TwitterSocialPostProvider(
+            self.mock_di,
+            stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter),
+            stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision),
+        )
 
         post = provider.fetch("https://x.com/user/status/123456789")
 
@@ -623,24 +677,22 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         self.assertNotIn("_normal", post.author.avatar_url)
 
     def test_twitter_provider_selects_highest_bitrate_mp4_video_variant(self):
-        video = TweetMediaItem(
+        video = stubs.external.tweet_media_item(
             url = None,
             preview_url = "https://pbs.twimg.com/media/video-preview.jpg",
             media_type = "video",
             variants = [
-                TweetMediaVariant(
+                stubs.external.tweet_media_variant(
                     url = "https://video.twimg.com/video.m3u8",
                     content_type = "application/x-mpegURL",
                     bit_rate = 4000000,
                 ),
-                TweetMediaVariant(
+                stubs.external.tweet_media_variant(
                     url = "https://video.twimg.com/video-low.mp4",
-                    content_type = "video/mp4",
                     bit_rate = 256000,
                 ),
-                TweetMediaVariant(
+                stubs.external.tweet_media_variant(
                     url = "https://video.twimg.com/video-high.mp4",
-                    content_type = "video/mp4",
                     bit_rate = 1024000,
                 ),
             ],
@@ -650,9 +702,23 @@ class SocialCardOrchestratorTest(unittest.TestCase):
             alt_text = "A test video",
         )
         mock_fetcher = MagicMock()
-        mock_fetcher.as_structured.return_value = _make_tweet([video])
+        mock_fetcher.as_structured.return_value = stubs.external.tweet_data(
+            user = stubs.external.tweet_user_data(
+                name = "Test User",
+                handle = "testuser",
+                bio = None,
+                profile_image_url = "https://pbs.twimg.com/profile_images/123/photo_normal.jpg",
+            ),
+            text = "Hello world",
+            media = [video],
+            link_previews = [],
+        )
         self.mock_di.twitter_status_fetcher.return_value = mock_fetcher
-        provider = TwitterSocialPostProvider(self.mock_di, self.mock_x_api_tool, self.mock_vision_tool)
+        provider = TwitterSocialPostProvider(
+            self.mock_di,
+            stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter),
+            stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision),
+        )
 
         post = provider.fetch("https://x.com/user/status/123456789")
 
@@ -667,22 +733,35 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         self.assertEqual(post.media[0].dynamic_media.height, 1080)
 
     def test_twitter_provider_maps_animated_gif_variant_as_one_media_item(self):
-        animated_gif = TweetMediaItem(
+        animated_gif = stubs.external.tweet_media_item(
             url = None,
             preview_url = "https://pbs.twimg.com/media/gif-preview.jpg",
             media_type = "animated_gif",
             variants = [
-                TweetMediaVariant(
+                stubs.external.tweet_media_variant(
                     url = "https://video.twimg.com/animation.mp4",
-                    content_type = "video/mp4",
                     bit_rate = None,
                 ),
             ],
         )
         mock_fetcher = MagicMock()
-        mock_fetcher.as_structured.return_value = _make_tweet([animated_gif])
+        mock_fetcher.as_structured.return_value = stubs.external.tweet_data(
+            user = stubs.external.tweet_user_data(
+                name = "Test User",
+                handle = "testuser",
+                bio = None,
+                profile_image_url = "https://pbs.twimg.com/profile_images/123/photo_normal.jpg",
+            ),
+            text = "Hello world",
+            media = [animated_gif],
+            link_previews = [],
+        )
         self.mock_di.twitter_status_fetcher.return_value = mock_fetcher
-        provider = TwitterSocialPostProvider(self.mock_di, self.mock_x_api_tool, self.mock_vision_tool)
+        provider = TwitterSocialPostProvider(
+            self.mock_di,
+            stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter),
+            stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision),
+        )
 
         post = provider.fetch("https://x.com/user/status/123456789")
 
@@ -692,27 +771,37 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         self.assertEqual(post.media[0].dynamic_media.playback_url, "https://video.twimg.com/animation.mp4")
 
     def test_twitter_provider_preserves_independent_photo_beside_video(self):
-        video = TweetMediaItem(
+        video = stubs.external.tweet_media_item(
             url = None,
             preview_url = "https://pbs.twimg.com/media/video-preview.jpg",
             media_type = "video",
             variants = [
-                TweetMediaVariant(
-                    url = "https://video.twimg.com/video.mp4",
-                    content_type = "video/mp4",
+                stubs.external.tweet_media_variant(
                     bit_rate = 512000,
                 ),
             ],
         )
-        photo = TweetMediaItem(
-            url = "https://pbs.twimg.com/media/photo.jpg",
+        photo = stubs.external.tweet_media_item(
             preview_url = None,
-            media_type = "photo",
         )
         mock_fetcher = MagicMock()
-        mock_fetcher.as_structured.return_value = _make_tweet([video, photo])
+        mock_fetcher.as_structured.return_value = stubs.external.tweet_data(
+            user = stubs.external.tweet_user_data(
+                name = "Test User",
+                handle = "testuser",
+                bio = None,
+                profile_image_url = "https://pbs.twimg.com/profile_images/123/photo_normal.jpg",
+            ),
+            text = "Hello world",
+            media = [video, photo],
+            link_previews = [],
+        )
         self.mock_di.twitter_status_fetcher.return_value = mock_fetcher
-        provider = TwitterSocialPostProvider(self.mock_di, self.mock_x_api_tool, self.mock_vision_tool)
+        provider = TwitterSocialPostProvider(
+            self.mock_di,
+            stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter),
+            stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision),
+        )
 
         post = provider.fetch("https://x.com/user/status/123456789")
 
@@ -722,12 +811,12 @@ class SocialCardOrchestratorTest(unittest.TestCase):
         self.assertNotIn(video.preview_url, [media.url for media in post.media])
 
     def test_twitter_provider_keeps_static_video_poster_when_no_mp4_variant_exists(self):
-        video = TweetMediaItem(
+        video = stubs.external.tweet_media_item(
             url = None,
             preview_url = "https://pbs.twimg.com/media/video-preview.jpg",
             media_type = "video",
             variants = [
-                TweetMediaVariant(
+                stubs.external.tweet_media_variant(
                     url = "https://video.twimg.com/video.m3u8",
                     content_type = "application/x-mpegURL",
                     bit_rate = None,
@@ -735,9 +824,23 @@ class SocialCardOrchestratorTest(unittest.TestCase):
             ],
         )
         mock_fetcher = MagicMock()
-        mock_fetcher.as_structured.return_value = _make_tweet([video])
+        mock_fetcher.as_structured.return_value = stubs.external.tweet_data(
+            user = stubs.external.tweet_user_data(
+                name = "Test User",
+                handle = "testuser",
+                bio = None,
+                profile_image_url = "https://pbs.twimg.com/profile_images/123/photo_normal.jpg",
+            ),
+            text = "Hello world",
+            media = [video],
+            link_previews = [],
+        )
         self.mock_di.twitter_status_fetcher.return_value = mock_fetcher
-        provider = TwitterSocialPostProvider(self.mock_di, self.mock_x_api_tool, self.mock_vision_tool)
+        provider = TwitterSocialPostProvider(
+            self.mock_di,
+            stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter),
+            stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision),
+        )
 
         post = provider.fetch("https://x.com/user/status/123456789")
 

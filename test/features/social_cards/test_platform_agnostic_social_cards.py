@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import stubs
 from PIL import Image
 
 from features.social_cards import card_renderer, card_template, video_card_compositor
@@ -16,21 +17,9 @@ from features.social_cards.card_layout import (
 )
 from features.social_cards.link_preview import prepare_favicon
 from features.social_cards.social_card_models import (
-    SocialAuthor,
     SocialCardMode,
-    SocialCardRenderResult,
     SocialCardTemplateResult,
-    SocialCardVideoInput,
-    SocialDynamicMedia,
-    SocialLinkPreview,
-    SocialLinkPreviewAsset,
-    SocialMediaAsset,
-    SocialMediaItem,
     SocialMediaKind,
-    SocialMediaPlacement,
-    SocialPlatformBrand,
-    SocialPost,
-    SocialPostRenderAssets,
 )
 from features.social_cards.theme import ThemeColors
 from features.social_cards.video_card_timeline import plan_timeline
@@ -38,24 +27,6 @@ from features.videos.video_file_utils import inspect_video, video_meets_constrai
 from util.config import config
 from util.error_codes import INVALID_SOCIAL_CARD_VIDEO_CONFIGURATION, SOCIAL_CARD_VIDEO_COMPOSITION_FAILED
 from util.errors import ConfigurationError, ExternalServiceError
-
-
-def _brand() -> SocialPlatformBrand:
-    return SocialPlatformBrand(
-        platform_id = "x",
-        display_name = "X",
-        logo_light_key = "x_logo_light",
-        logo_dark_key = "x_logo_dark",
-    )
-
-
-def _post() -> SocialPost:
-    return SocialPost(
-        platform = _brand(),
-        author = SocialAuthor(additional_profile_info = "Milos", handle = "@milos"),
-        text = "hello world",
-        source_url = "https://x.com/milos/status/1",
-    )
 
 
 def _theme() -> ThemeColors:
@@ -69,36 +40,6 @@ def _theme() -> ThemeColors:
 def _write_image(path: Path, size: tuple[int, int] = (100, 100)) -> Path:
     Image.new("RGB", size, color = (100, 50, 25)).save(path)
     return path
-
-
-def _video_placement(
-    kind: SocialMediaKind = SocialMediaKind.VIDEO,
-    x: int = 20,
-    y: int = 30,
-    width: int = 100,
-    height: int = 80,
-) -> SocialMediaPlacement:
-    return SocialMediaPlacement(
-        media = SocialMediaItem(kind = kind),
-        x = x,
-        y = y,
-        width = width,
-        height = height,
-        top_left_radius = 20,
-        top_right_radius = 20,
-        bottom_right_radius = 20,
-        bottom_left_radius = 20,
-    )
-
-
-def _video_input(
-    media_path: Path,
-    placement: SocialMediaPlacement | None = None,
-) -> SocialCardVideoInput:
-    return SocialCardVideoInput(
-        media_path = media_path,
-        placement = placement or _video_placement(),
-    )
 
 
 def _run_test_ffmpeg(*arguments: str) -> None:
@@ -178,36 +119,31 @@ def video_sources(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
 
 
 def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path) -> None:
-    media = SocialMediaItem(
-        kind = SocialMediaKind.IMAGE,
-        url = "https://example.com/image.jpg",
-    )
-    link_preview = SocialLinkPreview(
-        expanded_url = "https://example.com/article",
-        domain = "example.com",
-        title = "Example",
-    )
-    embedded_post = SocialPost(
-        platform = _brand(),
-        author = SocialAuthor(additional_profile_info = "Other", handle = "@other"),
+    media = stubs.domain.social_media_item(url = "https://example.com/image.jpg")
+    link_preview = stubs.domain.social_link_preview(expanded_url = "https://example.com/article", title = "Example")
+    embedded_post = stubs.domain.social_post(
+        platform = stubs.domain.social_platform_brand(logo_light_key = "x_logo_light", logo_dark_key = "x_logo_dark"),
+        author = stubs.domain.social_author(additional_profile_info = "Other", handle = "@other"),
         text = "embedded",
         source_url = "https://x.com/other/status/2",
     )
 
-    post = SocialPost(
-        platform = _brand(),
-        author = SocialAuthor(additional_profile_info = "Milos", handle = "@milos", avatar_url = "https://example.com/avatar.jpg"),
+    post = stubs.domain.social_post(
+        platform = stubs.domain.social_platform_brand(logo_light_key = "x_logo_light", logo_dark_key = "x_logo_dark"),
+        author = stubs.domain.social_author(additional_profile_info = "Milos", handle = "@milos"),
         text = "hello world",
         source_url = "https://x.com/milos/status/1",
         media = [media],
         link_previews = [link_preview],
         embedded_post = embedded_post,
     )
-    assets = SocialPostRenderAssets(
+    assets = stubs.domain.social_post_render_assets(
         avatar_path = tmp_path / "avatar.png",
-        media = [SocialMediaAsset(media = media, path = tmp_path / "media.png")],
-        link_previews = [SocialLinkPreviewAsset(link_preview = link_preview, favicon_path = tmp_path / "favicon.png")],
-        embedded_post = SocialPostRenderAssets(avatar_path = tmp_path / "embedded-avatar.png"),
+        media = [stubs.domain.social_media_asset(media = media, path = tmp_path / "media.png")],
+        link_previews = [
+            stubs.domain.social_link_preview_asset(link_preview = link_preview, favicon_path = tmp_path / "favicon.png"),
+        ],
+        embedded_post = stubs.domain.social_post_render_assets(avatar_path = tmp_path / "embedded-avatar.png"),
     )
 
     assert post.author.handle == "@milos"
@@ -220,21 +156,9 @@ def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path
 
 
 def test_dynamic_social_card_contracts_are_platform_neutral() -> None:
-    dynamic = SocialDynamicMedia(
-        playback_url = "https://example.com/video.mp4",
-        duration_seconds = 12.5,
-        width = 1920,
-        height = 1080,
-    )
-    media = SocialMediaItem(
-        kind = SocialMediaKind.VIDEO,
-        preview_url = "https://example.com/poster.jpg",
-        dynamic_media = dynamic,
-    )
-    result = SocialCardRenderResult(
-        public_url = "https://example.com/card.mp4",
-        mode = SocialCardMode.VIDEO,
-    )
+    dynamic = stubs.domain.social_dynamic_media(playback_url = "https://example.com/video.mp4")
+    media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO, dynamic_media = dynamic)
+    result = stubs.domain.social_card_render_result(mode = SocialCardMode.VIDEO, public_url = "https://example.com/card.mp4")
 
     assert SocialCardMode.IMAGE.value == "image"
     assert SocialCardMode.VIDEO.value == "video"
@@ -244,13 +168,20 @@ def test_dynamic_social_card_contracts_are_platform_neutral() -> None:
 
 
 def test_card_renderer_writes_png_to_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    post = _post()
-    assets = SocialPostRenderAssets()
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
+    assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None)
     captured: dict[str, object] = {}
 
     def fake_build_svg(**kwargs: object) -> SocialCardTemplateResult:
         captured.update(kwargs)
-        return SocialCardTemplateResult(svg = "<svg></svg>", width = 100, height = 200)
+        return stubs.domain.social_card_template_result(width = 100, height = 200)
 
     monkeypatch.setattr(card_renderer, "build_svg", fake_build_svg)
     monkeypatch.setattr(card_renderer.resvg_py, "svg_to_bytes", lambda **kwargs: b"png")
@@ -272,13 +203,20 @@ def test_card_renderer_writes_png_to_path(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 def test_card_template_consumes_neutral_social_post(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-    post = _post()
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
 
     result = card_template.build_svg(
         post = post,
         theme = _theme(),
         card_width = 800,
-        assets = SocialPostRenderAssets(),
+        assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
     )
 
@@ -288,14 +226,21 @@ def test_card_template_consumes_neutral_social_post(monkeypatch: pytest.MonkeyPa
 
 def test_titled_post_renders_bold_title_above_body(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-    post = _post()
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
     post.title = "Breaking News"
 
     result = card_template.build_svg(
         post = post,
         theme = _theme(),
         card_width = 800,
-        assets = SocialPostRenderAssets(),
+        assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
     )
 
@@ -308,14 +253,21 @@ def test_titled_post_renders_bold_title_above_body(monkeypatch: pytest.MonkeyPat
 
 def test_title_wraps_across_lines(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-    post = _post()
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
     post.title = " ".join(["extraordinarily-long-title-word"] * 40)
 
     result = card_template.build_svg(
         post = post,
         theme = _theme(),
         card_width = 800,
-        assets = SocialPostRenderAssets(),
+        assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
     )
 
@@ -324,7 +276,14 @@ def test_title_wraps_across_lines(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-    post = _post()
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
     post.title = "Just a title"
     post.text = ""
 
@@ -332,7 +291,7 @@ def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch
         post = post,
         theme = _theme(),
         card_width = 800,
-        assets = SocialPostRenderAssets(),
+        assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
     )
 
@@ -342,13 +301,20 @@ def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch
 
 def test_untitled_post_renders_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-    post = _post()
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
 
     result = card_template.build_svg(
         post = post,
         theme = _theme(),
         card_width = 800,
-        assets = SocialPostRenderAssets(),
+        assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
     )
 
@@ -367,26 +333,20 @@ def test_card_renderer_resolves_local_image_paths(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         card_template,
         "_fetch_logo",
-        lambda key: (
-            b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
-            b'<circle cx="5" cy="5" r="4" fill="white"/></svg>'
-        ),
+        lambda key: b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4" fill="white"/></svg>',  # ruff: ignore[line-too-long]
     )
-    media = SocialMediaItem(kind = SocialMediaKind.IMAGE, url = "https://example.com/photo.jpg")
-    link_preview = SocialLinkPreview(
-        expanded_url = "https://example.com/article",
-        domain = "example.com",
-        title = "Example article",
+    media = stubs.domain.social_media_item()
+    link_preview = stubs.domain.social_link_preview(
     )
     favicon_path = prepare_favicon(
         _write_image(tmp_path / "favicon-source.png"),
         tmp_path / "favicon.png",
     )
-    assets = SocialPostRenderAssets(
+    assets = stubs.domain.social_post_render_assets(
         avatar_path = _write_image(tmp_path / "avatar.png"),
-        media = [SocialMediaAsset(media = media, path = _write_image(tmp_path / "photo.png", (160, 90)))],
+        media = [stubs.domain.social_media_asset(media = media, path = _write_image(tmp_path / "photo.png", (160, 90)))],
         link_previews = [
-            SocialLinkPreviewAsset(
+            stubs.domain.social_link_preview_asset(
                 link_preview = link_preview,
                 og_image_path = _write_image(tmp_path / "og-image.png", (300, 200)),
                 favicon_path = favicon_path,
@@ -396,7 +356,15 @@ def test_card_renderer_resolves_local_image_paths(monkeypatch: pytest.MonkeyPatc
     output_path = tmp_path / "card.png"
 
     result = card_renderer.render(
-        post = _post(),
+        post = stubs.domain.social_post(
+            platform = stubs.domain.social_platform_brand(logo_light_key = "x_logo_light", logo_dark_key = "x_logo_dark"),
+            author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+            text = "hello world",
+            source_url = "https://x.com/milos/status/1",
+            title = None,
+            media = [],
+            link_previews = [],
+        ),
         theme = _theme(),
         assets = assets,
         output_path = output_path,
@@ -416,26 +384,33 @@ def test_dynamic_media_is_full_width_before_tiled_photos(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-    video_one = SocialMediaItem(
+    video_one = stubs.domain.social_media_item(
         kind = SocialMediaKind.VIDEO,
         preview_url = "https://example.com/video-one.jpg",
-        dynamic_media = SocialDynamicMedia(playback_url = "https://example.com/video-one.mp4"),
+        dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/video-one.mp4"),
     )
-    photo_one = SocialMediaItem(kind = SocialMediaKind.IMAGE, url = "https://example.com/photo-one.jpg")
-    video_two = SocialMediaItem(
+    photo_one = stubs.domain.social_media_item(url = "https://example.com/photo-one.jpg")
+    video_two = stubs.domain.social_media_item(
         kind = SocialMediaKind.GIF,
         preview_url = "https://example.com/video-two.jpg",
-        dynamic_media = SocialDynamicMedia(playback_url = "https://example.com/video-two.mp4"),
+        dynamic_media = stubs.domain.social_dynamic_media(playback_url = "https://example.com/video-two.mp4"),
     )
-    photo_two = SocialMediaItem(kind = SocialMediaKind.IMAGE, url = "https://example.com/photo-two.jpg")
-    post = _post()
+    photo_two = stubs.domain.social_media_item(url = "https://example.com/photo-two.jpg")
+    post = stubs.domain.social_post(
+        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        text = "hello world",
+        source_url = "https://x.com/milos/status/1",
+        title = None,
+        media = [],
+        link_previews = [],
+    )
     post.media = [photo_one, video_one, photo_two, video_two]
-    assets = SocialPostRenderAssets(
+    assets = stubs.domain.social_post_render_assets(
         media = [
-            SocialMediaAsset(media = photo_one, path = _write_image(tmp_path / "photo-one.png")),
-            SocialMediaAsset(media = video_one, path = _write_image(tmp_path / "video-one.png", (160, 90))),
-            SocialMediaAsset(media = photo_two, path = _write_image(tmp_path / "photo-two.png")),
-            SocialMediaAsset(media = video_two, path = _write_image(tmp_path / "video-two.png", (160, 90))),
+            stubs.domain.social_media_asset(media = photo_one, path = _write_image(tmp_path / "photo-one.png")),
+            stubs.domain.social_media_asset(media = video_one, path = _write_image(tmp_path / "video-one.png", (160, 90))),
+            stubs.domain.social_media_asset(media = photo_two, path = _write_image(tmp_path / "photo-two.png")),
+            stubs.domain.social_media_asset(media = video_two, path = _write_image(tmp_path / "video-two.png", (160, 90))),
         ],
     )
 
@@ -471,10 +446,26 @@ def test_video_card_compositor_preserves_audio_freezes_last_frame_and_masks_corn
     output_path = tmp_path / "card.mp4"
     mask_path = tmp_path / "known-mask.png"
     monkeypatch.setattr(video_card_compositor, "uuid4", lambda: SimpleNamespace(hex = "known"))
+    placement = stubs.domain.social_media_placement(
+        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+        x = 20,
+        y = 30,
+        width = 100,
+        height = 80,
+        top_left_radius = 20,
+        top_right_radius = 20,
+        bottom_right_radius = 20,
+        bottom_left_radius = 20,
+    )
 
     video_card_compositor.compose(
         static_card_path,
-        [_video_input(video_sources["landscape"])],
+        [
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["landscape"],
+                placement = placement,
+            ),
+        ],
         output_path,
     )
 
@@ -485,7 +476,6 @@ def test_video_card_compositor_preserves_audio_freezes_last_frame_and_masks_corn
     assert metadata.duration_seconds == pytest.approx(1, abs = 0.1)
     assert not mask_path.exists()
 
-    placement = _video_placement()
     early_frame = _extract_frame(output_path, tmp_path / "early.png", 0.2)
     late_frame = _extract_frame(output_path, tmp_path / "late.png", 0.9)
     for frame in (early_frame, late_frame):
@@ -506,11 +496,26 @@ def test_video_card_compositor_scales_portrait_video_and_generates_silent_audio(
     static_card_path = tmp_path / "static.png"
     Image.new("RGB", (200, 240), color = "blue").save(static_card_path)
     output_path = tmp_path / "card.mp4"
-    placement = _video_placement(height = 178)
+    placement = stubs.domain.social_media_placement(
+        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+        x = 20,
+        y = 30,
+        width = 100,
+        height = 178,
+        top_left_radius = 20,
+        top_right_radius = 20,
+        bottom_right_radius = 20,
+        bottom_left_radius = 20,
+    )
 
     video_card_compositor.compose(
         static_card_path,
-        [_video_input(video_sources["portrait"], placement)],
+        [
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["portrait"],
+                placement = placement,
+            ),
+        ],
         output_path,
     )
 
@@ -535,7 +540,22 @@ def test_video_card_compositor_trims_to_configured_duration(
 
     video_card_compositor.compose(
         static_card_path,
-        [_video_input(video_sources["landscape"])],
+        [
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["landscape"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                    x = 20,
+                    y = 30,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
+            ),
+        ],
         output_path,
     )
 
@@ -582,7 +602,22 @@ def test_video_card_compositor_removes_partial_output_and_mask_after_process_fai
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
             static_card_path,
-            [_video_input(video_sources["landscape"])],
+            [
+                stubs.domain.social_card_video_input(
+                    media_path = video_sources["landscape"],
+                    placement = stubs.domain.social_media_placement(
+                        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                        x = 20,
+                        y = 30,
+                        width = 100,
+                        height = 80,
+                        top_left_radius = 20,
+                        top_right_radius = 20,
+                        bottom_right_radius = 20,
+                        bottom_left_radius = 20,
+                    ),
+                ),
+            ],
             output_path,
         )
 
@@ -610,7 +645,22 @@ def test_video_card_compositor_reports_timeout(
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
             static_card_path,
-            [_video_input(video_sources["landscape"])],
+            [
+                stubs.domain.social_card_video_input(
+                    media_path = video_sources["landscape"],
+                    placement = stubs.domain.social_media_placement(
+                        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                        x = 20,
+                        y = 30,
+                        width = 100,
+                        height = 80,
+                        top_left_radius = 20,
+                        top_right_radius = 20,
+                        bottom_right_radius = 20,
+                        bottom_left_radius = 20,
+                    ),
+                ),
+            ],
             output_path,
         )
 
@@ -638,7 +688,22 @@ def test_video_card_compositor_rejects_empty_output(
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
             static_card_path,
-            [_video_input(video_sources["landscape"])],
+            [
+                stubs.domain.social_card_video_input(
+                    media_path = video_sources["landscape"],
+                    placement = stubs.domain.social_media_placement(
+                        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                        x = 20,
+                        y = 30,
+                        width = 100,
+                        height = 80,
+                        top_left_radius = 20,
+                        top_right_radius = 20,
+                        bottom_right_radius = 20,
+                        bottom_left_radius = 20,
+                    ),
+                ),
+            ],
             output_path,
         )
 
@@ -666,14 +731,34 @@ def test_video_card_compositor_plays_videos_sequentially_with_active_audio_only(
     static_card.paste("blue", (20, 120, 120, 200))
     static_card.save(static_card_path)
     output_path = tmp_path / "card.mp4"
-    first_placement = _video_placement(y = 20)
-    second_placement = _video_placement(y = 120)
+    first_placement = stubs.domain.social_media_placement(
+        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+        x = 20,
+        y = 20,
+        width = 100,
+        height = 80,
+        top_left_radius = 20,
+        top_right_radius = 20,
+        bottom_right_radius = 20,
+        bottom_left_radius = 20,
+    )
+    second_placement = stubs.domain.social_media_placement(
+        media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+        x = 20,
+        y = 120,
+        width = 100,
+        height = 80,
+        top_left_radius = 20,
+        top_right_radius = 20,
+        bottom_right_radius = 20,
+        bottom_left_radius = 20,
+    )
 
     video_card_compositor.compose(
         static_card_path,
         [
-            _video_input(video_sources["landscape"], first_placement),
-            _video_input(video_sources["portrait"], second_placement),
+            stubs.domain.social_card_video_input(media_path = video_sources["landscape"], placement = first_placement),
+            stubs.domain.social_card_video_input(media_path = video_sources["portrait"], placement = second_placement),
         ],
         output_path,
     )
@@ -703,10 +788,33 @@ def test_video_card_compositor_plays_video_then_gif_with_silent_gif_audio(
     video_card_compositor.compose(
         static_card_path,
         [
-            _video_input(video_sources["portrait"], _video_placement(y = 20)),
-            _video_input(
-                video_sources["landscape"],
-                _video_placement(kind = SocialMediaKind.GIF, y = 120),
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["portrait"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                    x = 20,
+                    y = 20,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
+            ),
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["landscape"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.GIF),
+                    x = 20,
+                    y = 120,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
             ),
         ],
         output_path,
@@ -729,9 +837,19 @@ def test_video_card_compositor_keeps_gif_only_output_silent(
     video_card_compositor.compose(
         static_card_path,
         [
-            _video_input(
-                video_sources["landscape"],
-                _video_placement(kind = SocialMediaKind.GIF, y = 20),
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["landscape"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.GIF),
+                    x = 20,
+                    y = 20,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
             ),
         ],
         output_path,
@@ -758,9 +876,48 @@ def test_video_card_compositor_truncates_active_item_and_does_not_start_later_it
     video_card_compositor.compose(
         static_card_path,
         [
-            _video_input(video_sources["landscape"], _video_placement(y = 20)),
-            _video_input(video_sources["portrait"], _video_placement(y = 120)),
-            _video_input(video_sources["landscape"], _video_placement(y = 220)),
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["landscape"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                    x = 20,
+                    y = 20,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
+            ),
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["portrait"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                    x = 20,
+                    y = 120,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
+            ),
+            stubs.domain.social_card_video_input(
+                media_path = video_sources["landscape"],
+                placement = stubs.domain.social_media_placement(
+                    media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
+                    x = 20,
+                    y = 220,
+                    width = 100,
+                    height = 80,
+                    top_left_radius = 20,
+                    top_right_radius = 20,
+                    bottom_right_radius = 20,
+                    bottom_left_radius = 20,
+                ),
+            ),
         ],
         output_path,
     )

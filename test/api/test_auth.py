@@ -2,8 +2,8 @@ import unittest
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+import stubs
 from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
 from jose import jwt
 from pydantic import SecretStr
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
@@ -89,7 +89,7 @@ class AuthTest(unittest.TestCase):
     def test_invalid_jwt_token(self, mock_jwt: MagicMock):
         mock_jwt.decode.side_effect = Exception()
         with self.assertRaises(HTTPException) as context:
-            verify_jwt_credentials(HTTPAuthorizationCredentials(scheme = "Bearer", credentials = "invalid-token"))
+            verify_jwt_credentials(stubs.external.http_authorization_credentials(credentials = "invalid-token"))
         self.assertEqual(context.exception.status_code, HTTP_401_UNAUTHORIZED)
         self.assertEqual(context.exception.detail, "Could not validate access credentials")
 
@@ -100,7 +100,7 @@ class AuthTest(unittest.TestCase):
         expected_payload = {"sub": "1234"}
         mock_jwt.decode.return_value = expected_payload
 
-        result = verify_jwt_credentials(HTTPAuthorizationCredentials(scheme = "Bearer", credentials = "valid-token"))
+        result = verify_jwt_credentials(stubs.external.http_authorization_credentials())
         self.assertEqual(result, expected_payload)
 
     def test_create_jwt_token(self):

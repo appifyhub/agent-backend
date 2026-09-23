@@ -1,53 +1,30 @@
 import unittest
-from datetime import datetime
 from unittest.mock import Mock
-from uuid import UUID
 
+import stubs
 from pydantic import SecretStr
 
-from db.model.user import UserDB
 from di.di import DI
-from features.external_tools.access_token_resolver import AccessTokenResolver, ResolvedToken
+from features.external_tools.access_token_resolver import AccessTokenResolver
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     GPT_5_6_TERRA,
-    IMAGE_GEN_EDIT_FLUX_2_PRO,
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
 )
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver, ToolResolutionError
-from features.users.user import User
 
 
 class ToolChoiceResolverTest(unittest.TestCase):
 
-    invoker_user: User
     mock_access_token_resolver: Mock
     mock_di: DI
 
     def setUp(self):
-        self.invoker_user = User(
-            id = UUID(int = 1),
-            full_name = "Test User",
-            telegram_username = "test_user",
-            telegram_chat_id = "test_chat_id",
-            telegram_user_id = 1,
-            open_ai_key = SecretStr("test_openai_key"),
-            anthropic_key = SecretStr("test_anthropic_key"),
-            tool_choice_chat = CLAUDE_4_6_SONNET.id,
-            tool_choice_vision = "gpt-5.6-terra",
-            tool_choice_images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO.id,
-            tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
-            tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
-            group = UserDB.Group.standard,
-            created_at = datetime.now().date(),
-        )
         self.mock_access_token_resolver = Mock(spec = AccessTokenResolver)
         self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker = self.invoker_user
         # noinspection PyPropertyAccess
         self.mock_di.access_token_resolver = self.mock_access_token_resolver
 
@@ -151,8 +128,9 @@ class ToolChoiceResolverTest(unittest.TestCase):
             self.assertIn(ToolType.chat, tool.types)
 
     def test_get_tool_success_user_has_access_to_user_choice(self):
-        resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
+        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
         self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved
+        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
 
         resolver = ToolChoiceResolver(self.mock_di)
         result = resolver.get_tool(ToolType.chat)
@@ -166,7 +144,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertFalse(result.uses_credits)
 
     def test_get_tool_success_user_no_access_to_user_choice_but_has_access_to_others(self):
-        resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
+        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
 
         def mock_get_access_token_for_tool(test_tool):
             if test_tool == CLAUDE_4_6_SONNET:
@@ -174,6 +152,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
             return resolved
 
         self.mock_access_token_resolver.get_access_token_for_tool.side_effect = mock_get_access_token_for_tool
+        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
 
         resolver = ToolChoiceResolver(self.mock_di)
         result = resolver.get_tool(ToolType.chat)
@@ -187,7 +166,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertEqual(result.purpose, ToolType.chat)
 
     def test_get_tool_success_with_default_tool_prioritized(self):
-        resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
+        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
 
         def mock_get_access_token_for_tool(test_tool):
             if test_tool == CLAUDE_4_6_SONNET:
@@ -197,6 +176,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
             return None
 
         self.mock_access_token_resolver.get_access_token_for_tool.side_effect = mock_get_access_token_for_tool
+        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
 
         resolver = ToolChoiceResolver(self.mock_di)
         result = resolver.get_tool(ToolType.chat, default_tool = GPT_5_6_TERRA.id)
@@ -210,6 +190,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
 
     def test_get_tool_failure_no_access_to_any_tool(self):
         self.mock_access_token_resolver.get_access_token_for_tool.return_value = None
+        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
 
         resolver = ToolChoiceResolver(self.mock_di)
         result = resolver.get_tool(ToolType.chat)
@@ -217,8 +198,9 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_require_tool_success(self):
-        resolved = ResolvedToken(token = SecretStr("test_token"), payer_id = UUID(int = 1), uses_credits = False)
+        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
         self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved
+        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
 
         resolver = ToolChoiceResolver(self.mock_di)
         result = resolver.require_tool(ToolType.chat)
@@ -232,6 +214,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
 
     def test_require_tool_failure_raises_exception(self):
         self.mock_access_token_resolver.get_access_token_for_tool.return_value = None
+        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
 
         resolver = ToolChoiceResolver(self.mock_di)
 
@@ -240,11 +223,15 @@ class ToolChoiceResolverTest(unittest.TestCase):
 
         error_message = str(context.exception)
         self.assertIn("Unable to resolve a tool for 'chat'", error_message)
-        self.assertIn(str(self.invoker_user.id.hex), error_message)
+        self.assertIn(str(self.mock_di.invoker.id.hex), error_message)
 
     def test_user_tool_choice_mapping_through_public_interface(self):
-        resolved_1 = ResolvedToken(token = SecretStr("test_token_1"), payer_id = UUID(int = 1), uses_credits = False)
+        resolved_1 = stubs.domain.resolved_token(token = SecretStr("test_token_1"))
         self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved_1
+        self.mock_di.invoker = stubs.domain.user(
+            tool_choice_chat = CLAUDE_4_6_SONNET.id,
+            tool_choice_vision = GPT_5_6_TERRA.id,
+        )
 
         resolver = ToolChoiceResolver(self.mock_di)
 
@@ -256,7 +243,7 @@ class ToolChoiceResolverTest(unittest.TestCase):
         self.assertEqual(chat_result.token.get_secret_value(), "test_token_1")
         self.assertEqual(chat_result.purpose, ToolType.chat)
 
-        resolved_2 = ResolvedToken(token = SecretStr("test_token_2"), payer_id = UUID(int = 1), uses_credits = False)
+        resolved_2 = stubs.domain.resolved_token(token = SecretStr("test_token_2"))
         self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved_2
 
         vision_result = resolver.get_tool(ToolType.vision)

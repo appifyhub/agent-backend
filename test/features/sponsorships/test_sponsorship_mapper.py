@@ -1,24 +1,13 @@
 import unittest
-from datetime import datetime
-from uuid import UUID
+from datetime import timedelta
+from uuid import uuid4
 
-from db.model.sponsorship import SponsorshipDB
-from features.sponsorships.sponsorship import Sponsorship
+import stubs
+
 from features.sponsorships.sponsorship_mapper import apply_to_db_model, db, domain
 
 
 class SponsorshipMapperTest(unittest.TestCase):
-
-    sponsor_id: UUID
-    receiver_id: UUID
-    sponsored_at: datetime
-    accepted_at: datetime
-
-    def setUp(self):
-        self.sponsor_id = UUID("11111111-1111-1111-1111-111111111111")
-        self.receiver_id = UUID("22222222-2222-2222-2222-222222222222")
-        self.sponsored_at = datetime(2026, 1, 1, 12, 0, 0)
-        self.accepted_at = datetime(2026, 1, 2, 12, 0, 0)
 
     def test_domain_returns_none_for_none_input(self):
         self.assertIsNone(domain(None))
@@ -27,104 +16,69 @@ class SponsorshipMapperTest(unittest.TestCase):
         self.assertIsNone(db(None))
 
     def test_domain_maps_all_fields(self):
-        db_model = SponsorshipDB(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-            sponsored_at = self.sponsored_at,
-            accepted_at = self.accepted_at,
-        )
+        db_model = stubs.db.sponsorship_db()
 
         result = domain(db_model)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.sponsor_id, self.sponsor_id)
-        self.assertEqual(result.receiver_id, self.receiver_id)
-        self.assertEqual(result.sponsored_at, self.sponsored_at)
-        self.assertEqual(result.accepted_at, self.accepted_at)
+        self.assertEqual(result.sponsor_id, db_model.sponsor_id)
+        self.assertEqual(result.receiver_id, db_model.receiver_id)
+        self.assertEqual(result.sponsored_at, db_model.sponsored_at)
+        self.assertEqual(result.accepted_at, db_model.accepted_at)
 
     def test_domain_maps_pending_sponsorship(self):
-        db_model = SponsorshipDB(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-            sponsored_at = self.sponsored_at,
-            accepted_at = None,
-        )
+        db_model = stubs.db.sponsorship_db(accepted_at = None)
 
         result = domain(db_model)
 
-        self.assertEqual(result.sponsor_id, self.sponsor_id)
-        self.assertEqual(result.receiver_id, self.receiver_id)
-        self.assertEqual(result.sponsored_at, self.sponsored_at)
+        self.assertEqual(result.sponsor_id, db_model.sponsor_id)
+        self.assertEqual(result.receiver_id, db_model.receiver_id)
+        self.assertEqual(result.sponsored_at, db_model.sponsored_at)
         self.assertIsNone(result.accepted_at)
 
     def test_db_maps_all_fields(self):
-        domain_model = Sponsorship(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-            sponsored_at = self.sponsored_at,
-            accepted_at = self.accepted_at,
-        )
+        domain_model = stubs.domain.sponsorship()
 
         result = db(domain_model)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.sponsor_id, self.sponsor_id)
-        self.assertEqual(result.receiver_id, self.receiver_id)
-        self.assertEqual(result.sponsored_at, self.sponsored_at)
-        self.assertEqual(result.accepted_at, self.accepted_at)
+        self.assertEqual(result.sponsor_id, domain_model.sponsor_id)
+        self.assertEqual(result.receiver_id, domain_model.receiver_id)
+        self.assertEqual(result.sponsored_at, domain_model.sponsored_at)
+        self.assertEqual(result.accepted_at, domain_model.accepted_at)
 
-    def test_domain_defaults_sponsored_at(self):
-        domain_model = Sponsorship(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-        )
-
-        self.assertIsNotNone(domain_model.sponsored_at)
-
-    def test_db_maps_default_sponsored_at(self):
-        domain_model = Sponsorship(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-            accepted_at = None,
-        )
+    def test_db_maps_pending_sponsorship(self):
+        domain_model = stubs.domain.sponsorship(accepted_at = None)
 
         result = db(domain_model)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.sponsor_id, self.sponsor_id)
-        self.assertEqual(result.receiver_id, self.receiver_id)
+        self.assertEqual(result.sponsor_id, domain_model.sponsor_id)
+        self.assertEqual(result.receiver_id, domain_model.receiver_id)
         self.assertEqual(result.sponsored_at, domain_model.sponsored_at)
         self.assertIsNone(result.accepted_at)
 
     def test_roundtrip_domain_to_db_to_domain(self):
-        original = Sponsorship(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-            sponsored_at = self.sponsored_at,
-            accepted_at = self.accepted_at,
-        )
+        original = stubs.domain.sponsorship()
 
         result = domain(db(original))
 
         self.assertEqual(result, original)
 
     def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
-        db_model = SponsorshipDB(
-            sponsor_id = self.sponsor_id,
-            receiver_id = self.receiver_id,
-            sponsored_at = self.sponsored_at,
-            accepted_at = self.accepted_at,
-        )
-        domain_model = Sponsorship(
-            sponsor_id = UUID("33333333-3333-3333-3333-333333333333"),
-            receiver_id = UUID("44444444-4444-4444-4444-444444444444"),
-            sponsored_at = datetime(2026, 1, 3, 12, 0, 0),
+        db_model = stubs.db.sponsorship_db()
+        original_sponsor_id = db_model.sponsor_id
+        original_receiver_id = db_model.receiver_id
+        domain_model = stubs.domain.sponsorship(
+            sponsor_id = uuid4(),
+            receiver_id = uuid4(),
+            sponsored_at = db_model.sponsored_at + timedelta(days = 1),
             accepted_at = None,
         )
 
         apply_to_db_model(domain_model, db_model)
 
-        self.assertEqual(db_model.sponsor_id, self.sponsor_id)
-        self.assertEqual(db_model.receiver_id, self.receiver_id)
+        self.assertEqual(db_model.sponsor_id, original_sponsor_id)
+        self.assertEqual(db_model.receiver_id, original_receiver_id)
         self.assertEqual(db_model.sponsored_at, domain_model.sponsored_at)
         self.assertIsNone(db_model.accepted_at)

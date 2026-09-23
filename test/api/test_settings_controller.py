@@ -6,27 +6,19 @@ from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, PropertyMock, patch
 from uuid import UUID
 
+import stubs
 from db.sql_util import SQLUtil
 from pydantic import SecretStr
 
 from api.authorization_service import AuthorizationService
-from api.model.chat_config_payload import ChatConfigPayload
-from api.model.chat_settings_payload import ChatSettingsPayload
 from api.model.settings_link_response import SettingsLinkResponse
-from api.model.user_chat_config_payload import UserChatConfigPayload
-from api.model.user_settings_payload import UserSettingsPayload
 from api.settings_controller import SettingsController
 from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig as ChatConfigDomain
 from features.chat.config.chat_config_repo import ChatConfigRepository
-from features.chat.membership.chat_membership import ChatMembership
-from features.chat.telegram.model.chat_member import ChatMemberAdministrator
-from features.chat.telegram.model.user import User as TelegramUser
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
-from features.external_tools.access_token_resolver import AccessTokenResolver
-from features.external_tools.external_tool import CostEstimate, ExternalTool, ExternalToolProvider, ToolType
+from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     GPT_5_5,
@@ -39,7 +31,7 @@ from features.integrations.integration_config import THE_AGENT
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.users.user import User
 from features.users.user_repo import UserRepository
-from util.config import ConfiguredProduct, config
+from util.config import config
 from util.error_codes import (
     NOT_CHAT_ADMIN,
     POLICY_ACCEPTANCE_REQUIRED,
@@ -51,83 +43,40 @@ from util.functions import mask_secret
 
 class SettingsControllerTest(unittest.TestCase):
 
-    invoker_user: User
-    invoker_telegram_user: TelegramUser
-    chat_config: ChatConfigDomain
-    chat_config_domain: ChatConfigDomain
     mock_di: DI
     mock_user_repo: UserRepository
     mock_chat_config_repo: ChatConfigRepository
     mock_sponsorship_repo: SponsorshipRepository
-    mock_telegram_sdk: TelegramBotSDK
     mock_authorization_service: AuthorizationService
-    mock_access_token_resolver: AccessTokenResolver
 
     def setUp(self):
-        self.invoker_telegram_user = TelegramUser(
-            id = 123456789,
-            is_bot = False,
-            first_name = "Test",
-            last_name = "User",
-            username = "testuser",
-            language_code = "en",
-        )
-        self.invoker_user = User(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Test User",
-            telegram_username = "testuser",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-            open_ai_key = SecretStr("test_openai_key"),
-            anthropic_key = SecretStr("test_anthropic_key"),
-            perplexity_key = SecretStr("test_perplexity_key"),
-            replicate_key = SecretStr("test_replicate_key"),
-            rapid_api_key = SecretStr("test_rapid_api_key"),
-            coinmarketcap_key = SecretStr("test_coinmarketcap_key"),
-            twelve_data_api_key = SecretStr("test_twelve_data_api_key"),
-            tool_choice_chat = "gpt-4o",
-            tool_choice_reasoning = "claude-3-7-sonnet-latest",
+        invoker_user = stubs.domain.user(
             tool_choice_vision = "gpt-4o",
             tool_choice_images_gen = "dall-e-3",
-            tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_search = "perplexity-search",
-            tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
-            group = UserDB.Group.developer,
             created_at = datetime.now().date(),
-            are_policies_accepted = True,
         )
-        self.chat_config = ChatConfigDomain(
-            chat_id = UUID(int = 1),
-            external_id = "test_chat_123",
-            title = "Test Chat",
-            language_iso_code = "en",
-            reply_chance_percent = 75,
-            is_private = False,
-            release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
-        )
-        self.chat_config_domain = self.chat_config
+        chat_config = stubs.domain.chat_config(is_private = False)
 
         # Create mocks
         self.mock_user_repo = MagicMock(spec = UserRepository)
         self.mock_chat_config_repo = MagicMock(spec = ChatConfigRepository)
         self.mock_sponsorship_repo = MagicMock(spec = SponsorshipRepository)
-        self.mock_telegram_sdk = MagicMock(spec = TelegramBotSDK)
+        mock_telegram_sdk = MagicMock(spec = TelegramBotSDK)
 
         # Configure common mock returns
-        self.mock_user_repo.get.return_value = self.invoker_user
-        self.mock_user_repo.save.return_value = self.invoker_user
-        self.mock_chat_config_repo.get.return_value = self.chat_config_domain
-        self.mock_chat_config_repo.save.return_value = self.chat_config_domain
+        self.mock_user_repo.get.return_value = invoker_user
+        self.mock_user_repo.save.return_value = invoker_user
+        self.mock_chat_config_repo.get.return_value = chat_config
+        self.mock_chat_config_repo.save.return_value = chat_config
         self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
 
         # Create mock DI container
         self.mock_di = MagicMock(spec = DI)
         # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = self.invoker_user)
+        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
         # noinspection PyPropertyAccess
-        type(self.mock_di).invoker_chat = PropertyMock(return_value = self.chat_config)
+        type(self.mock_di).invoker_chat = PropertyMock(return_value = chat_config)
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker_chat_type = PropertyMock(return_value = ChatConfigDB.ChatType.telegram)
         # noinspection PyPropertyAccess
@@ -137,50 +86,49 @@ class SettingsControllerTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.sponsorship_repo = self.mock_sponsorship_repo
         # noinspection PyPropertyAccess
-        self.mock_di.telegram_bot_sdk = self.mock_telegram_sdk
+        self.mock_di.telegram_bot_sdk = mock_telegram_sdk
 
-        self.membership = ChatMembership(
-            user_id = self.invoker_user.id,
-            chat_id = self.chat_config.chat_id,
+        membership = stubs.domain.chat_membership(
+            user_id = invoker_user.id,
+            chat_id = chat_config.chat_id,
             is_admin = True,
-            use_about_me = True,
-            use_custom_prompt = True,
         )
         self.mock_membership_repo = MagicMock()
-        self.mock_membership_repo.get.return_value = self.membership
-        self.mock_membership_repo.save.return_value = self.membership
-        self.mock_membership_repo.get_all_for_user.return_value = [self.membership]
+        self.mock_membership_repo.get.return_value = membership
+        self.mock_membership_repo.save.return_value = membership
+        self.mock_membership_repo.get_all_for_user.return_value = [membership]
         # noinspection PyPropertyAccess
         self.mock_di.chat_membership_repo = self.mock_membership_repo
         # noinspection PyPropertyAccess
-        self.mock_di.chat_membership_service.sync.return_value = self.membership
+        self.mock_di.chat_membership_service.sync.return_value = membership
         # noinspection PyPropertyAccess
-        self.mock_di.chat_membership_service.get_all_for_user.return_value = [self.membership]
+        self.mock_di.chat_membership_service.get_all_for_user.return_value = [membership]
         # noinspection PyPropertyAccess
-        self.mock_di.chat_membership_service.save.return_value = self.membership
+        self.mock_di.chat_membership_service.save.return_value = membership
 
         # Mock authorization service
         self.mock_authorization_service = MagicMock()
-        self.mock_authorization_service.authorize_for_user.return_value = self.invoker_user
-        self.mock_authorization_service.validate_chat.return_value = self.chat_config
-        self.mock_authorization_service.validate_chat_admin.return_value = self.chat_config
+        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        self.mock_authorization_service.validate_chat.return_value = chat_config
+        self.mock_authorization_service.validate_chat_admin.return_value = chat_config
         self.mock_authorization_service.get_authorized_chats.return_value = []
         self.mock_authorization_service.update_all_chat_authorizations.return_value = []
-        self.mock_authorization_service.require_waitlisted_user_can_activate.return_value = self.invoker_user
+        self.mock_authorization_service.require_waitlisted_user_can_activate.return_value = invoker_user
         # noinspection PyPropertyAccess
         self.mock_di.authorization_service = self.mock_authorization_service
 
         # Mock access token resolver
-        self.mock_access_token_resolver = MagicMock()
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = None
-        self.mock_access_token_resolver.get_access_token.return_value = None
-        self.mock_di.access_token_resolver.return_value = self.mock_access_token_resolver
+        mock_access_token_resolver = MagicMock()
+        mock_access_token_resolver.get_access_token_for_tool.return_value = None
+        mock_access_token_resolver.get_access_token.return_value = None
+        self.mock_di.access_token_resolver.return_value = mock_access_token_resolver
 
         # Mock URL shortener to return same URL
         def mock_url_shortener(long_url, **kwargs):
             mock_shortener = MagicMock()
             mock_shortener.execute.return_value = long_url
             return mock_shortener
+
         self.mock_di.url_shortener = MagicMock(side_effect = mock_url_shortener)
 
         # Mock locked settings read, persistence, and generic credit grant
@@ -191,13 +139,13 @@ class SettingsControllerTest(unittest.TestCase):
 
         self.mock_user_repo.get_locked_pair.side_effect = _get_locked_pair_side_effect
 
-        def _save_user_side_effect(user, commit = True):
+        def _save_user_side_effect(user, commit=True):
             self.applied_settings_user = user
             return user
 
         self.mock_user_repo.save.side_effect = _save_user_side_effect
 
-        def _grant_credits_side_effect(recipient, amount, note = None, *, commit):
+        def _grant_credits_side_effect(recipient, amount, note=None, *, commit):
             self.assertFalse(commit)
             updated = replace(recipient, credit_balance = recipient.credit_balance + amount)
             self.applied_settings_user = updated
@@ -208,61 +156,51 @@ class SettingsControllerTest(unittest.TestCase):
         # noinspection PyPropertyAccess
         self.mock_di.credit_transfer_service = self.mock_credit_transfer_service
 
-    @staticmethod
-    def create_admin_member(telegram_user, is_manager = True):
-        return ChatMemberAdministrator(
-            user = telegram_user,
-            status = "administrator",
-            can_be_edited = True,
-            can_manage_chat = is_manager,
-            can_change_info = True,
-            can_delete_messages = True,
-            can_invite_users = True,
-            can_restrict_members = True,
-            can_pin_messages = True,
-            can_promote_members = False,
-            is_anonymous = False,
-            can_manage_video_chats = True,
-            can_post_stories = False,
-            can_edit_stories = False,
-            can_delete_stories = False,
-        )
-
     def test_create_settings_link_default_is_intelligence(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         controller = SettingsController(self.mock_di)
         link_response = controller.create_settings_link()
 
         self.assertIsInstance(link_response, SettingsLinkResponse)
         link = link_response.settings_link
-        self.assertIn("user", link)
-        self.assertIn("intelligence", link)
-        self.assertIn(self.invoker_user.id.hex, link)
-        self.assertIn("token=", link)
+        self.assertTrue(
+            link.startswith(
+                f"{config.backoffice_url_base}/en/user/{invoker_user.id.hex}/intelligence?token=",
+            ),
+        )
 
     def test_create_settings_link_success_user_settings(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         controller = SettingsController(self.mock_di)
         link_response = controller.create_settings_link("user")
 
         self.assertIsInstance(link_response, SettingsLinkResponse)
         link = link_response.settings_link
-        self.assertIn("user", link)
-        self.assertIn("settings", link)
-        self.assertIn(self.invoker_user.id.hex, link)
-        self.assertIn("token=", link)
+        self.assertTrue(
+            link.startswith(
+                f"{config.backoffice_url_base}/en/user/{invoker_user.id.hex}/settings?token=",
+            ),
+        )
 
     def test_create_settings_link_success_chat_settings(self):
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+
         controller = SettingsController(self.mock_di)
         # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat_id = self.chat_config.chat_id.hex
+        self.mock_di.invoker_chat_id = chat_config.chat_id.hex
         # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat = self.chat_config
+        self.mock_di.invoker_chat = chat_config
         link_response = controller.create_settings_link("chat")
 
         self.assertIsInstance(link_response, SettingsLinkResponse)
         link = link_response.settings_link
-        self.assertIn("chat", link)
-        self.assertIn(self.chat_config.chat_id.hex, link)
-        self.assertIn("token=", link)
+        self.assertTrue(
+            link.startswith(
+                f"{config.backoffice_url_base}/en/chat/{chat_config.chat_id.hex}/settings?token=",
+            ),
+        )
 
     def test_create_settings_link_failure_invalid_settings_type(self):
         controller = SettingsController(self.mock_di)
@@ -273,6 +211,8 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn("Invalid settings type", str(context.exception))
 
     def test_create_settings_link_chat_type_no_chat_context_falls_back_to_user(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         controller = SettingsController(self.mock_di)
 
         # noinspection PyPropertyAccess
@@ -281,98 +221,159 @@ class SettingsControllerTest(unittest.TestCase):
 
         self.assertIsInstance(link_response, SettingsLinkResponse)
         link = link_response.settings_link
-        self.assertIn("user", link)
-        self.assertIn(self.invoker_user.id.hex, link)
+        self.assertTrue(
+            link.startswith(
+                f"{config.backoffice_url_base}/{config.main_language_iso_code}/user/{invoker_user.id.hex}/intelligence?token=",
+            ),
+        )
 
     def test_fetch_user_settings_success(self):
-        controller = SettingsController(self.mock_di)
-        result = controller.fetch_user_settings(self.invoker_user.id.hex)
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
 
-        self.assertEqual(result.id, self.invoker_user.id.hex)
-        self.assertEqual(result.full_name, self.invoker_user.full_name)
-        self.assertEqual(result.telegram_username, self.invoker_user.telegram_username)
-        self.assertEqual(result.telegram_chat_id, self.invoker_user.telegram_chat_id)
-        self.assertEqual(result.telegram_user_id, self.invoker_user.telegram_user_id)
-        self.assertEqual(result.group, self.invoker_user.group.value)
-        self.assertEqual(result.tool_choice_videos_gen, VIDEO_GEN_P_VIDEO.id)
+        controller = SettingsController(self.mock_di)
+        result = controller.fetch_user_settings(invoker_user.id.hex)
+
+        self.assertEqual(result.id, invoker_user.id.hex)
+        self.assertEqual(result.full_name, invoker_user.full_name)
+        self.assertEqual(result.telegram_username, invoker_user.telegram_username)
+        self.assertEqual(result.telegram_chat_id, invoker_user.telegram_chat_id)
+        self.assertEqual(result.telegram_user_id, invoker_user.telegram_user_id)
+        self.assertEqual(result.group, invoker_user.group.value)
+        self.assertEqual(result.tool_choice_videos_gen, invoker_user.tool_choice_videos_gen)
         self.assertFalse(result.is_sponsored)
 
     def test_fetch_user_settings_is_sponsored_true(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         mock_sponsorship = MagicMock()
-        mock_sponsorship.receiver_id = self.invoker_user.id
+        mock_sponsorship.receiver_id = invoker_user.id
         self.mock_sponsorship_repo.get_all_by_receiver.return_value = [mock_sponsorship]
 
         controller = SettingsController(self.mock_di)
-        result = controller.fetch_user_settings(self.invoker_user.id.hex)
+        result = controller.fetch_user_settings(invoker_user.id.hex)
 
         self.assertTrue(result.is_sponsored)
 
     def test_fetch_user_settings_masks_all_token_fields(self):
-        controller = SettingsController(self.mock_di)
-        result = controller.fetch_user_settings(self.invoker_user.id.hex)
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
 
-        self.assertEqual(result.open_ai_key, mask_secret(self.invoker_user.open_ai_key))
-        self.assertEqual(result.anthropic_key, mask_secret(self.invoker_user.anthropic_key))
-        self.assertEqual(result.perplexity_key, mask_secret(self.invoker_user.perplexity_key))
-        self.assertEqual(result.replicate_key, mask_secret(self.invoker_user.replicate_key))
-        self.assertEqual(result.rapid_api_key, mask_secret(self.invoker_user.rapid_api_key))
-        self.assertEqual(result.coinmarketcap_key, mask_secret(self.invoker_user.coinmarketcap_key))
-        self.assertEqual(result.twelve_data_api_key, mask_secret(self.invoker_user.twelve_data_api_key))
-        self.assertEqual(result.tool_choice_api_stock_quote, TWELVE_DATA_STOCK_QUOTE.id)
-
-    def test_save_user_settings_with_all_tokens(self):
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(
+        result = controller.fetch_user_settings(invoker_user.id.hex)
+
+        self.assertEqual(result.open_ai_key, mask_secret(invoker_user.open_ai_key))
+        self.assertEqual(result.anthropic_key, mask_secret(invoker_user.anthropic_key))
+        self.assertEqual(result.google_ai_key, mask_secret(invoker_user.google_ai_key))
+        self.assertEqual(result.perplexity_key, mask_secret(invoker_user.perplexity_key))
+        self.assertEqual(result.replicate_key, mask_secret(invoker_user.replicate_key))
+        self.assertEqual(result.rapid_api_key, mask_secret(invoker_user.rapid_api_key))
+        self.assertEqual(result.coinmarketcap_key, mask_secret(invoker_user.coinmarketcap_key))
+        self.assertEqual(result.twelve_data_api_key, mask_secret(invoker_user.twelve_data_api_key))
+        self.assertEqual(result.x_key, mask_secret(invoker_user.x_key))
+        self.assertEqual(result.x_ai_key, mask_secret(invoker_user.x_ai_key))
+        self.assertEqual(result.tool_choice_api_stock_quote, invoker_user.tool_choice_api_stock_quote)
+
+    def test_save_user_settings_updates_all_tokens_and_selected_tool_choices(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        controller = SettingsController(self.mock_di)
+        payload = stubs.api.user_settings_payload(
+            full_name = None,
+            about_me = None,
+            custom_prompt = None,
             open_ai_key = "new_openai_key",
             anthropic_key = "new_anthropic_key",
+            google_ai_key = "new_google_ai_key",
             perplexity_key = "new_perplexity_key",
             replicate_key = "new_replicate_key",
             rapid_api_key = "new_rapid_api_key",
             coinmarketcap_key = "new_coinmarketcap_key",
             twelve_data_api_key = "new_twelve_data_api_key",
+            x_key = "new_x_key",
+            x_ai_key = "new_x_ai_key",
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_reasoning = GPT_5_5.id,
+            tool_choice_copywriting = None,
             tool_choice_vision = CLAUDE_4_6_SONNET.id,
+            tool_choice_hearing = None,
             tool_choice_images_gen = IMAGE_GEN_EDIT_FLUX_2_PRO.id,
             tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
             tool_choice_search = SONAR.id,
+            tool_choice_embedding = None,
+            tool_choice_api_fiat_exchange = None,
+            tool_choice_api_crypto_exchange = None,
             tool_choice_api_stock_quote = TWELVE_DATA_STOCK_QUOTE.id,
+            tool_choice_api_twitter = None,
+            are_policies_accepted = None,
         )
 
         # Should not raise any exception
-        controller.save_user_settings(self.invoker_user.id.hex, payload)
+        controller.save_user_settings(invoker_user.id.hex, payload)
 
         # Verify the save method was called
         # noinspection PyUnresolvedReferences
         self.mock_user_repo.save.assert_called_once()
+        saved_user = self.mock_user_repo.save.call_args.args[0]
+        self.assertEqual(saved_user.full_name, invoker_user.full_name)
+        self.assertEqual(saved_user.about_me, invoker_user.about_me)
+        self.assertEqual(saved_user.custom_prompt, invoker_user.custom_prompt)
+        self.assertEqual(saved_user.open_ai_key.get_secret_value(), "new_openai_key")
+        self.assertEqual(saved_user.anthropic_key.get_secret_value(), "new_anthropic_key")
+        self.assertEqual(saved_user.google_ai_key.get_secret_value(), "new_google_ai_key")
+        self.assertEqual(saved_user.perplexity_key.get_secret_value(), "new_perplexity_key")
+        self.assertEqual(saved_user.replicate_key.get_secret_value(), "new_replicate_key")
+        self.assertEqual(saved_user.rapid_api_key.get_secret_value(), "new_rapid_api_key")
+        self.assertEqual(saved_user.coinmarketcap_key.get_secret_value(), "new_coinmarketcap_key")
+        self.assertEqual(saved_user.twelve_data_api_key.get_secret_value(), "new_twelve_data_api_key")
+        self.assertEqual(saved_user.x_key.get_secret_value(), "new_x_key")
+        self.assertEqual(saved_user.x_ai_key.get_secret_value(), "new_x_ai_key")
+        self.assertEqual(saved_user.tool_choice_chat, payload.tool_choice_chat)
+        self.assertEqual(saved_user.tool_choice_reasoning, payload.tool_choice_reasoning)
+        self.assertEqual(saved_user.tool_choice_copywriting, invoker_user.tool_choice_copywriting)
+        self.assertEqual(saved_user.tool_choice_vision, payload.tool_choice_vision)
+        self.assertEqual(saved_user.tool_choice_hearing, invoker_user.tool_choice_hearing)
+        self.assertEqual(saved_user.tool_choice_images_gen, payload.tool_choice_images_gen)
+        self.assertEqual(saved_user.tool_choice_videos_gen, payload.tool_choice_videos_gen)
+        self.assertEqual(saved_user.tool_choice_search, payload.tool_choice_search)
+        self.assertEqual(saved_user.tool_choice_embedding, invoker_user.tool_choice_embedding)
+        self.assertEqual(saved_user.tool_choice_api_fiat_exchange, invoker_user.tool_choice_api_fiat_exchange)
+        self.assertEqual(saved_user.tool_choice_api_crypto_exchange, invoker_user.tool_choice_api_crypto_exchange)
+        self.assertEqual(saved_user.tool_choice_api_stock_quote, payload.tool_choice_api_stock_quote)
+        self.assertEqual(saved_user.tool_choice_api_twitter, invoker_user.tool_choice_api_twitter)
+        self.assertEqual(saved_user.are_policies_accepted, invoker_user.are_policies_accepted)
 
     def test_save_user_settings_failure_invalid_tool_choice(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(
+        payload = stubs.api.user_settings_payload(
             tool_choice_chat = "unconfigured-tool",
         )
 
         with self.assertRaises(ValidationError) as context:
-            controller.save_user_settings(self.invoker_user.id.hex, payload)
+            controller.save_user_settings(invoker_user.id.hex, payload)
 
         self.assertIn("Invalid tool choice", str(context.exception))
         self.assertIn("not recognized", str(context.exception))
 
     def test_save_user_settings_reject_policy_false(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = False)
+        payload = stubs.api.user_settings_payload(are_policies_accepted = False)
 
         with self.assertRaises(ValidationError) as context:
-            controller.save_user_settings(self.invoker_user.id.hex, payload)
+            controller.save_user_settings(invoker_user.id.hex, payload)
 
         self.assertEqual(context.exception.error_code, POLICY_ACCEPTANCE_REQUIRED)
 
     def test_save_user_settings_requires_policy_acceptance_before_other_changes(self):
-        unaccepted_user = replace(self.invoker_user, are_policies_accepted = False)
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        unaccepted_user = replace(invoker_user, are_policies_accepted = False)
         self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(full_name = "New Name")
+        payload = stubs.api.user_settings_payload(full_name = "New Name", are_policies_accepted = None)
         with self.assertRaises(ValidationError) as context:
             controller.save_user_settings(unaccepted_user.id.hex, payload)
 
@@ -380,8 +381,10 @@ class SettingsControllerTest(unittest.TestCase):
         self.mock_user_repo.save.assert_not_called()
 
     def test_save_user_settings_waitlisted_activation_when_capacity_available(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         waitlisted_user = replace(
-            self.invoker_user,
+            invoker_user,
             is_on_waitlist = True,
             is_invited_to_start = False,
             are_policies_accepted = False,
@@ -390,7 +393,7 @@ class SettingsControllerTest(unittest.TestCase):
         self.mock_authorization_service.require_waitlisted_user_can_activate.return_value = waitlisted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
         controller.save_user_settings(waitlisted_user.id.hex, payload)
 
         self.mock_authorization_service.require_waitlisted_user_can_activate.assert_called_once_with(waitlisted_user)
@@ -401,20 +404,21 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertTrue(saved_payload.are_policies_accepted)
 
     def test_save_user_settings_waitlisted_activation_denied_without_invite_or_capacity(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         waitlisted_user = replace(
-            self.invoker_user,
+            invoker_user,
             is_on_waitlist = True,
             is_invited_to_start = False,
             are_policies_accepted = False,
         )
         self.mock_authorization_service.authorize_for_user.return_value = waitlisted_user
         self.mock_authorization_service.require_waitlisted_user_can_activate.side_effect = AuthorizationError(
-            "Activation is not available right now because maximum user capacity has been reached. "
-            "Your account remains on the waitlist.",
+            "Activation is not available right now because maximum user capacity has been reached. Your account remains on the waitlist.",  # ruff: ignore[line-too-long]
             WAITLIST_ACCOUNT_NOT_ACTIVE,
         )
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
 
         with self.assertRaises(AuthorizationError) as context:
             controller.save_user_settings(waitlisted_user.id.hex, payload)
@@ -425,88 +429,104 @@ class SettingsControllerTest(unittest.TestCase):
         self.mock_di.db.rollback.assert_called_once()
 
     def test_save_user_settings_accepts_eula_first_time_grants_welcome_credits(self):
-        unaccepted_user = replace(self.invoker_user, are_policies_accepted = False)
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        unaccepted_user = replace(invoker_user, are_policies_accepted = False)
         self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
         controller.save_user_settings(unaccepted_user.id.hex, payload)
 
-        expected_recipient = replace(unaccepted_user, are_policies_accepted = True)
-        self.mock_credit_transfer_service.grant_credits.assert_called_once_with(
-            recipient = expected_recipient,
-            amount = config.welcome_credit_grant_amount,
-            note = "Welcome",
-            commit = False,
-        )
+        self.mock_credit_transfer_service.grant_credits.assert_called_once()
+        grant_args = self.mock_credit_transfer_service.grant_credits.call_args.kwargs
+        granted_recipient = grant_args["recipient"]
+        self.assertTrue(granted_recipient.are_policies_accepted)
+        self.assertEqual(grant_args["amount"], config.welcome_credit_grant_amount)
+        self.assertEqual(grant_args["note"], "Welcome")
+        self.assertFalse(grant_args["commit"])
         self.mock_user_repo.get_locked_pair.assert_called_once_with(THE_AGENT.id, unaccepted_user.id)
-        self.mock_user_repo.save.assert_called_once_with(expected_recipient, commit = False)
+        self.mock_user_repo.save.assert_called_once_with(granted_recipient, commit = False)
         self.mock_di.db.commit.assert_called_once()
+        expected_notified_recipient = replace(
+            granted_recipient,
+            credit_balance = granted_recipient.credit_balance + config.welcome_credit_grant_amount,
+        )
         self.mock_credit_transfer_service.notify_grant.assert_called_once_with(
-            replace(expected_recipient, credit_balance = config.welcome_credit_grant_amount),
+            expected_notified_recipient,
             config.welcome_credit_grant_amount,
             "Welcome",
         )
 
     def test_save_user_settings_acceptance_at_eligibility_boundary_grants_welcome_credits(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         unaccepted_user = replace(
-            self.invoker_user,
+            invoker_user,
             are_policies_accepted = False,
             created_at = date.today() - timedelta(days = config.welcome_credit_grant_eligibility_days),
         )
         self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
         controller.save_user_settings(unaccepted_user.id.hex, payload)
 
         self.mock_credit_transfer_service.grant_credits.assert_called_once()
         self.mock_di.db.commit.assert_called_once()
 
     def test_save_user_settings_repeated_acceptance_no_additional_grant(self):
-        already_accepted_user = replace(self.invoker_user, are_policies_accepted = True)
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        already_accepted_user = replace(invoker_user, are_policies_accepted = True)
         self.mock_authorization_service.authorize_for_user.return_value = already_accepted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
         controller.save_user_settings(already_accepted_user.id.hex, payload)
 
         self.mock_credit_transfer_service.grant_credits.assert_not_called()
         self.mock_di.db.commit.assert_called_once()
 
     def test_save_user_settings_uses_locked_eula_state_for_grant_eligibility(self):
-        stale_user = replace(self.invoker_user, are_policies_accepted = False)
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        stale_user = replace(invoker_user, are_policies_accepted = False)
         persisted_user = replace(stale_user, are_policies_accepted = True)
         self.mock_authorization_service.authorize_for_user.return_value = stale_user
         self.mock_user_repo.get_locked_pair.side_effect = None
         self.mock_user_repo.get_locked_pair.return_value = THE_AGENT, persisted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
         controller.save_user_settings(stale_user.id.hex, payload)
 
         self.mock_credit_transfer_service.grant_credits.assert_not_called()
         self.mock_di.db.commit.assert_called_once()
 
     def test_save_user_settings_acceptance_outside_window_no_grant(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         unaccepted_user = replace(
-            self.invoker_user,
+            invoker_user,
             are_policies_accepted = False,
             created_at = date.today() - timedelta(days = config.welcome_credit_grant_eligibility_days + 1),
         )
         self.mock_authorization_service.authorize_for_user.return_value = unaccepted_user
 
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
         controller.save_user_settings(unaccepted_user.id.hex, payload)
 
         self.mock_credit_transfer_service.grant_credits.assert_not_called()
         self.mock_di.db.commit.assert_called_once()
 
     def test_save_user_settings_without_eula_acceptance_does_not_invoke_grant(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = UserSettingsPayload(full_name = "New Name")
-        controller.save_user_settings(self.invoker_user.id.hex, payload)
+        payload = stubs.api.user_settings_payload(full_name = "New Name", are_policies_accepted = None)
+        controller.save_user_settings(invoker_user.id.hex, payload)
 
         self.mock_credit_transfer_service.grant_credits.assert_not_called()
         self.mock_di.db.commit.assert_not_called()
@@ -519,12 +539,11 @@ class SettingsControllerTest(unittest.TestCase):
 
         agent_user = sql.user_repo().save(replace(THE_AGENT, credit_balance = 0.0))
         recipient = sql.user_repo().save(
-            User(
+            stubs.domain.user(
                 full_name = "New User",
                 telegram_username = "new_user",
                 telegram_user_id = 555,
                 telegram_chat_id = "555",
-                group = UserDB.Group.standard,
                 created_at = date.today(),
                 credit_balance = 0.0,
                 are_policies_accepted = False,
@@ -534,7 +553,7 @@ class SettingsControllerTest(unittest.TestCase):
         controller = SettingsController(DI(db = db, invoker_id = recipient.id.hex))
         controller.save_user_settings(
             recipient.id.hex,
-            UserSettingsPayload(are_policies_accepted = True),
+            stubs.api.user_settings_payload(),
         )
 
         reloaded_recipient = sql.user_repo().get(recipient.id)
@@ -554,12 +573,11 @@ class SettingsControllerTest(unittest.TestCase):
 
         agent_user = sql.user_repo().save(replace(THE_AGENT, credit_balance = 0.0))
         recipient = sql.user_repo().save(
-            User(
+            stubs.domain.user(
                 full_name = "New User",
                 telegram_username = "new_user",
                 telegram_user_id = 555,
                 telegram_chat_id = "555",
-                group = UserDB.Group.standard,
                 created_at = date.today(),
                 credit_balance = 0.0,
                 are_policies_accepted = False,
@@ -571,7 +589,7 @@ class SettingsControllerTest(unittest.TestCase):
             def __init__(self, real_repo):
                 self.__real = real_repo
 
-            def create(self, record, commit = True):
+            def create(self, record, commit=True):
                 raise RuntimeError("simulated persistence failure")
 
             def __getattr__(self, name):
@@ -583,7 +601,7 @@ class SettingsControllerTest(unittest.TestCase):
         di._usage_record_repo = _FailingUsageRecordRepo(real_usage_record_repo)
 
         controller = SettingsController(di)
-        payload = UserSettingsPayload(are_policies_accepted = True)
+        payload = stubs.api.user_settings_payload()
 
         with self.assertRaises(InternalError):
             controller.save_user_settings(recipient.id.hex, payload)
@@ -597,45 +615,40 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(len(sql.usage_record_repo().get_by_user(agent_user.id)), 0)
 
     def test_save_chat_settings_failure_language_mismatch(self):
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 language_name = "",
                 language_iso_code = "es",
                 reply_chance_percent = 50,
                 release_notifications = "all",
-                media_mode = "photo",
             ),
+            user_chat_config = None,
         )
 
         with self.assertRaises(ValidationError) as context:
-            controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
+            controller.save_chat_settings(chat_config.chat_id.hex, payload)
 
         self.assertIn("Both language_name and language_iso_code must be non-empty", str(context.exception))
 
     def test_save_chat_settings_failure_reply_chance_private_chat(self):
-        private_chat_config = ChatConfigDomain(
+        private_chat_config = stubs.domain.chat_config(
             chat_id = UUID(int = 123),
             external_id = "private_chat_123",
             title = "Private Chat",
-            language_iso_code = "en",
-            reply_chance_percent = 100,
-            is_private = True,
             release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
         self.mock_authorization_service.validate_chat.return_value = private_chat_config
 
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
-                language_name = "English",
-                language_iso_code = "en",
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 reply_chance_percent = 50,
                 release_notifications = "all",
-                media_mode = "photo",
             ),
+            user_chat_config = None,
         )
 
         with self.assertRaises(ValidationError) as context:
@@ -644,64 +657,75 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn("Chat is private, reply chance cannot be changed", str(context.exception))
 
     def test_save_chat_settings_failure_invalid_release_notifications(self):
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
-                language_name = "English",
-                language_iso_code = "en",
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 reply_chance_percent = 50,
                 release_notifications = "invalid_value",
-                media_mode = "photo",
             ),
+            user_chat_config = None,
         )
 
         with self.assertRaises(ValidationError) as context:
-            controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
+            controller.save_chat_settings(chat_config.chat_id.hex, payload)
 
         self.assertIn("Invalid release notifications setting value", str(context.exception))
 
     def test_save_chat_settings_success_chat_config(self):
+        chat_config = stubs.domain.chat_config(
+            external_id = "chat-external-123",
+            title = "Mapper Source Chat",
+            reply_chance_percent = 25,
+            is_private = False,
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        )
+        self.mock_authorization_service.validate_chat.return_value = chat_config
+
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 language_name = "Spanish",
                 language_iso_code = "es",
                 reply_chance_percent = 75,
-                release_notifications = "major",
                 media_mode = "file",
             ),
+            user_chat_config = None,
         )
 
-        controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
+        controller.save_chat_settings(chat_config.chat_id.hex, payload)
 
         # noinspection PyUnresolvedReferences
         self.mock_chat_config_repo.save.assert_called_once()
         saved_chat_config = self.mock_chat_config_repo.save.call_args.args[0]
         self.assertIsInstance(saved_chat_config, ChatConfigDomain)
-        self.assertEqual(saved_chat_config.chat_id, self.chat_config.chat_id)
-        self.assertEqual(saved_chat_config.external_id, self.chat_config.external_id)
-        self.assertEqual(saved_chat_config.title, self.chat_config.title)
+        self.assertEqual(saved_chat_config.chat_id, chat_config.chat_id)
+        self.assertEqual(saved_chat_config.external_id, chat_config.external_id)
+        self.assertEqual(saved_chat_config.title, chat_config.title)
         self.assertEqual(saved_chat_config.language_name, "Spanish")
         self.assertEqual(saved_chat_config.language_iso_code, "es")
         self.assertEqual(saved_chat_config.reply_chance_percent, 75)
-        self.assertEqual(saved_chat_config.is_private, self.chat_config.is_private)
+        self.assertEqual(saved_chat_config.is_private, chat_config.is_private)
         self.assertEqual(saved_chat_config.release_notifications, ChatConfigDB.ReleaseNotifications.major)
         self.assertEqual(saved_chat_config.media_mode, ChatConfigDB.MediaMode.file)
-        self.assertEqual(saved_chat_config.chat_type, self.chat_config.chat_type)
+        self.assertEqual(saved_chat_config.chat_type, chat_config.chat_type)
 
     def test_save_chat_settings_success_user_chat_config(self):
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload(
-            user_chat_config = UserChatConfigPayload(
+        payload = stubs.api.chat_settings_payload(
+            chat_config = None,
+            user_chat_config = stubs.api.user_chat_config_payload(
                 use_about_me = False,
-                use_custom_prompt = True,
                 max_output_tokens = 500,
                 max_chat_history_depth = 5,
                 max_iterations = 3,
             ),
         )
 
-        controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
+        controller.save_chat_settings(chat_config.chat_id.hex, payload)
 
         # noinspection PyUnresolvedReferences
         self.mock_di.chat_membership_service.save.assert_called_once()
@@ -713,51 +737,48 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(saved.max_iterations, 3)
 
     def test_save_chat_settings_failure_non_admin_chat_config_rejected(self):
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+
         self.mock_authorization_service.validate_chat_admin.side_effect = AuthorizationError(
             "Not an admin of this chat",
             NOT_CHAT_ADMIN,
         )
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload(
-            chat_config = ChatConfigPayload(
-                language_name = "English",
-                language_iso_code = "en",
+        payload = stubs.api.chat_settings_payload(
+            chat_config = stubs.api.chat_config_payload(
                 reply_chance_percent = 50,
                 release_notifications = "all",
-                media_mode = "photo",
             ),
+            user_chat_config = None,
         )
 
         with self.assertRaises(AuthorizationError) as context:
-            controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
+            controller.save_chat_settings(chat_config.chat_id.hex, payload)
 
         self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
 
     def test_save_chat_settings_rejects_empty_payload(self):
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+
         controller = SettingsController(self.mock_di)
-        payload = ChatSettingsPayload()
+        payload = stubs.api.chat_settings_payload(chat_config = None, user_chat_config = None)
 
         with self.assertRaises(ValidationError):
-            controller.save_chat_settings(self.chat_config.chat_id.hex, payload)
+            controller.save_chat_settings(chat_config.chat_id.hex, payload)
 
     def test_fetch_all_chat_settings_success(self):
-        own_chat_config = ChatConfigDomain(
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        own_chat_config = stubs.domain.chat_config(
             chat_id = UUID(int = 2),
-            external_id = str(self.invoker_user.telegram_chat_id),
+            external_id = str(invoker_user.telegram_chat_id),
             title = "My Notes",
-            language_iso_code = "en",
-            reply_chance_percent = 100,
-            is_private = True,
             release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
-        own_membership = ChatMembership(
-            user_id = self.invoker_user.id,
+        own_membership = stubs.domain.chat_membership(
+            user_id = invoker_user.id,
             chat_id = own_chat_config.chat_id,
             is_admin = True,
-            use_about_me = True,
-            use_custom_prompt = True,
         )
         self.mock_authorization_service.update_all_chat_authorizations.return_value = [own_membership]
         self.mock_chat_config_repo.get.return_value = own_chat_config
@@ -773,59 +794,51 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIsNotNone(result[0].user_chat_config)
 
     def test_fetch_all_chat_settings_sort_order(self):
-        private_config = ChatConfigDomain(
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        private_config = stubs.domain.chat_config(
             chat_id = UUID(int = 1),
             title = "Private",
-            language_iso_code = "en",
-            reply_chance_percent = 100,
-            is_private = True,
             release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
-        admin_config = ChatConfigDomain(
+        admin_config = stubs.domain.chat_config(
             chat_id = UUID(int = 2),
             title = "Admin Group",
-            language_iso_code = "en",
             reply_chance_percent = 50,
             is_private = False,
             release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
-        member_config = ChatConfigDomain(
+        member_config = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
             title = "Member Group",
-            language_iso_code = "en",
             reply_chance_percent = 50,
             is_private = False,
             release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_type = ChatConfigDB.ChatType.telegram,
         )
-        private_membership = ChatMembership(
-            user_id = self.invoker_user.id,
+        private_membership = stubs.domain.chat_membership(
+            user_id = invoker_user.id,
             chat_id = private_config.chat_id,
             is_admin = True,
             use_about_me = False,
             use_custom_prompt = False,
         )
-        admin_membership = ChatMembership(
-            user_id = self.invoker_user.id,
+        admin_membership = stubs.domain.chat_membership(
+            user_id = invoker_user.id,
             chat_id = admin_config.chat_id,
             is_admin = True,
             use_about_me = False,
             use_custom_prompt = False,
         )
-        member_membership = ChatMembership(
-            user_id = self.invoker_user.id,
+        member_membership = stubs.domain.chat_membership(
+            user_id = invoker_user.id,
             chat_id = member_config.chat_id,
-            is_admin = False,
             use_about_me = False,
             use_custom_prompt = False,
         )
         self.mock_authorization_service.update_all_chat_authorizations.return_value = [
-            member_membership, admin_membership, private_membership,
+            member_membership,
+            admin_membership,
+            private_membership,
         ]
         config_map = {
             private_config.chat_id: private_config,
@@ -853,19 +866,26 @@ class SettingsControllerTest(unittest.TestCase):
     # === fetch_chat_settings ===
 
     def test_fetch_chat_settings_success(self):
-        self.mock_authorization_service.update_chat_authorization.return_value = self.membership
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+        chat_config = self.mock_authorization_service.validate_chat.return_value
+        membership = self.mock_membership_repo.get.return_value
+
+        self.mock_authorization_service.update_chat_authorization.return_value = membership
 
         controller = SettingsController(self.mock_di)
-        result = controller.fetch_chat_settings(self.chat_config.chat_id.hex)
+        result = controller.fetch_chat_settings(chat_config.chat_id.hex)
 
         self.mock_authorization_service.update_chat_authorization.assert_called_once_with(
-            self.invoker_user, self.chat_config,
+            invoker_user,
+            chat_config,
         )
         self.assertIsNotNone(result)
 
     def test_create_settings_link_with_sponsorship(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         sponsorship = MagicMock()
-        sponsorship.receiver_id = self.invoker_user.id
+        sponsorship.receiver_id = invoker_user.id
 
         self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship]
 
@@ -874,10 +894,11 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIsInstance(link_response, SettingsLinkResponse)
         link = link_response.settings_link
 
-        self.assertIn("sponsorships", link)
-        self.assertIn("user", link)
-        self.assertIn(self.invoker_user.id.hex, link)
-        self.assertIn("token=", link)
+        self.assertTrue(
+            link.startswith(
+                f"{config.backoffice_url_base}/en/user/{invoker_user.id.hex}/sponsorships?token=",
+            ),
+        )
 
         raw_token = link.split("token=")[1]
         payload_b64 = raw_token.split(".")[1]
@@ -886,27 +907,12 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertNotIn("sponsored_by", payload)
 
     def test_create_settings_link_no_telegram_chat_id(self):
-        user_without_chat = User(
-            id = self.invoker_user.id,
-            full_name = self.invoker_user.full_name,
-            telegram_username = self.invoker_user.telegram_username,
-            telegram_chat_id = None,  # No chat ID
-            telegram_user_id = None,  # No user ID
-            open_ai_key = self.invoker_user.open_ai_key,
-            anthropic_key = self.invoker_user.anthropic_key,
-            perplexity_key = self.invoker_user.perplexity_key,
-            replicate_key = self.invoker_user.replicate_key,
-            rapid_api_key = self.invoker_user.rapid_api_key,
-            coinmarketcap_key = self.invoker_user.coinmarketcap_key,
-            twelve_data_api_key = self.invoker_user.twelve_data_api_key,
-            tool_choice_chat = self.invoker_user.tool_choice_chat,
-            tool_choice_reasoning = self.invoker_user.tool_choice_reasoning,
-            tool_choice_vision = self.invoker_user.tool_choice_vision,
-            tool_choice_images_gen = self.invoker_user.tool_choice_images_gen,
-            tool_choice_videos_gen = self.invoker_user.tool_choice_videos_gen,
-            tool_choice_search = self.invoker_user.tool_choice_search,
-            group = self.invoker_user.group,
-            created_at = self.invoker_user.created_at,
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        user_without_chat = replace(
+            invoker_user,
+            telegram_chat_id = None,
+            telegram_user_id = None,
         )
 
         # noinspection PyPropertyAccess
@@ -919,11 +925,13 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn("User never sent a private message, cannot create a settings link", str(context.exception))
 
     def test_fetch_external_tools_success_mixed_configuration(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         # Create mock tools and providers
-        mock_tool_1 = ExternalTool(
+        mock_tool_1 = stubs.domain.external_tool(
             id = "configured-tool",
             name = "Configured Tool",
-            provider = ExternalToolProvider(
+            provider = stubs.domain.external_tool_provider(
                 id = "configured-provider",
                 name = "Configured Provider",
                 token_management_url = "https://example.com",
@@ -931,12 +939,12 @@ class SettingsControllerTest(unittest.TestCase):
                 tools = ["configured-tool"],
             ),
             types = [ToolType.chat],
-            cost_estimate = CostEstimate(),
+            cost_estimate = stubs.domain.cost_estimate(),
         )
-        mock_tool_2 = ExternalTool(
+        mock_tool_2 = stubs.domain.external_tool(
             id = "unconfigured-tool",
             name = "Unconfigured Tool",
-            provider = ExternalToolProvider(
+            provider = stubs.domain.external_tool_provider(
                 id = "unconfigured-provider",
                 name = "Unconfigured Provider",
                 token_management_url = "https://example.com",
@@ -944,16 +952,16 @@ class SettingsControllerTest(unittest.TestCase):
                 tools = ["unconfigured-tool"],
             ),
             types = [ToolType.vision],
-            cost_estimate = CostEstimate(),
+            cost_estimate = stubs.domain.cost_estimate(),
         )
-        mock_provider_1 = ExternalToolProvider(
+        mock_provider_1 = stubs.domain.external_tool_provider(
             id = "configured-provider",
             name = "Configured Provider",
             token_management_url = "https://example.com",
             token_format = "test-format",
             tools = ["configured-tool"],
         )
-        mock_provider_2 = ExternalToolProvider(
+        mock_provider_2 = stubs.domain.external_tool_provider(
             id = "unconfigured-provider",
             name = "Unconfigured Provider",
             token_management_url = "https://example.com",
@@ -980,7 +988,7 @@ class SettingsControllerTest(unittest.TestCase):
         with patch("api.settings_controller.ALL_EXTERNAL_TOOLS", [mock_tool_1, mock_tool_2]):
             with patch("api.settings_controller.ALL_PROVIDERS", [mock_provider_1, mock_provider_2]):
                 controller = SettingsController(self.mock_di)
-                result = controller.fetch_external_tools(self.invoker_user.id.hex)
+                result = controller.fetch_external_tools(invoker_user.id.hex)
 
         # Verify result structure
         self.assertEqual(len(result.tools), 2)
@@ -1012,25 +1020,27 @@ class SettingsControllerTest(unittest.TestCase):
                 self.assertGreater(len(tool_id), 0, f"Tool ID in {preset_name}.{tool_type} should not be empty")
 
     def test_fetch_external_tools_includes_cost_estimate(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         """Verify that cost_estimate is properly serialized in API response"""
         # Create tool with actual cost estimate values
-        mock_provider = ExternalToolProvider(
-            id = "test-provider",
-            name = "Test Provider",
+        mock_provider = stubs.domain.external_tool_provider(
             token_management_url = "https://example.com",
             token_format = "test-format",
             tools = ["test-tool"],
         )
-        mock_tool = ExternalTool(
+        mock_tool = stubs.domain.external_tool(
             id = "test-tool",
             name = "Test Tool",
             provider = mock_provider,
             types = [ToolType.chat],
-            cost_estimate = CostEstimate(
+            cost_estimate = stubs.domain.cost_estimate(
                 input_1m_tokens = 100,
                 output_1m_tokens = 500,
                 search_1m_tokens = 300,
                 output_image_1k = 10,
+                output_image_2k = None,
+                output_image_4k = None,
                 api_call = 5,
                 second_of_runtime = 0.01,
                 web_search_query = 1.4,
@@ -1046,7 +1056,7 @@ class SettingsControllerTest(unittest.TestCase):
         with patch("api.settings_controller.ALL_EXTERNAL_TOOLS", [mock_tool]):
             with patch("api.settings_controller.ALL_PROVIDERS", [mock_provider]):
                 controller = SettingsController(self.mock_di)
-                result = controller.fetch_external_tools(self.invoker_user.id.hex)
+                result = controller.fetch_external_tools(invoker_user.id.hex)
 
         # Verify cost_estimate is in response
         self.assertEqual(len(result.tools), 1)
@@ -1071,45 +1081,37 @@ class SettingsControllerTest(unittest.TestCase):
         controller = SettingsController(self.mock_di)
         link = controller.create_help_link()
 
-        self.assertIn("features", link)
-        self.assertIn("token=", link)
-        self.assertIn("en", link)  # Default language
+        self.assertEqual(
+            link,
+            f"{config.backoffice_url_base}/en/features?token=test_jwt_token",
+        )
         mock_create_jwt_token.assert_called_once()
 
     @patch("api.auth.create_jwt_token")
     def test_create_help_link_success_with_custom_language(self, mock_create_jwt_token):
         mock_create_jwt_token.return_value = "test_jwt_token"
+        chat_config = replace(
+            self.mock_authorization_service.validate_chat.return_value,
+            language_iso_code = "es",
+        )
+        type(self.mock_di).invoker_chat = PropertyMock(return_value = chat_config)
 
         controller = SettingsController(self.mock_di)
         link = controller.create_help_link()
 
-        self.assertIn("features", link)
-        self.assertIn("token=", link)
-        self.assertIn("es", link)  # Custom language
+        self.assertEqual(
+            link,
+            f"{config.backoffice_url_base}/es/features?token=test_jwt_token",
+        )
         mock_create_jwt_token.assert_called_once()
 
     def test_create_help_link_failure_no_telegram_chat_id(self):
-        user_without_chat = User(
-            id = self.invoker_user.id,
-            full_name = self.invoker_user.full_name,
-            telegram_username = self.invoker_user.telegram_username,
-            telegram_chat_id = None,  # No chat ID
-            telegram_user_id = None,  # No user ID
-            open_ai_key = self.invoker_user.open_ai_key,
-            anthropic_key = self.invoker_user.anthropic_key,
-            perplexity_key = self.invoker_user.perplexity_key,
-            replicate_key = self.invoker_user.replicate_key,
-            rapid_api_key = self.invoker_user.rapid_api_key,
-            coinmarketcap_key = self.invoker_user.coinmarketcap_key,
-            twelve_data_api_key = self.invoker_user.twelve_data_api_key,
-            tool_choice_chat = self.invoker_user.tool_choice_chat,
-            tool_choice_reasoning = self.invoker_user.tool_choice_reasoning,
-            tool_choice_vision = self.invoker_user.tool_choice_vision,
-            tool_choice_images_gen = self.invoker_user.tool_choice_images_gen,
-            tool_choice_videos_gen = self.invoker_user.tool_choice_videos_gen,
-            tool_choice_search = self.invoker_user.tool_choice_search,
-            group = self.invoker_user.group,
-            created_at = self.invoker_user.created_at,
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        user_without_chat = replace(
+            invoker_user,
+            telegram_chat_id = None,
+            telegram_user_id = None,
         )
 
         # noinspection PyPropertyAccess
@@ -1122,16 +1124,18 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertIn("User never sent a private message, cannot create settings link", str(context.exception))
 
     def test_fetch_external_tools_sorts_by_provider_order_then_name(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         """Verify that tools are sorted by provider order first, then by tool name"""
         # Create providers in specific order
-        provider_a = ExternalToolProvider(
+        provider_a = stubs.domain.external_tool_provider(
             id = "provider-a",
             name = "Provider A",
             token_management_url = "https://example.com",
             token_format = "test-format",
             tools = ["tool-a1", "tool-a2"],
         )
-        provider_b = ExternalToolProvider(
+        provider_b = stubs.domain.external_tool_provider(
             id = "provider-b",
             name = "Provider B",
             token_management_url = "https://example.com",
@@ -1141,34 +1145,34 @@ class SettingsControllerTest(unittest.TestCase):
 
         # Create tools, intentionally out of order
         # Tools for Provider A: tool-a2, tool-a1 (wrong order)
-        tool_a2 = ExternalTool(
+        tool_a2 = stubs.domain.external_tool(
             id = "tool-a2",
             name = "Tool A2",
             provider = provider_a,
             types = [ToolType.chat],
-            cost_estimate = CostEstimate(),
+            cost_estimate = stubs.domain.cost_estimate(),
         )
-        tool_a1 = ExternalTool(
+        tool_a1 = stubs.domain.external_tool(
             id = "tool-a1",
             name = "Tool A1",
             provider = provider_a,
             types = [ToolType.chat],
-            cost_estimate = CostEstimate(),
+            cost_estimate = stubs.domain.cost_estimate(),
         )
         # Tools for Provider B: tool-b2, tool-b1 (wrong order)
-        tool_b2 = ExternalTool(
+        tool_b2 = stubs.domain.external_tool(
             id = "tool-b2",
             name = "Tool B2",
             provider = provider_b,
             types = [ToolType.chat],
-            cost_estimate = CostEstimate(),
+            cost_estimate = stubs.domain.cost_estimate(),
         )
-        tool_b1 = ExternalTool(
+        tool_b1 = stubs.domain.external_tool(
             id = "tool-b1",
             name = "Tool B1",
             provider = provider_b,
             types = [ToolType.chat],
-            cost_estimate = CostEstimate(),
+            cost_estimate = stubs.domain.cost_estimate(),
         )
 
         # Mock the clone method to return a new DI instance
@@ -1183,7 +1187,7 @@ class SettingsControllerTest(unittest.TestCase):
         with patch("api.settings_controller.ALL_EXTERNAL_TOOLS", [tool_a2, tool_a1, tool_b2, tool_b1]):
             with patch("api.settings_controller.ALL_PROVIDERS", [provider_a, provider_b]):
                 controller = SettingsController(self.mock_di)
-                result = controller.fetch_external_tools(self.invoker_user.id.hex)
+                result = controller.fetch_external_tools(invoker_user.id.hex)
 
         # Verify result structure
         self.assertEqual(len(result.tools), 4)
@@ -1196,10 +1200,10 @@ class SettingsControllerTest(unittest.TestCase):
         self.assertEqual(tool_ids, expected_order, f"Tools not sorted correctly. Got {tool_ids}, expected {expected_order}")
 
     def test_fetch_external_tools_uses_provider_configuration_cache(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
         """Verify that tool configuration is determined from provider configuration (not checked per tool)"""
-        provider = ExternalToolProvider(
-            id = "test-provider",
-            name = "Test Provider",
+        provider = stubs.domain.external_tool_provider(
             token_management_url = "https://example.com",
             token_format = "test-format",
             tools = ["tool-1", "tool-2", "tool-3"],
@@ -1207,12 +1211,12 @@ class SettingsControllerTest(unittest.TestCase):
 
         # Create three tools under the same provider
         tools = [
-            ExternalTool(
+            stubs.domain.external_tool(
                 id = f"tool-{i}",
                 name = f"Tool {i}",
                 provider = provider,
                 types = [ToolType.chat],
-                cost_estimate = CostEstimate(),
+                cost_estimate = stubs.domain.cost_estimate(),
             )
             for i in range(1, 4)
         ]
@@ -1228,7 +1232,7 @@ class SettingsControllerTest(unittest.TestCase):
         with patch("api.settings_controller.ALL_EXTERNAL_TOOLS", tools):
             with patch("api.settings_controller.ALL_PROVIDERS", [provider]):
                 controller = SettingsController(self.mock_di)
-                result = controller.fetch_external_tools(self.invoker_user.id.hex)
+                result = controller.fetch_external_tools(invoker_user.id.hex)
 
         # Verify all tools have the same configuration status as the provider
         for tool in result.tools:
@@ -1236,31 +1240,40 @@ class SettingsControllerTest(unittest.TestCase):
 
         # Verify get_access_token was called only once for the provider
         # (not three times for each tool)
-        call_count = sum(
-            1 for call in cloned_access_token_resolver.get_access_token.call_args_list
-            if call[0][0].id == provider.id
-        )
+        call_count = sum(1 for call in cloned_access_token_resolver.get_access_token.call_args_list if call[0][0].id == provider.id)  # ruff: ignore[line-too-long]
         self.assertEqual(call_count, 1, "Provider configuration should be checked only once, not per tool")
 
     def test_fetch_products_success(self):
+        invoker_user = self.mock_authorization_service.authorize_for_user.return_value
+
+        starter_product = stubs.domain.configured_product(
+            id = "prod-1",
+            url = "https://example.com/prod-1",
+        )
+        pro_product = stubs.domain.configured_product(
+            id = "prod-2",
+            credits = 500,
+            name = "Pro Pack",
+            url = "https://example.com/prod-2",
+        )
         mock_products = {
-            "prod-1": ConfiguredProduct(id = "prod-1", credits = 100, name = "Starter Pack", url = "https://example.com/prod-1"),
-            "prod-2": ConfiguredProduct(id = "prod-2", credits = 500, name = "Pro Pack", url = "https://example.com/prod-2"),
+            starter_product.id: starter_product,
+            pro_product.id: pro_product,
         }
 
         with patch("api.settings_controller.config") as mock_config:
             mock_config.products = mock_products
             controller = SettingsController(self.mock_di)
-            result = controller.fetch_products(self.invoker_user.id.hex)
+            result = controller.fetch_products(invoker_user.id.hex)
 
         self.mock_authorization_service.authorize_for_user.assert_called_once_with(
-            self.invoker_user,
-            self.invoker_user.id.hex,
+            invoker_user,
+            invoker_user.id.hex,
         )
         self.assertEqual(len(result.products), 2)
         product_ids = {p.id for p in result.products}
         self.assertEqual(product_ids, {"prod-1", "prod-2"})
         starter = next(p for p in result.products if p.id == "prod-1")
-        self.assertEqual(starter.credits, 100)
-        self.assertEqual(starter.name, "Starter Pack")
-        self.assertEqual(starter.url, f"https://example.com/prod-1?user_id={self.invoker_user.id.hex}")
+        self.assertEqual(starter.credits, starter_product.credits)
+        self.assertEqual(starter.name, starter_product.name)
+        self.assertEqual(starter.url, f"{starter_product.url}?user_id={invoker_user.id.hex}")

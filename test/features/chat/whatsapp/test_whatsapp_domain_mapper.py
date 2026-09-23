@@ -1,11 +1,8 @@
 import unittest
 from datetime import datetime
 
-from features.chat.whatsapp.model.attachment.media_attachment import MediaAttachment
-from features.chat.whatsapp.model.attachment.text import Text
-from features.chat.whatsapp.model.context import Context
-from features.chat.whatsapp.model.message import Message
-from features.chat.whatsapp.model.value import Value
+import stubs
+
 from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.users.user_remote_data import UserRemoteData
 
@@ -16,13 +13,11 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.mapper = WhatsAppDomainMapper()
 
     def test_map_message_filled(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
-            text = Text(body = "This is a test message"),
-            context = Context(id = "old-message"),
+            text = stubs.external.whatsapp_text(body = "This is a test message"),
+            context = stubs.external.whatsapp_context(id = "old-message"),
         )
 
         result = self.mapper.map_message(message)
@@ -34,11 +29,10 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result.quote_text)
 
     def test_map_message_empty(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
         )
 
         result = self.mapper.map_message(message)
@@ -50,14 +44,13 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertIsNone(result.quote_text)
 
     def test_map_message_uses_media_caption(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
             type = "image",
-            image = MediaAttachment(
+            text = None,
+            image = stubs.external.whatsapp_media_attachment(
                 id = "image_id",
-                mime_type = "image/jpeg",
                 caption = "This is a caption",
             ),
         )
@@ -67,12 +60,12 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.text, "This is a caption")
 
     def test_map_message_uses_video_caption(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
             type = "video",
-            video = MediaAttachment(
+            text = None,
+            video = stubs.external.whatsapp_media_attachment(
                 id = "video_id",
                 mime_type = "video/mp4",
                 caption = "This is a video caption",
@@ -84,27 +77,25 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.text, "This is a video caption")
 
     def test_map_author_filled(self):
-        value_dict = {
-            "messaging_product": "whatsapp",
-            "metadata": {
-                "display_phone_number": "1234567890",
-                "phone_number_id": "phone_id",
-            },
-            "contacts": [{
-                "profile": {"name": "John Doe"},
-                "wa_id": "1234567890",
-            }],
-            "messages": [],
-        }
-
-        message = Message(
+        value_obj = stubs.external.whatsapp_value(
+            metadata = stubs.external.whatsapp_metadata(
+                display_phone_number = "1234567890",
+                phone_number_id = "phone_id",
+            ),
+            contacts = [
+                stubs.external.whatsapp_contact(
+                    profile = stubs.external.whatsapp_profile(name = "John Doe"),
+                    wa_id = "1234567890",
+                ),
+            ],
+        )
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
+            **{"from": "1234567890"},
         )
 
-        value_obj = Value.model_validate(value_dict)
         result = self.mapper.map_author(message, value_obj)
 
         self.assertIsNotNone(result)
@@ -114,22 +105,12 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.whatsapp_phone_number.get_secret_value(), "1234567890")
 
     def test_map_author_empty(self):
-        value_dict = {
-            "messaging_product": "whatsapp",
-            "metadata": {
-                "display_phone_number": "1234567890",
-                "phone_number_id": "phone_id",
-            },
-            "contacts": [],
-            "messages": [],
-        }
-        value = Value.model_validate(value_dict)
-
-        message = Message(
+        value = stubs.external.whatsapp_value(contacts = [])
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
+            **{"from": "1234567890"},
         )
 
         result = self.mapper.map_author(message, value)
@@ -138,23 +119,23 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.whatsapp_user_id, "1234567890")
 
     def test_map_author_uses_contact_matching_message_sender(self):
-        value = Value.model_validate({
-            "messaging_product": "whatsapp",
-            "metadata": {
-                "display_phone_number": "1234567890",
-                "phone_number_id": "phone_id",
-            },
-            "contacts": [
-                {"profile": {"name": "Unrelated"}, "wa_id": "999"},
-                {"profile": {"name": "John Doe"}, "wa_id": "1234567890"},
+        value = stubs.external.whatsapp_value(
+            contacts = [
+                stubs.external.whatsapp_contact(
+                    profile = stubs.external.whatsapp_profile(name = "Unrelated"),
+                    wa_id = "999",
+                ),
+                stubs.external.whatsapp_contact(
+                    profile = stubs.external.whatsapp_profile(name = "John Doe"),
+                    wa_id = "1234567890",
+                ),
             ],
-            "messages": [],
-        })
-        message = Message(
+        )
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
+            **{"from": "1234567890"},
         )
 
         result = self.mapper.map_author(message, value)
@@ -164,27 +145,21 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.whatsapp_user_id, "1234567890")
 
     def test_map_chat_filled(self):
-        value_dict = {
-            "messaging_product": "whatsapp",
-            "metadata": {
-                "display_phone_number": "1234567890",
-                "phone_number_id": "phone_id",
-            },
-            "contacts": [{
-                "profile": {"name": "John Doe"},
-                "wa_id": "1234567890",
-            }],
-            "messages": [],
-        }
-
-        message = Message(
+        value_obj = stubs.external.whatsapp_value(
+            contacts = [
+                stubs.external.whatsapp_contact(
+                    profile = stubs.external.whatsapp_profile(name = "John Doe"),
+                    wa_id = "1234567890",
+                ),
+            ],
+        )
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
+            **{"from": "1234567890"},
         )
 
-        value_obj = Value.model_validate(value_dict)
         result = self.mapper.map_chat(message, value_obj)
 
         self.assertIsNotNone(result)
@@ -194,23 +169,23 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.chat_type.value, "whatsapp")
 
     def test_map_chat_uses_contact_matching_message_sender(self):
-        value = Value.model_validate({
-            "messaging_product": "whatsapp",
-            "metadata": {
-                "display_phone_number": "1234567890",
-                "phone_number_id": "phone_id",
-            },
-            "contacts": [
-                {"profile": {"name": "Unrelated"}, "wa_id": "999"},
-                {"profile": {"name": "John Doe"}, "wa_id": "1234567890"},
+        value = stubs.external.whatsapp_value(
+            contacts = [
+                stubs.external.whatsapp_contact(
+                    profile = stubs.external.whatsapp_profile(name = "Unrelated"),
+                    wa_id = "999",
+                ),
+                stubs.external.whatsapp_contact(
+                    profile = stubs.external.whatsapp_profile(name = "John Doe"),
+                    wa_id = "1234567890",
+                ),
             ],
-            "messages": [],
-        })
-        message = Message(
+        )
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
+            **{"from": "1234567890"},
         )
 
         result = self.mapper.map_chat(message, value)
@@ -219,14 +194,13 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result.title, "John Doe")
 
     def test_map_attachments_filled(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
             type = "image",
-            image = MediaAttachment(
+            text = None,
+            image = stubs.external.whatsapp_media_attachment(
                 id = "image_id",
-                mime_type = "image/jpeg",
             ),
         )
 
@@ -237,11 +211,10 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(result[0].mime_type, "image/jpeg")
 
     def test_map_attachments_empty(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
-            type = "text",
+            text = None,
         )
 
         result = self.mapper.map_attachments(message)
@@ -249,12 +222,12 @@ class WhatsAppDomainMapperTest(unittest.TestCase):
         self.assertEqual(len(result), 0)
 
     def test_map_attachments_video(self):
-        message = Message(
+        message = stubs.external.whatsapp_message(
             id = "100",
-            **{"from": "1234567890"},
             timestamp = str(int(datetime.now().timestamp())),
             type = "video",
-            video = MediaAttachment(
+            text = None,
+            video = stubs.external.whatsapp_media_attachment(
                 id = "video_id",
                 mime_type = "video/mp4",
             ),

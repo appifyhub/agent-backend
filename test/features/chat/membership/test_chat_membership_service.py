@@ -1,15 +1,11 @@
 import unittest
-from datetime import datetime
 from unittest.mock import Mock
 
+import stubs
 from db.sql_util import SQLUtil
-from pydantic import SecretStr
 
-from db.model.chat_config import ChatConfigDB
-from db.model.user import UserDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
-from features.chat.membership.chat_membership import ChatMembership
 from features.chat.membership.chat_membership_service import ChatMembershipService
 from features.integrations.platform_bot_sdk import ChatAccess
 from features.users.user import User
@@ -28,21 +24,14 @@ class ChatMembershipServiceTest(unittest.TestCase):
     def setUp(self):
         self.sql = SQLUtil()
         self.user = self.sql.user_repo().save(
-            User(
-                full_name = "Test User",
-                telegram_username = "testuser",
-                telegram_chat_id = "chat_ext_1",
+            stubs.domain.user(
                 telegram_user_id = 1,
-                open_ai_key = SecretStr("key"),
-                group = UserDB.Group.standard,
-                created_at = datetime.now().date(),
             ),
         )
         self.chat = self.sql.chat_config_repo().save(
-            ChatConfig(
+            stubs.domain.chat_config(
+                chat_id = None,
                 external_id = "chat_ext_1",
-                chat_type = ChatConfigDB.ChatType.telegram,
-                is_private = True,
             ),
         )
         self.mock_sdk = Mock()
@@ -64,12 +53,11 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_get_returns_existing_row(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
                 use_about_me = False,
-                use_custom_prompt = True,
                 max_output_tokens = 1000,
                 max_chat_history_depth = 10,
                 max_iterations = 7,
@@ -94,14 +82,14 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_get_all_for_user_returns_all_rows(self):
         second_chat = self.sql.chat_config_repo().save(
-            ChatConfig(
+            stubs.domain.chat_config(
+                chat_id = None,
                 external_id = "chat_ext_2",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         repo = self.sql.chat_membership_repo()
-        repo.save(ChatMembership(user_id = self.user.id, chat_id = self.chat.chat_id))
-        repo.save(ChatMembership(user_id = self.user.id, chat_id = second_chat.chat_id))
+        repo.save(stubs.domain.chat_membership(user_id = self.user.id, chat_id = self.chat.chat_id))
+        repo.save(stubs.domain.chat_membership(user_id = self.user.id, chat_id = second_chat.chat_id))
 
         result = self.service.get_all_for_user(self.user.id)
 
@@ -113,12 +101,11 @@ class ChatMembershipServiceTest(unittest.TestCase):
     # === save ===
 
     def test_save_creates_new_row(self):
-        membership = ChatMembership(
+        membership = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
             is_admin = True,
             use_about_me = False,
-            use_custom_prompt = True,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
@@ -137,18 +124,14 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_save_upserts_existing_row(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
-                max_output_tokens = 500,
-                max_chat_history_depth = 5,
-                max_iterations = 3,
             ),
         )
 
         result = self.service.save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
@@ -170,10 +153,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_sync_returns_existing_unchanged_when_admin_matches(self):
         existing = self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
             ),
@@ -188,10 +170,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_sync_refreshes_admin_status_on_existing(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
             ),
@@ -255,7 +236,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_ensure_for_inbound_returns_cached_membership_without_platform_lookup(self):
         existing = self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
@@ -354,12 +335,10 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_sync_allows_existing_row_when_access_is_none(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
-                use_about_me = True,
-                use_custom_prompt = True,
             ),
         )
         self.mock_sdk.resolve_chat_access.return_value = None
@@ -379,10 +358,9 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_refresh_chat_memberships_preserves_preferences_on_promote(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
-                is_admin = False,
                 use_about_me = False,
                 use_custom_prompt = False,
                 max_output_tokens = 500,
@@ -402,12 +380,10 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_refresh_chat_memberships_demotes_stale_admin(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
-                use_about_me = True,
-                use_custom_prompt = True,
             ),
         )
 
@@ -420,7 +396,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_refresh_chat_memberships_skips_already_correct_admin_row(self):
         self.sql.chat_membership_repo().save(
-            ChatMembership(
+            stubs.domain.chat_membership(
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
@@ -442,18 +418,17 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
     def test_refresh_chat_memberships_handles_multiple_chats(self):
         second_chat = self.sql.chat_config_repo().save(
-            ChatConfig(
+            stubs.domain.chat_config(
+                chat_id = None,
                 external_id = "chat_ext_3",
-                chat_type = ChatConfigDB.ChatType.telegram,
             ),
         )
         self.sql.chat_membership_repo().save(
-            ChatMembership(user_id = self.user.id, chat_id = self.chat.chat_id, is_admin = True),
+            stubs.domain.chat_membership(user_id = self.user.id, chat_id = self.chat.chat_id, is_admin = True),
         )
         self.sql.chat_membership_repo().save(
-            ChatMembership(user_id = self.user.id, chat_id = second_chat.chat_id, is_admin = False),
+            stubs.domain.chat_membership(user_id = self.user.id, chat_id = second_chat.chat_id),
         )
-
         result = self.service.refresh_chat_memberships(self.user, [second_chat])
 
         by_chat = {m.chat_id: m for m in result}

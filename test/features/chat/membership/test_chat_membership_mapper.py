@@ -1,19 +1,11 @@
 import unittest
-from uuid import UUID
 
-from db.model.chat_membership import ChatMembershipDB
-from features.chat.membership.chat_membership import ChatMembership
+import stubs
+
 from features.chat.membership.chat_membership_mapper import db, domain
 
 
 class ChatMembershipMapperTest(unittest.TestCase):
-
-    user_id: UUID
-    chat_id: UUID
-
-    def setUp(self):
-        self.user_id = UUID("11111111-1111-1111-1111-111111111111")
-        self.chat_id = UUID("22222222-2222-2222-2222-222222222222")
 
     def test_domain_returns_none_for_none_input(self):
         self.assertIsNone(domain(None))
@@ -22,49 +14,31 @@ class ChatMembershipMapperTest(unittest.TestCase):
         self.assertIsNone(db(None))
 
     def test_domain_maps_all_fields(self):
-        db_model = ChatMembershipDB(
-            user_id = self.user_id,
-            chat_id = self.chat_id,
-            is_admin = True,
-            use_about_me = False,
-            use_custom_prompt = True,
-        )
+        db_model = stubs.db.chat_membership_db()
 
         result = domain(db_model)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.user_id, self.user_id)
-        self.assertEqual(result.chat_id, self.chat_id)
-        self.assertTrue(result.is_admin)
-        self.assertFalse(result.use_about_me)
-        self.assertTrue(result.use_custom_prompt)
+        self.assertEqual(result.user_id, db_model.user_id)
+        self.assertEqual(result.chat_id, db_model.chat_id)
+        self.assertEqual(result.is_admin, db_model.is_admin)
+        self.assertEqual(result.use_about_me, db_model.use_about_me)
+        self.assertEqual(result.use_custom_prompt, db_model.use_custom_prompt)
 
     def test_db_maps_all_fields(self):
-        domain_model = ChatMembership(
-            user_id = self.user_id,
-            chat_id = self.chat_id,
-            is_admin = False,
-            use_about_me = True,
-            use_custom_prompt = False,
-        )
+        domain_model = stubs.domain.chat_membership()
 
         result = db(domain_model)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.user_id, self.user_id)
-        self.assertEqual(result.chat_id, self.chat_id)
-        self.assertFalse(result.is_admin)
-        self.assertTrue(result.use_about_me)
-        self.assertFalse(result.use_custom_prompt)
+        self.assertEqual(result.user_id, domain_model.user_id)
+        self.assertEqual(result.chat_id, domain_model.chat_id)
+        self.assertEqual(result.is_admin, domain_model.is_admin)
+        self.assertEqual(result.use_about_me, domain_model.use_about_me)
+        self.assertEqual(result.use_custom_prompt, domain_model.use_custom_prompt)
 
     def test_roundtrip_domain_to_db_to_domain(self):
-        original = ChatMembership(
-            user_id = self.user_id,
-            chat_id = self.chat_id,
-            is_admin = True,
-            use_about_me = True,
-            use_custom_prompt = False,
-        )
+        original = stubs.domain.chat_membership()
 
         result = domain(db(original))
 

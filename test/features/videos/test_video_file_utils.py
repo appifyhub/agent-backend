@@ -1,9 +1,10 @@
 import subprocess
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
+
+import stubs
 
 from features.videos import video_file_utils
 from util.error_codes import VIDEO_PREPARATION_FAILED, VIDEO_RUNTIME_MISSING
@@ -162,19 +163,17 @@ class VideoFileUtilsTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, VIDEO_PREPARATION_FAILED)
 
     def test_prepare_video_retries_with_lower_bitrate_and_resolution(self):
-        source = replace(
-            video_file_utils.inspect_video(str(self.webm_path)),
+        source = stubs.domain.video_metadata(
+            container = "webm",
+            video_codecs = ("vp9",),
+            audio_codecs = ("opus",),
             width = 160,
             height = 90,
             duration_seconds = 10,
             size_bytes = 2_000_000,
         )
-        oversized = replace(
-            video_file_utils.inspect_video(str(self.compliant_path)),
-            size_bytes = 1_200_000,
-        )
-        fitting = replace(
-            oversized,
+        oversized = stubs.domain.video_metadata(size_bytes = 1_200_000)
+        fitting = stubs.domain.video_metadata(
             width = 80,
             height = 44,
             size_bytes = 900_000,
@@ -351,15 +350,14 @@ class VideoFileUtilsTest(unittest.TestCase):
         self.assertFalse(Path(prepared_path).exists())
 
     def test_prepare_video_removes_all_outputs_when_no_attempt_fits(self):
-        source = replace(
-            video_file_utils.inspect_video(str(self.webm_path)),
+        source = stubs.domain.video_metadata(
+            container = "webm",
+            video_codecs = ("vp9",),
+            audio_codecs = ("opus",),
             duration_seconds = 10,
             size_bytes = 2_000_000,
         )
-        oversized = replace(
-            video_file_utils.inspect_video(str(self.compliant_path)),
-            size_bytes = 1_200_000,
-        )
+        oversized = stubs.domain.video_metadata(size_bytes = 1_200_000)
         outputs = [self._temp_path() for _ in range(len(video_file_utils.TRANSCODE_ATTEMPTS) + 1)]
 
         with patch(
