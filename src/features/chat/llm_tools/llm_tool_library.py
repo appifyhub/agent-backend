@@ -186,7 +186,14 @@ def fetch_web_content(di: DI, url: str, offset: str | None = None) -> str:
         return __error(e)
 
 
-def get_asset_price(di: DI, asset: str, currency: str, asset_type: str | None = None, force: bool = False, amount: str | None = None) -> str:
+def get_asset_price(
+    di: DI,
+    asset: str,
+    currency: str,
+    asset_type: str | None = None,
+    force: bool = False,
+    amount: str | None = None,
+) -> str:
     """
     Fetches the price of a fiat currency, cryptocurrency, or stock in another currency.
 
@@ -543,14 +550,22 @@ def render_social_post(di: DI, url: str, mode: str | None = None) -> str:
             api_tool = di.tool_choice_resolver.get_tool(provider_class.tool_type, default_tool_for(provider_class.tool_type))
             if api_tool:
                 social_api_tools.append(api_tool)
-        vision_tool = di.tool_choice_resolver.require_tool(SocialCardOrchestrator.VISION_TOOL_TYPE, default_tool_for(SocialCardOrchestrator.VISION_TOOL_TYPE))
+        vision_tool = di.tool_choice_resolver.require_tool(
+            SocialCardOrchestrator.VISION_TOOL_TYPE,
+            default_tool_for(SocialCardOrchestrator.VISION_TOOL_TYPE),
+        )
         result = di.social_card_orchestrator(social_api_tools, vision_tool).execute(url, requested_mode)
         invoker_chat = di.require_invoker_chat()
         chat_id = int(invoker_chat.external_id or "-1")
         if result.mode == SocialCardMode.VIDEO:
             di.platform_bot_sdk().smart_send_video(media_mode = invoker_chat.media_mode, chat_id = chat_id, video_url = result.public_url)
         elif result.mode == SocialCardMode.IMAGE:
-            di.platform_bot_sdk().smart_send_photo(media_mode = invoker_chat.media_mode, chat_id = chat_id, photo_url = result.public_url, thumbnail = result.public_url)
+            di.platform_bot_sdk().smart_send_photo(
+                media_mode = invoker_chat.media_mode,
+                chat_id = chat_id,
+                photo_url = result.public_url,
+                thumbnail = result.public_url,
+            )
         else:
             raise ValidationError(f"Social-card output was '{result.mode}'", INVALID_SOCIAL_CARD_MODE)
         return __success({"next_step": "Confirm to the user that the card has been rendered and sent"})

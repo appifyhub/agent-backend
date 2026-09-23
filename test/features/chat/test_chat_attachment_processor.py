@@ -263,7 +263,12 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_execute_with_plain_text_raw_strategy(self, m: requests_mock.Mocker):
-        txt_attachment = stubs.domain.chat_attachment(id = "5", mime_type = "text/plain", extension = "txt", last_url = "http://test.com/notes.txt")
+        txt_attachment = stubs.domain.chat_attachment(
+            id = "5",
+            mime_type = "text/plain",
+            extension = "txt",
+            last_url = "http://test.com/notes.txt",
+        )
         self.mock_chat_attachment_repo.get.return_value = txt_attachment
         self.mock_chat_attachment_repo.save.return_value = txt_attachment
         self.mock_cache_repo.get.return_value = None
@@ -309,7 +314,12 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_execute_with_plain_text_search_strategy(self, m: requests_mock.Mocker):
-        txt_attachment = stubs.domain.chat_attachment(id = "7", mime_type = "text/plain", extension = "txt", last_url = "http://test.com/large.txt")
+        txt_attachment = stubs.domain.chat_attachment(
+            id = "7",
+            mime_type = "text/plain",
+            extension = "txt",
+            last_url = "http://test.com/large.txt",
+        )
         self.mock_chat_attachment_repo.get.return_value = txt_attachment
         self.mock_chat_attachment_repo.save.return_value = txt_attachment
         self.mock_cache_repo.get.return_value = None
@@ -360,7 +370,12 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_execute_with_empty_document_returns_no_text_message(self, m: requests_mock.Mocker):
-        txt_attachment = stubs.domain.chat_attachment(id = "9", mime_type = "text/plain", extension = "txt", last_url = "http://test.com/empty.txt")
+        txt_attachment = stubs.domain.chat_attachment(
+            id = "9",
+            mime_type = "text/plain",
+            extension = "txt",
+            last_url = "http://test.com/empty.txt",
+        )
         self.mock_chat_attachment_repo.get.return_value = txt_attachment
         self.mock_chat_attachment_repo.save.return_value = txt_attachment
         self.mock_cache_repo.get.return_value = None
@@ -407,7 +422,12 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_execute_one_bad_one_good_attachment_returns_partial(self, m: requests_mock.Mocker):
-        image_attachment = stubs.domain.chat_attachment(id = "1", mime_type = "image/png", extension = "png", last_url = "http://test.com/img.png")
+        image_attachment = stubs.domain.chat_attachment(
+            id = "1",
+            mime_type = "image/png",
+            extension = "png",
+            last_url = "http://test.com/img.png",
+        )
         bad_attachment = stubs.domain.chat_attachment(
             id = "11",
             mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -456,7 +476,12 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
     @requests_mock.Mocker()
     def test_cache_key_includes_strategy_on_save(self, m: requests_mock.Mocker):
-        txt_attachment = stubs.domain.chat_attachment(id = "12", mime_type = "text/plain", extension = "txt", last_url = "http://test.com/doc.txt")
+        txt_attachment = stubs.domain.chat_attachment(
+            id = "12",
+            mime_type = "text/plain",
+            extension = "txt",
+            last_url = "http://test.com/doc.txt",
+        )
         self.mock_chat_attachment_repo.get.return_value = txt_attachment
         self.mock_chat_attachment_repo.save.return_value = txt_attachment
         self.mock_cache_repo.get.return_value = None
