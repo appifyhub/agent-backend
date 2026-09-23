@@ -44,7 +44,6 @@ class UserRepositoryTest(unittest.TestCase):
     def test_save_persists_secret_and_tool_choice_fields(self):
         user = stubs.domain.user(
             id = None,
-            created_at = None,
             connect_key = "SECRET-KEY-0001",
             about_me = SecretStr("about"),
             custom_prompt = SecretStr("prompt"),
@@ -59,7 +58,6 @@ class UserRepositoryTest(unittest.TestCase):
             twelve_data_api_key = SecretStr("twelve-data"),
             x_key = SecretStr("x"),
             x_ai_key = SecretStr("x-ai"),
-            tool_choice_api_stock_quote = "quote",
         )
 
         result = self.repo.save(user)
@@ -81,7 +79,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(fetched.tool_choice_api_stock_quote, "quote")
 
     def test_get_returns_saved_user(self):
-        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "GET-USER-0001"))
+        created = self.repo.save(stubs.domain.user(id = None, connect_key = "GET-USER-0001"))
 
         result = self.repo.get(created.id)
 
@@ -96,11 +94,10 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_all_and_count(self):
-        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "GET-ALL-0001"))
+        first = self.repo.save(stubs.domain.user(id = None, connect_key = "GET-ALL-0001"))
         second = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "GET-ALL-0002",
                 telegram_username = None,
                 telegram_chat_id = None,
@@ -119,7 +116,6 @@ class UserRepositoryTest(unittest.TestCase):
         user = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "LOOKUP-KEY-01",
                 telegram_username = "lookup-telegram",
                 telegram_user_id = 1001,
@@ -138,7 +134,6 @@ class UserRepositoryTest(unittest.TestCase):
         by_id = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "REMOTE-TG-001",
                 telegram_username = "old-username",
                 telegram_user_id = 2001,
@@ -147,7 +142,6 @@ class UserRepositoryTest(unittest.TestCase):
         self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "REMOTE-TG-002",
                 telegram_username = "remote-username",
                 telegram_user_id = 2002,
@@ -169,7 +163,6 @@ class UserRepositoryTest(unittest.TestCase):
         user = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "REMOTE-WA-001",
                 whatsapp_user_id = None,
                 whatsapp_phone_number = SecretStr("15550003333"),
@@ -188,7 +181,6 @@ class UserRepositoryTest(unittest.TestCase):
         created = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "UPDATE-KEY-001",
                 full_name = "Original",
                 about_me = SecretStr("about"),
@@ -220,7 +212,6 @@ class UserRepositoryTest(unittest.TestCase):
         result = self.repo.save(
             stubs.domain.user(
                 id = user_id,
-                created_at = None,
                 connect_key = "INSERT-ID-001",
             ),
         )
@@ -230,7 +221,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(user_id).connect_key, "INSERT-ID-001")
 
     def test_delete_user(self):
-        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "DELETE-KEY-01"))
+        created = self.repo.save(stubs.domain.user(id = None, connect_key = "DELETE-KEY-01"))
 
         result = self.repo.delete(created.id)
 
@@ -244,7 +235,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_update_locked_updates_user(self):
-        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "LOCKED-KEY-01", credit_balance = 10.0))
+        created = self.repo.save(stubs.domain.user(id = None, connect_key = "LOCKED-KEY-01", credit_balance = 10.0))
 
         result = self.repo.update_locked(
             created.id,
@@ -259,7 +250,7 @@ class UserRepositoryTest(unittest.TestCase):
             self.repo.update_locked(uuid4(), lambda user: user)
 
     def test_update_locked_defers_commit_when_requested(self):
-        created = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "LOCK-DEFER-01", credit_balance = 10.0))
+        created = self.repo.save(stubs.domain.user(id = None, connect_key = "LOCK-DEFER-01", credit_balance = 10.0))
 
         updated = self.repo.update_locked(
             created.id,
@@ -274,11 +265,10 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(created.id).credit_balance, 10.0)
 
     def test_get_locked_pair_returns_users_in_requested_order(self):
-        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-GET-001"))
+        first = self.repo.save(stubs.domain.user(id = None, connect_key = "PAIR-GET-001"))
         second = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "PAIR-GET-002",
                 telegram_username = None,
                 telegram_chat_id = None,
@@ -294,11 +284,10 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(locked_first.id, first.id)
 
     def test_update_locked_pair_updates_users_in_requested_order(self):
-        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-KEY-001", credit_balance = 100.0))
+        first = self.repo.save(stubs.domain.user(id = None, connect_key = "PAIR-KEY-001"))
         second = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "PAIR-KEY-002",
                 telegram_username = None,
                 telegram_chat_id = None,
@@ -326,11 +315,10 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(first.id).credit_balance, 140.0)
 
     def test_update_locked_pair_defers_commit_when_requested(self):
-        first = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-DEFER-001", credit_balance = 100.0))
+        first = self.repo.save(stubs.domain.user(id = None, connect_key = "PAIR-DEFER-001"))
         second = self.repo.save(
             stubs.domain.user(
                 id = None,
-                created_at = None,
                 connect_key = "PAIR-DEFER-002",
                 telegram_username = None,
                 telegram_chat_id = None,
@@ -356,7 +344,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(second.id).credit_balance, 25.0)
 
     def test_update_locked_pair_raises_when_missing(self):
-        existing = self.repo.save(stubs.domain.user(id = None, created_at = None, connect_key = "PAIR-MISSING"))
+        existing = self.repo.save(stubs.domain.user(id = None, connect_key = "PAIR-MISSING"))
 
         with self.assertRaises(NotFoundError):
             self.repo.update_locked_pair(existing.id, uuid4(), lambda first, second: (first, second))

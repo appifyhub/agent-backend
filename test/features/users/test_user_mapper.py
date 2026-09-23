@@ -12,13 +12,6 @@ from features.users.user_mapper import apply_remote_data, apply_to_db_model, db,
 
 class UserMapperTest(unittest.TestCase):
 
-    user_id: UUID
-    created_at: date
-
-    def setUp(self):
-        self.user_id = UUID("11111111-1111-1111-1111-111111111111")
-        self.created_at = date(2026, 1, 1)
-
     def test_domain_returns_none_for_none_input(self):
         self.assertIsNone(domain(None))
 
@@ -26,7 +19,39 @@ class UserMapperTest(unittest.TestCase):
         self.assertIsNone(db(None))
 
     def test_domain_maps_all_fields_and_wraps_secrets(self):
-        db_model = stubs.db.user_db()
+        db_model = stubs.db.user_db(
+            full_name = "Mapper DB User",
+            about_me = "db about",
+            custom_prompt = "db prompt",
+            telegram_username = "db-telegram",
+            telegram_chat_id = "db-chat",
+            whatsapp_user_id = "db-whatsapp",
+            whatsapp_phone_number = "+15550000001",
+            open_ai_key = "db-open-ai",
+            anthropic_key = "db-anthropic",
+            google_ai_key = "db-google",
+            perplexity_key = "db-perplexity",
+            replicate_key = "db-replicate",
+            rapid_api_key = "db-rapid",
+            coinmarketcap_key = "db-coinmarketcap",
+            twelve_data_api_key = "db-twelve-data",
+            x_key = "db-x",
+            x_ai_key = "db-x-ai",
+            tool_choice_chat = "db-chat-tool",
+            tool_choice_reasoning = "db-reasoning-tool",
+            tool_choice_copywriting = "db-copywriting-tool",
+            tool_choice_vision = "db-vision-tool",
+            tool_choice_hearing = "db-hearing-tool",
+            tool_choice_images_gen = "db-images-tool",
+            tool_choice_videos_gen = "db-videos-tool",
+            tool_choice_search = "db-search-tool",
+            tool_choice_embedding = "db-embedding-tool",
+            tool_choice_api_fiat_exchange = "db-fiat-tool",
+            tool_choice_api_crypto_exchange = "db-crypto-tool",
+            tool_choice_api_stock_quote = "db-stock-tool",
+            tool_choice_api_twitter = "db-twitter-tool",
+            connect_key = "DB-CONNECT-KEY",
+        )
 
         result = domain(db_model)
 
@@ -71,7 +96,39 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.group, db_model.group)
 
     def test_db_maps_all_fields_and_unwraps_secrets(self):
-        domain_model = stubs.domain.user()
+        domain_model = stubs.domain.user(
+            full_name = "Mapper Domain User",
+            about_me = SecretStr("domain about"),
+            custom_prompt = SecretStr("domain prompt"),
+            telegram_username = "domain-telegram",
+            telegram_chat_id = "domain-chat",
+            whatsapp_user_id = "domain-whatsapp",
+            whatsapp_phone_number = SecretStr("+15550000002"),
+            open_ai_key = SecretStr("domain-open-ai"),
+            anthropic_key = SecretStr("domain-anthropic"),
+            google_ai_key = SecretStr("domain-google"),
+            perplexity_key = SecretStr("domain-perplexity"),
+            replicate_key = SecretStr("domain-replicate"),
+            rapid_api_key = SecretStr("domain-rapid"),
+            coinmarketcap_key = SecretStr("domain-coinmarketcap"),
+            twelve_data_api_key = SecretStr("domain-twelve-data"),
+            x_key = SecretStr("domain-x"),
+            x_ai_key = SecretStr("domain-x-ai"),
+            tool_choice_chat = "domain-chat-tool",
+            tool_choice_reasoning = "domain-reasoning-tool",
+            tool_choice_copywriting = "domain-copywriting-tool",
+            tool_choice_vision = "domain-vision-tool",
+            tool_choice_hearing = "domain-hearing-tool",
+            tool_choice_images_gen = "domain-images-tool",
+            tool_choice_videos_gen = "domain-videos-tool",
+            tool_choice_search = "domain-search-tool",
+            tool_choice_embedding = "domain-embedding-tool",
+            tool_choice_api_fiat_exchange = "domain-fiat-tool",
+            tool_choice_api_crypto_exchange = "domain-crypto-tool",
+            tool_choice_api_stock_quote = "domain-stock-tool",
+            tool_choice_api_twitter = "domain-twitter-tool",
+            connect_key = "DOMAIN-CONNECT-KEY",
+        )
 
         result = db(domain_model)
 
@@ -116,7 +173,9 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.group, domain_model.group)
 
     def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
-        db_model = stubs.db.user_db(id = self.user_id, created_at = self.created_at)
+        db_model = stubs.db.user_db()
+        original_id = db_model.id
+        original_created_at = db_model.created_at
         replacement = stubs.domain.user(
             id = UUID("22222222-2222-2222-2222-222222222222"),
             created_at = date(2026, 2, 2),
@@ -132,17 +191,15 @@ class UserMapperTest(unittest.TestCase):
             anthropic_key = None,
             tool_choice_chat = None,
             credit_balance = 999.0,
-            is_on_waitlist = False,
             is_invited_to_start = False,
             are_policies_accepted = False,
             connect_key = "UPDATED-KEY",
-            group = UserDB.Group.standard,
         )
 
         apply_to_db_model(replacement, db_model)
 
-        self.assertEqual(db_model.id, self.user_id)
-        self.assertEqual(db_model.created_at, self.created_at)
+        self.assertEqual(db_model.id, original_id)
+        self.assertEqual(db_model.created_at, original_created_at)
         self.assertEqual(db_model.full_name, "Updated User")
         self.assertIsNone(db_model.about_me)
         self.assertIsNone(db_model.custom_prompt)
@@ -226,8 +283,6 @@ class UserMapperTest(unittest.TestCase):
 
     def test_apply_remote_data_fills_missing_full_name(self):
         existing = stubs.domain.user(
-            id = self.user_id,
-            created_at = self.created_at,
             full_name = None,
             connect_key = "CONN-KEY-0001",
         )
