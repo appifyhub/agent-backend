@@ -3,6 +3,7 @@ import unittest
 import stubs
 
 from api.mapper.chat_settings_api_mapper import domain_to_api
+from db.model.chat_config import ChatConfigDB
 
 
 class ChatMapperTest(unittest.TestCase):
@@ -10,8 +11,13 @@ class ChatMapperTest(unittest.TestCase):
     def test_domain_to_api_conversion(self):
         chat = stubs.domain.chat_config(
             title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            language_iso_code = "es",
+            language_name = "Spanish",
             is_private = False,
             reply_chance_percent = 75,
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+            media_mode = ChatConfigDB.MediaMode.all,
         )
         membership = stubs.domain.chat_membership(
             chat_id = chat.chat_id,
@@ -44,8 +50,13 @@ class ChatMapperTest(unittest.TestCase):
     def test_non_admin_member_mapping(self):
         chat = stubs.domain.chat_config(
             title = "Test Chat",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            language_iso_code = "es",
+            language_name = "Spanish",
             is_private = False,
             reply_chance_percent = 75,
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+            media_mode = ChatConfigDB.MediaMode.all,
         )
         membership = stubs.domain.chat_membership(
             chat_id = chat.chat_id,

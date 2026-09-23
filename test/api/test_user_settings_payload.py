@@ -25,16 +25,11 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_reasoning = "claude-3-7-sonnet-latest",
             tool_choice_copywriting = "gpt-4o-mini",
             tool_choice_vision = "gpt-4o",
-            tool_choice_hearing = "whisper-1",
             tool_choice_images_gen = "dall-e-3",
-            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_search = "perplexity-search",
-            tool_choice_embedding = "text-embedding-3-large",
             tool_choice_api_fiat_exchange = "rapid-api-fiat",
             tool_choice_api_crypto_exchange = "coinmarketcap-api",
-            tool_choice_api_stock_quote = "quote",
             tool_choice_api_twitter = "rapid-api-twitter",
-            are_policies_accepted = True,
         )
 
         self.assertEqual(payload.full_name, "Test User")
@@ -183,7 +178,6 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_chat = None,
             tool_choice_reasoning = "claude-3-7-sonnet-latest",
             tool_choice_vision = None,
-            tool_choice_hearing = "whisper-1",
         )
 
         self.assertIsNone(payload.open_ai_key)
@@ -249,7 +243,6 @@ class UserSettingsPayloadTest(unittest.TestCase):
             tool_choice_vision = "gpt-4o",
             tool_choice_hearing = None,
             tool_choice_images_gen = "dall-e-3",
-            tool_choice_videos_gen = "prunaai/p-video",
             tool_choice_search = "perplexity-search",
             tool_choice_embedding = None,
             tool_choice_api_fiat_exchange = None,

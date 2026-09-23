@@ -20,17 +20,11 @@ class TransfersControllerTest(unittest.TestCase):
         self.mock_di.credit_transfer_service.transfer_credits.return_value = None
 
     def test_transfer_success(self):
-        sender = stubs.domain.user(
-            id = UUID(int = 1),
-            full_name = "User 1",
-            telegram_username = "sender_handle",
-            telegram_user_id = 1,
-            telegram_chat_id = "1",
-        )
+        sender = stubs.domain.user(id = UUID(int = 1))
         self.mock_di.invoker = sender
         self.mock_di.authorization_service.authorize_for_user.return_value = sender
 
-        payload = stubs.api.credit_transfer_payload(note = None)
+        payload = stubs.api.credit_transfer_payload()
 
         controller = TransfersController(self.mock_di)
         controller.transfer_credits(sender.id.hex, payload)
@@ -38,13 +32,7 @@ class TransfersControllerTest(unittest.TestCase):
         self.mock_di.credit_transfer_service.transfer_credits.assert_called_once()
 
     def test_transfer_delegates_to_service(self):
-        sender = stubs.domain.user(
-            id = UUID(int = 1),
-            full_name = "User 1",
-            telegram_username = "sender_handle",
-            telegram_user_id = 1,
-            telegram_chat_id = "1",
-        )
+        sender = stubs.domain.user(id = UUID(int = 1))
         self.mock_di.invoker = sender
         self.mock_di.authorization_service.authorize_for_user.return_value = sender
 
@@ -55,24 +43,18 @@ class TransfersControllerTest(unittest.TestCase):
 
         self.mock_di.credit_transfer_service.transfer_credits.assert_called_once_with(
             sender_id = sender.id,
-            recipient_handle = "receiver_handle",
-            chat_type = ChatConfigDB.ChatType.telegram,
-            amount = 25.0,
-            note = "Nice!",
+            recipient_handle = payload.platform_handle,
+            chat_type = ChatConfigDB.ChatType(payload.platform),
+            amount = payload.amount,
+            note = payload.note,
         )
 
     def test_transfer_invalid_platform(self):
-        sender = stubs.domain.user(
-            id = UUID(int = 1),
-            full_name = "User 1",
-            telegram_username = "sender_handle",
-            telegram_user_id = 1,
-            telegram_chat_id = "1",
-        )
+        sender = stubs.domain.user(id = UUID(int = 1))
         self.mock_di.invoker = sender
         self.mock_di.authorization_service.authorize_for_user.return_value = sender
 
-        payload = stubs.api.credit_transfer_payload(platform = "unknown_platform", note = None)
+        payload = stubs.api.credit_transfer_payload(platform = "unknown_platform")
 
         controller = TransfersController(self.mock_di)
 
@@ -83,20 +65,14 @@ class TransfersControllerTest(unittest.TestCase):
         self.mock_di.credit_transfer_service.transfer_credits.assert_not_called()
 
     def test_transfer_authorization_failure(self):
-        sender = stubs.domain.user(
-            id = UUID(int = 1),
-            full_name = "User 1",
-            telegram_username = "sender_handle",
-            telegram_user_id = 1,
-            telegram_chat_id = "1",
-        )
+        sender = stubs.domain.user(id = UUID(int = 1))
         self.mock_di.invoker = sender
         self.mock_di.authorization_service.authorize_for_user.return_value = sender
 
         self.mock_di.authorization_service.authorize_for_user.side_effect = AuthorizationError(
             "Unauthorized", NOT_TARGET_USER,
         )
-        payload = stubs.api.credit_transfer_payload(note = None)
+        payload = stubs.api.credit_transfer_payload()
 
         controller = TransfersController(self.mock_di)
 

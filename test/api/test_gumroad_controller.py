@@ -11,15 +11,14 @@ from util.errors import AuthorizationError
 
 class GumroadControllerTest(unittest.TestCase):
 
-    mock_di: DI
     mock_purchase_service: PurchaseService
     controller: GumroadController
 
     def setUp(self):
-        self.mock_di = MagicMock(spec = DI)
+        mock_di = MagicMock(spec = DI)
         self.mock_purchase_service = MagicMock(spec = PurchaseService)
-        self.mock_di.purchase_service = self.mock_purchase_service
-        self.controller = GumroadController(self.mock_di)
+        mock_di.purchase_service = self.mock_purchase_service
+        self.controller = GumroadController(mock_di)
 
     @patch("api.gumroad_controller.config")
     def test_handle_ping_success(self, mock_config):

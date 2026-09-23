@@ -33,17 +33,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_success(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -67,17 +56,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_with_pagination(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -119,17 +97,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_with_date_filters(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -168,17 +135,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_with_sponsored_flags(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -211,17 +167,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_empty_result(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -237,17 +182,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_limit_exceeds_maximum(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -265,17 +199,9 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_authorization_failure(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
         target_user = stubs.domain.user(
             id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -294,17 +220,9 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_records_for_other_user(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
         target_user = stubs.domain.user(
             id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -328,34 +246,28 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_aggregates_success(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
         self.mock_authorization_service.authorize_for_user.return_value = invoker_user
 
-        aggregates = stubs.domain.usage_aggregates()
+        aggregates = stubs.domain.usage_aggregates(
+            total_records = 7,
+            total_cost_credits = 321.5,
+            total_runtime_seconds = 45.25,
+            by_tool = {"tool-alpha": 3},
+            by_purpose = {"purpose-beta": 2},
+            by_provider = {"provider-gamma": 1},
+            all_tools_used = ["tool-alpha"],
+            all_purposes_used = ["purpose-beta"],
+            all_providers_used = ["provider-gamma"],
+        )
         self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
 
         controller = UsageController(self.mock_di)
         result = controller.fetch_usage_aggregates(invoker_user.id.hex)
 
-        self.assertEqual(result.total_records, 10)
-        self.assertEqual(result.total_cost_credits, 100.0)
-        self.assertEqual(result.total_runtime_seconds, 15.0)
-        self.assertIn("gpt-4o", result.by_tool)
-        self.assertIn("chat", result.by_purpose)
-        self.assertIn("open-ai", result.by_provider)
+        self.assertIs(result, aggregates)
         self.mock_authorization_service.authorize_for_user.assert_called_once_with(
             invoker_user, invoker_user.id.hex,
         )
@@ -363,17 +275,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_aggregates_with_date_filters(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -382,24 +283,25 @@ class UsageControllerTest(unittest.TestCase):
         start = datetime(2024, 1, 1, tzinfo = timezone.utc)
         end = datetime(2024, 12, 31, tzinfo = timezone.utc)
         aggregates = stubs.domain.usage_aggregates(
-            total_records = 0,
-            total_cost_credits = 0.0,
-            total_runtime_seconds = 0.0,
-            by_tool = {},
-            by_purpose = {},
-            by_provider = {},
-            all_tools_used = [],
-            all_purposes_used = [],
-            all_providers_used = [],
+            total_records = 3,
+            total_cost_credits = 44.5,
+            total_runtime_seconds = 12.25,
+            by_tool = {"date-tool": 3},
+            by_purpose = {"date-purpose": 2},
+            by_provider = {"date-provider": 1},
+            all_tools_used = ["date-tool"],
+            all_purposes_used = ["date-purpose"],
+            all_providers_used = ["date-provider"],
         )
         self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
 
         controller = UsageController(self.mock_di)
-        controller.fetch_usage_aggregates(
+        result = controller.fetch_usage_aggregates(
             invoker_user.id.hex,
             start_date = start,
             end_date = end,
         )
+        self.assertIs(result, aggregates)
 
         self.mock_usage_record_repo.get_aggregates_by_user.assert_called_once_with(
             invoker_user.id,
@@ -417,41 +319,31 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_aggregates_with_sponsored_flags(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
         self.mock_authorization_service.authorize_for_user.return_value = invoker_user
 
         aggregates = stubs.domain.usage_aggregates(
-            total_records = 0,
-            total_cost_credits = 0.0,
-            total_runtime_seconds = 0.0,
-            by_tool = {},
-            by_purpose = {},
-            by_provider = {},
-            all_tools_used = [],
-            all_purposes_used = [],
-            all_providers_used = [],
+            total_records = 4,
+            total_cost_credits = 55.5,
+            total_runtime_seconds = 22.25,
+            by_tool = {"sponsored-tool": 4},
+            by_purpose = {"sponsored-purpose": 3},
+            by_provider = {"sponsored-provider": 2},
+            all_tools_used = ["sponsored-tool"],
+            all_purposes_used = ["sponsored-purpose"],
+            all_providers_used = ["sponsored-provider"],
         )
         self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
 
         controller = UsageController(self.mock_di)
-        controller.fetch_usage_aggregates(
+        result = controller.fetch_usage_aggregates(
             invoker_user.id.hex,
             exclude_self = True,
             include_sponsored = True,
         )
+        self.assertIs(result, aggregates)
 
         self.mock_usage_record_repo.get_aggregates_by_user.assert_called_once_with(
             invoker_user.id,
@@ -469,17 +361,9 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_aggregates_authorization_failure(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
         target_user = stubs.domain.user(
             id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -498,17 +382,6 @@ class UsageControllerTest(unittest.TestCase):
     def test_fetch_usage_aggregates_empty_result(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
-        )
-        stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
         # noinspection PyPropertyAccess
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)

@@ -46,30 +46,12 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_init_success(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
-        )
-        sponsor_user = stubs.domain.user(
-            id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -82,30 +64,12 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_init_failure_invalid_user(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
-        )
-        sponsor_user = stubs.domain.user(
-            id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -119,38 +83,23 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_fetch_sponsorships_success_with_sponsorships(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        base_sponsorship = stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
         self.mock_di.user_repo.get.return_value = receiver_user
 
         sponsorship = stubs.domain.sponsorship(
-            sponsor_id = base_sponsorship.sponsor_id,
-            receiver_id = base_sponsorship.receiver_id,
+            sponsor_id = sponsor_user.id,
+            receiver_id = receiver_user.id,
         )
         self.mock_di.sponsorship_repo.get_all_by_sponsor.return_value = [sponsorship]
         self.mock_di.user_repo.get.return_value = receiver_user
@@ -181,30 +130,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_fetch_sponsorships_success_no_sponsorships(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -230,25 +164,14 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_fetch_sponsorships_success_with_missing_receiver(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
         )
         base_sponsorship = stubs.domain.sponsorship(
@@ -283,25 +206,14 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_fetch_sponsorships_success_with_null_accepted_at(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
         )
         base_sponsorship = stubs.domain.sponsorship(
@@ -347,25 +259,14 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_fetch_sponsorships_success_with_developer_user(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
         )
         base_sponsorship = stubs.domain.sponsorship(
@@ -378,10 +279,6 @@ class SponsorshipsControllerTest(unittest.TestCase):
 
         developer_user = stubs.domain.user(
             id = invoker_user.id,
-            full_name = invoker_user.full_name,
-            telegram_username = invoker_user.telegram_username,
-            telegram_chat_id = invoker_user.telegram_chat_id,
-            telegram_user_id = invoker_user.telegram_user_id,
             group = UserDB.Group.developer,
         )
         sponsorship = stubs.domain.sponsorship(
@@ -411,30 +308,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_fetch_sponsorships_failure_unauthorized(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -456,30 +338,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_sponsor_user_success(self, mock_sponsor_user):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -518,30 +385,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_sponsor_user_failure_already_sponsored(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -565,30 +417,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_sponsor_user_failure_unauthorized(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -611,30 +448,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_unsponsor_user_success(self, mock_unsponsor_user):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -658,30 +480,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_unsponsor_user_failure_not_found(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -704,30 +511,15 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_unsponsor_user_failure_unauthorized(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
         )
         sponsor_user = stubs.domain.user(
             id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -747,30 +539,12 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_unsponsor_self_success(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
-        )
-        sponsor_user = stubs.domain.user(
-            id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -789,30 +563,12 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_unsponsor_self_failure_no_sponsorships(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
-        )
-        sponsor_user = stubs.domain.user(
-            id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user
@@ -835,30 +591,12 @@ class SponsorshipsControllerTest(unittest.TestCase):
     def test_unsponsor_self_failure_unauthorized(self):
         invoker_user = stubs.domain.user(
             id = UUID(int = 1),
-            full_name = "Invoker User",
-            telegram_username = "invoker_username",
-            telegram_chat_id = "invoker_chat_id",
-            telegram_user_id = 1,
-        )
-        sponsor_user = stubs.domain.user(
-            id = UUID(int = 2),
-            full_name = "Sponsor User",
-            telegram_username = "sponsor_username",
-            telegram_chat_id = "sponsor_chat_id",
-            telegram_user_id = 2,
         )
         receiver_user = stubs.domain.user(
             id = UUID(int = 3),
             full_name = "Receiver User",
             telegram_username = "receiver_username",
-            telegram_chat_id = "receiver_chat_id",
-            telegram_user_id = 3,
-            are_policies_accepted = True,
             is_invited_to_start = False,
-        )
-        stubs.domain.sponsorship(
-            sponsor_id = sponsor_user.id,
-            receiver_id = receiver_user.id,
         )
         # noinspection PyPropertyAccess
         self.mock_di.invoker = invoker_user

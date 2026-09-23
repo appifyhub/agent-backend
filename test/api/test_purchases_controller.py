@@ -31,10 +31,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_success(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -56,10 +52,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_with_pagination(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -91,10 +83,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_with_date_filters(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -125,10 +113,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_with_product_filter(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -156,10 +140,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_empty_result(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -175,10 +155,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_limit_exceeds_maximum(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -196,18 +172,10 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_records_authorization_failure(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         target_user = stubs.domain.user(
             id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -225,25 +193,37 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_aggregates_success(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
         self.mock_authorization_service.authorize_for_user.return_value = invoker_user
 
-        aggregates = stubs.domain.purchase_aggregates()
+        product_stats = stubs.domain.product_aggregate_stats(
+            record_count = 3,
+            total_cost_cents = 12_345,
+            total_net_cost_cents = 11_111,
+        )
+        product_info = stubs.domain.product_info(
+            id = "scenario-product",
+            name = "Scenario Product",
+        )
+        aggregates = stubs.domain.purchase_aggregates(
+            total_purchase_count = 3,
+            total_cost_cents = 12_345,
+            total_net_cost_cents = 11_111,
+            by_product = {"scenario-product": product_stats},
+            all_products_used = [product_info],
+        )
         self.mock_purchase_service.get_aggregates_by_user.return_value = aggregates
 
         controller = PurchasesController(self.mock_di)
         result = controller.fetch_purchase_aggregates(invoker_user.id.hex)
 
-        self.assertEqual(result.total_purchase_count, 10)
-        self.assertEqual(result.total_cost_cents, 10000)
-        self.assertEqual(result.total_net_cost_cents, 9000)
-        self.assertIn("product-123", result.by_product)
+        self.assertEqual(result.total_purchase_count, aggregates.total_purchase_count)
+        self.assertEqual(result.total_cost_cents, aggregates.total_cost_cents)
+        self.assertEqual(result.total_net_cost_cents, aggregates.total_net_cost_cents)
+        self.assertIs(result.by_product["scenario-product"], product_stats)
+        self.assertIs(result.all_products_used[0], product_info)
         self.mock_authorization_service.authorize_for_user.assert_called_once_with(
             invoker_user, invoker_user.id.hex,
         )
@@ -251,10 +231,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_aggregates_with_date_filters(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -288,18 +264,10 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_aggregates_authorization_failure(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         target_user = stubs.domain.user(
             id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -317,10 +285,6 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_fetch_purchase_aggregates_excludes_refunded(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
@@ -348,23 +312,19 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_bind_license_key_success(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
         self.mock_authorization_service.authorize_for_user.return_value = invoker_user
 
-        bound_record = stubs.domain.purchase_record(user_id = invoker_user.id)
+        bound_record = stubs.domain.purchase_record(user_id = invoker_user.id, license_key = "BOUND-LICENSE-123")
         self.mock_purchase_service.bind_license_key.return_value = bound_record
 
         controller = PurchasesController(self.mock_di)
         result = controller.bind_license_key(invoker_user.id.hex, "LICENSE-123")
 
         self.assertEqual(result.user_id, invoker_user.id)
-        self.assertEqual(result.license_key, "LICENSE-KEY-ABC")
+        self.assertEqual(result.license_key, "BOUND-LICENSE-123")
         self.mock_purchase_service.bind_license_key.assert_called_once_with(
             invoker_user.id,
             "LICENSE-123",
@@ -373,18 +333,10 @@ class PurchasesControllerTest(unittest.TestCase):
     def test_bind_license_key_authorization_failure(self):
         invoker_user = stubs.domain.user(
             id = UUID("12345678-1234-5678-1234-567812345678"),
-            full_name = "Invoker User",
-            telegram_username = "invoker",
-            telegram_chat_id = "123456789",
-            telegram_user_id = 123456789,
         )
 
         target_user = stubs.domain.user(
             id = UUID("87654321-4321-8765-4321-876543218765"),
-            full_name = "Target User",
-            telegram_username = "target",
-            telegram_chat_id = "987654321",
-            telegram_user_id = 987654321,
         )
 
         type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)

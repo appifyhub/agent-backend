@@ -73,8 +73,33 @@ class UserMapperTest(unittest.TestCase):
     def test_apply_to_domain_with_overrides(self):
         user = stubs.domain.user()
         payload = stubs.api.user_settings_payload(
+            full_name = None,
+            about_me = None,
+            custom_prompt = None,
             open_ai_key = "sk-new123",
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            replicate_key = None,
+            rapid_api_key = None,
+            coinmarketcap_key = None,
+            twelve_data_api_key = None,
+            x_key = None,
+            x_ai_key = None,
             tool_choice_chat = "gpt-4o-mini",
+            tool_choice_reasoning = None,
+            tool_choice_copywriting = None,
+            tool_choice_vision = None,
+            tool_choice_hearing = None,
+            tool_choice_images_gen = None,
+            tool_choice_videos_gen = None,
+            tool_choice_search = None,
+            tool_choice_embedding = None,
+            tool_choice_api_fiat_exchange = None,
+            tool_choice_api_crypto_exchange = None,
+            tool_choice_api_stock_quote = None,
+            tool_choice_api_twitter = None,
+            are_policies_accepted = None,
         )
 
         user_save = apply_to_domain(payload, user)
@@ -82,16 +107,93 @@ class UserMapperTest(unittest.TestCase):
 
         self.assertEqual(user_save.open_ai_key.get_secret_value() if user_save.open_ai_key else None, payload.open_ai_key)
         self.assertEqual(user_save.tool_choice_chat, payload.tool_choice_chat)
-        # check that the remaining fields use the curated payload values
-        self.assertEqual(
-            user_save.anthropic_key.get_secret_value() if user_save.anthropic_key else None,
-            payload.anthropic_key,
+        # check that fields omitted from the partial update preserve existing user values
+        self.assertEqual(user_save.full_name, user.full_name)
+        self.assertEqual(user_save.about_me, user.about_me)
+        self.assertEqual(user_save.custom_prompt, user.custom_prompt)
+        self.assertEqual(user_save.anthropic_key, user.anthropic_key)
+        self.assertEqual(user_save.google_ai_key, user.google_ai_key)
+        self.assertEqual(user_save.tool_choice_reasoning, user.tool_choice_reasoning)
+        self.assertEqual(user_save.tool_choice_copywriting, user.tool_choice_copywriting)
+        self.assertEqual(user_save.are_policies_accepted, user.are_policies_accepted)
+
+    def test_apply_to_domain_with_one_api_key_override(self):
+        user = stubs.domain.user()
+        payload = stubs.api.user_settings_payload(
+            full_name = None,
+            about_me = None,
+            custom_prompt = None,
+            open_ai_key = "sk-new123",
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            replicate_key = None,
+            rapid_api_key = None,
+            coinmarketcap_key = None,
+            twelve_data_api_key = None,
+            x_key = None,
+            x_ai_key = None,
+            tool_choice_chat = None,
+            tool_choice_reasoning = None,
+            tool_choice_copywriting = None,
+            tool_choice_vision = None,
+            tool_choice_hearing = None,
+            tool_choice_images_gen = None,
+            tool_choice_videos_gen = None,
+            tool_choice_search = None,
+            tool_choice_embedding = None,
+            tool_choice_api_fiat_exchange = None,
+            tool_choice_api_crypto_exchange = None,
+            tool_choice_api_stock_quote = None,
+            tool_choice_api_twitter = None,
+            are_policies_accepted = None,
         )
-        self.assertEqual(
-            user_save.google_ai_key.get_secret_value() if user_save.google_ai_key else None,
-            payload.google_ai_key,
+
+        user_save = apply_to_domain(payload, user)
+
+        self.assertEqual(user_save.open_ai_key.get_secret_value() if user_save.open_ai_key else None, payload.open_ai_key)
+        self.assertEqual(user_save.anthropic_key, user.anthropic_key)
+        self.assertEqual(user_save.tool_choice_chat, user.tool_choice_chat)
+        self.assertEqual(user_save.full_name, user.full_name)
+
+    def test_apply_to_domain_with_one_tool_choice_override(self):
+        user = stubs.domain.user()
+        payload = stubs.api.user_settings_payload(
+            full_name = None,
+            about_me = None,
+            custom_prompt = None,
+            open_ai_key = None,
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            replicate_key = None,
+            rapid_api_key = None,
+            coinmarketcap_key = None,
+            twelve_data_api_key = None,
+            x_key = None,
+            x_ai_key = None,
+            tool_choice_chat = "gpt-4o-mini",
+            tool_choice_reasoning = None,
+            tool_choice_copywriting = None,
+            tool_choice_vision = None,
+            tool_choice_hearing = None,
+            tool_choice_images_gen = None,
+            tool_choice_videos_gen = None,
+            tool_choice_search = None,
+            tool_choice_embedding = None,
+            tool_choice_api_fiat_exchange = None,
+            tool_choice_api_crypto_exchange = None,
+            tool_choice_api_stock_quote = None,
+            tool_choice_api_twitter = None,
+            are_policies_accepted = None,
         )
-        self.assertEqual(user_save.tool_choice_reasoning, payload.tool_choice_reasoning)
+
+        user_save = apply_to_domain(payload, user)
+
+        self.assertEqual(user_save.tool_choice_chat, payload.tool_choice_chat)
+        self.assertEqual(user_save.open_ai_key, user.open_ai_key)
+        self.assertEqual(user_save.tool_choice_reasoning, user.tool_choice_reasoning)
+        self.assertEqual(user_save.full_name, user.full_name)
 
     def test_apply_to_domain_with_empty_strings(self):
         user = stubs.domain.user()

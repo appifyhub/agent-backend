@@ -381,7 +381,6 @@ class AuthorizationServiceTest(unittest.TestCase):
         existing_membership = stubs.domain.chat_membership(
             user_id = invoker_user.id,
             chat_id = chat_config.chat_id,
-            is_admin = False,
             use_about_me = False,
             use_custom_prompt = False,
         )

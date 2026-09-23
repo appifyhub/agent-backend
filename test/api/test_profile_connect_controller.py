@@ -39,7 +39,8 @@ class ProfileConnectControllerTest(unittest.TestCase):
     def test_connect_profiles_success(self) -> None:
         user = stubs.domain.user(id = UUID("12345678-1234-5678-1234-567812345678"))
         self.mock_di.authorization_service.authorize_for_user.return_value = user
-        self.mock_di.settings_controller.create_settings_link.return_value = stubs.api.settings_link_response()
+        expected_response = stubs.api.settings_link_response(settings_link = "https://example.com/profile-connected")
+        self.mock_di.settings_controller.create_settings_link.return_value = expected_response
 
         response = self.controller.connect_profiles(
             user.id.hex,
@@ -47,8 +48,7 @@ class ProfileConnectControllerTest(unittest.TestCase):
             ChatConfigDB.ChatType.telegram,
         )
 
-        self.assertIsInstance(response, type(stubs.api.settings_link_response()))
-        self.assertEqual(response.settings_link, "https://example.com/settings")
+        self.assertIs(response, expected_response)
         self.mock_profile_connect_service.connect_profiles.assert_called_once()
 
     def test_connect_profiles_failure_result(self) -> None:

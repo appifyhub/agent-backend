@@ -14,11 +14,7 @@ class ChatSettingsPayloadTest(unittest.TestCase):
                 reply_chance_percent = 75,
                 release_notifications = "all",
             ),
-            user_chat_config = stubs.api.user_chat_config_payload(
-                max_output_tokens = 2000,
-                max_chat_history_depth = 30,
-                max_iterations = 20,
-            ),
+            user_chat_config = stubs.api.user_chat_config_payload(),
         )
 
         self.assertIsNotNone(payload.chat_config)
@@ -56,10 +52,7 @@ class ChatSettingsPayloadTest(unittest.TestCase):
 
     def test_empty_payload_validates_at_pydantic_level(self):
         # both fields are optional at the pydantic level — empty body parses fine
-        payload = stubs.api.chat_settings_payload(
-            chat_config = None,
-            user_chat_config = None,
-        )
+        payload = stubs.api.chat_settings_payload(chat_config = None, user_chat_config = None)
         self.assertIsNone(payload.chat_config)
         self.assertIsNone(payload.user_chat_config)
         # the controller is responsible for rejecting the empty case at runtime
