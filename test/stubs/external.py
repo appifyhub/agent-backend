@@ -1,6 +1,11 @@
-from typing import Any
+from io import BytesIO
+from typing import Any, BinaryIO
 
+from botocore.exceptions import ClientError
+from fakes.uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
+from requests import Response
+from urllib3.response import HTTPResponse
 
 from features.chat.telegram.model.attachment.audio import Audio as TelegramAudio
 from features.chat.telegram.model.attachment.document import Document as TelegramDocument
@@ -39,6 +44,27 @@ from features.web_browsing.twitter_status_fetcher import (
     TweetMediaVariant,
     TweetUserData,
 )
+
+
+def http_response(content: bytes = b"content", status_code: int = 200, url: str = "https://example.com") -> Response:
+    response = Response()
+    response.status_code = status_code
+    response.url = url
+    response.raw = HTTPResponse(body = BytesIO(content), preload_content = False)
+    return response
+
+
+def uploadcare_file(**overrides: Any) -> FakeUploadcareFile:
+    defaults = {"cdn_url": "https://cdn-id.ucarecd.net/uuid/", "filename": "attachment-id.txt"}
+    return FakeUploadcareFile(**(defaults | overrides))
+
+
+def s3_client_error(code: str = "AccessDenied", status: int = 403, operation: str = "HeadBucket") -> ClientError:
+    return ClientError({"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}, operation)
+
+
+def s3_object_response(body: BinaryIO) -> dict[str, object]:
+    return {"Body": body}
 
 
 def whatsapp_profile(**overrides: Any) -> WhatsAppProfile:

@@ -1,17 +1,18 @@
-import io
 from datetime import datetime, timedelta
+from io import BufferedReader
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, BinaryIO, cast
 
-import requests
 from pyuploadcare import Uploadcare
+from requests import Response
 
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage, PublicAttachment
 from util.config import config
 from util.error_codes import ATTACHMENT_STORAGE_FAILED
 from util.errors import ExternalServiceError
+from util.http_client import HTTPClient
 
 UPLOADCARE_PUBLIC_URL_TTL_SECONDS = 24 * 60 * 60
 
@@ -29,12 +30,14 @@ class _NamedUploadStream:
         return getattr(self.__stream, name)
 
 
-class _ResponseStream(io.BufferedReader):
+class _ResponseStream(BufferedReader):
 
-    __response: requests.Response
+    __response: Response
 
-    def __init__(self, response: requests.Response):
+    def __init__(self, response: Response):
         self.__response = response
+        # keep buffered bytes readable after urllib3 reaches the end of the response
+        response.raw.auto_close = False
         super().__init__(response.raw)
 
     def close(self) -> None:
@@ -49,15 +52,13 @@ class UploadcareAttachmentStorage(AttachmentStorage):
     SERVES_PUBLIC_URLS = True
 
     __client: Uploadcare
+    __http_client: HTTPClient
     __cdn_base: str
 
-    def __init__(self):
+    def __init__(self, client: Uploadcare, http_client: HTTPClient):
         self.__cdn_base = f"https://{config.uploadcare_cdn_id}.ucarecd.net/"
-        self.__client = Uploadcare(
-            public_key = config.uploadcare_public_key,
-            secret_key = config.uploadcare_private_key.get_secret_value(),
-            cdn_base = self.__cdn_base,
-        )
+        self.__client = client
+        self.__http_client = http_client
 
     @classmethod
     def can_be_used(cls) -> bool:
@@ -85,7 +86,7 @@ class UploadcareAttachmentStorage(AttachmentStorage):
             with file_path.open("rb") as source:
                 named_source = cast(BinaryIO, _NamedUploadStream(source, filename))
                 stored_file = self.__client.upload(named_source, store = True)
-            if not stored_file.cdn_url or not stored_file.filename:
+            if stored_file is None or not stored_file.cdn_url or not stored_file.filename:
                 raise ExternalServiceError("Attachment storage upload returned no public URL", ATTACHMENT_STORAGE_FAILED)
             return f"{stored_file.cdn_url}{stored_file.filename}"
         except ExternalServiceError:
@@ -95,7 +96,7 @@ class UploadcareAttachmentStorage(AttachmentStorage):
 
     def open(self, metadata: ChatAttachment) -> BinaryIO:
         try:
-            response = requests.get(metadata.last_url, timeout = config.web_timeout_s * 4, stream = True)
+            response = self.__http_client.get(metadata.last_url, timeout = config.web_timeout_s * 4, stream = True)
             if response.status_code != 200:
                 response.close()
                 raise ExternalServiceError("Attachment storage returned no body", ATTACHMENT_STORAGE_FAILED)

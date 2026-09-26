@@ -10,6 +10,10 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import patch
 
+from fakes.http_client import FakeHTTPClient
+from fakes.s3_client import FakeS3Client
+from fakes.uploadcare_client import FakeUploadcareClient
+from pyuploadcare import Uploadcare
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -29,8 +33,10 @@ from di.di import DI
 from di.interception import DependencyRequest, DIInterceptor
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage
 from features.chat.attachment.storage.local_attachment_storage import LOCAL_ATTACHMENT_STORAGE_ROOT, LocalAttachmentStorage
+from features.chat.attachment.storage.s3_client import S3Client
 from util.error_codes import DI_DEPENDENCY_NOT_MET
 from util.errors import InternalError
+from util.http_client import HTTPClient
 
 _MODELS = (
     UserDB, ChatConfigDB, ChatMembershipDB, ChatMessageDB, ChatMessageBurstDB,
@@ -116,6 +122,9 @@ def di_for_tests(
         storage = LocalAttachmentStorage(root = root / "attachments")
         storage.ensure_ready()
         defaults = FakeInterceptor()
+        defaults.register(S3Client, FakeS3Client())
+        defaults.register(Uploadcare, FakeUploadcareClient())
+        defaults.register(HTTPClient, FakeHTTPClient())
         defaults.register(AttachmentStorage, storage)
         defaults.register_factory(
             LocalAttachmentStorage,

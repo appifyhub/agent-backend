@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from google.genai import Client as GoogleSDKClient
     from langchain_core.documents import Document
     from openai import OpenAI
+    from pyuploadcare import Uploadcare
     from replicate.client import Client as ReplicateSDKClient
     from xai_sdk import Client as XAISDKClient
 
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
     from features.chat.attachment.storage.attachment_storage import AttachmentStorage
     from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
     from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
+    from features.chat.attachment.storage.s3_client import S3Client
     from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
@@ -112,6 +114,7 @@ if TYPE_CHECKING:
     from features.web_browsing.twitter_status_fetcher import TwitterStatusFetcher
     from features.web_browsing.url_shortener import UrlShortener
     from features.web_browsing.web_fetcher import WebFetcher
+    from util.http_client import HTTPClient
     from util.translations_cache import TranslationsCache
 
 
@@ -535,12 +538,41 @@ class DI:
     @dependency()
     def s3_attachment_storage(self) -> "S3AttachmentStorage":
         from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
-        return S3AttachmentStorage()
+        return S3AttachmentStorage(client = self.s3_client())
 
     @dependency()
     def uploadcare_attachment_storage(self) -> "UploadcareAttachmentStorage":
         from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
-        return UploadcareAttachmentStorage()
+        return UploadcareAttachmentStorage(client = self.uploadcare_client(), http_client = self.http_client())
+
+    @dependency()
+    def s3_client(self) -> "S3Client":
+        from boto3 import client
+        from botocore.config import Config as BotoConfig
+
+        from features.chat.attachment.storage.s3_client import S3Client
+        return cast(S3Client, client(
+            "s3",
+            endpoint_url = config.s3_base_url,
+            region_name = config.s3_region,
+            aws_access_key_id = config.s3_access_key.get_secret_value(),
+            aws_secret_access_key = config.s3_secret_key.get_secret_value(),
+            config = BotoConfig(s3 = {"addressing_style": "path"}),
+        ))
+
+    @dependency()
+    def uploadcare_client(self) -> "Uploadcare":
+        from pyuploadcare import Uploadcare
+        return Uploadcare(
+            public_key = config.uploadcare_public_key,
+            secret_key = config.uploadcare_private_key.get_secret_value(),
+            cdn_base = f"https://{config.uploadcare_cdn_id}.ucarecd.net/",
+        )
+
+    @dependency()
+    def http_client(self) -> "HTTPClient":
+        from requests import api
+        return api
 
     @property
     @dependency(cache = "_sponsorship_service")

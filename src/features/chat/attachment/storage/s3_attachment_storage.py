@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import BinaryIO, cast
 
-import boto3
-from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
 from features.chat.attachment.chat_attachment import ChatAttachment
@@ -12,8 +10,6 @@ from util.config import config
 from util.error_codes import ATTACHMENT_STORAGE_FAILED, INVALID_ATTACHMENT_OPERATION
 from util.errors import ExternalServiceError, InternalError
 
-S3_ADDRESSING_STYLE = "path"
-
 
 class S3AttachmentStorage(AttachmentStorage):
 
@@ -22,16 +18,9 @@ class S3AttachmentStorage(AttachmentStorage):
     __bucket: str
     __client: S3Client
 
-    def __init__(self):
+    def __init__(self, client: S3Client):
         self.__bucket = config.s3_bucket
-        self.__client = cast(S3Client, boto3.client(
-            "s3",
-            endpoint_url = config.s3_base_url,
-            region_name = config.s3_region,
-            aws_access_key_id = config.s3_access_key.get_secret_value(),
-            aws_secret_access_key = config.s3_secret_key.get_secret_value(),
-            config = BotoConfig(s3 = {"addressing_style": S3_ADDRESSING_STYLE}),
-        ))
+        self.__client = client
 
     @classmethod
     def can_be_used(cls) -> bool:
