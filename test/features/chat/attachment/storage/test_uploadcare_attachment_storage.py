@@ -1,15 +1,15 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 from unittest import TestCase
 
 from fakes.http_client import FakeHTTPClient
 from fakes.uploadcare_client import FakeUploadcareClient
 from pydantic import SecretStr
-from pyuploadcare import Uploadcare
 from requests import ConnectionError
 from stubs import domain, external
-from util.di import FakeInterceptor, di_for_tests
+from util.di import di_for_tests
 
 from features.chat.attachment.storage.uploadcare_attachment_storage import (
     UPLOADCARE_PUBLIC_URL_TTL_SECONDS,
@@ -18,7 +18,6 @@ from features.chat.attachment.storage.uploadcare_attachment_storage import (
 from util.config import config
 from util.error_codes import ATTACHMENT_STORAGE_FAILED
 from util.errors import ExternalServiceError
-from util.http_client import HTTPClient
 
 
 class UploadcareAttachmentStorageTest(TestCase):
@@ -32,12 +31,9 @@ class UploadcareAttachmentStorageTest(TestCase):
         }.items():
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
-        self.client = FakeUploadcareClient()
-        self.http = FakeHTTPClient()
-        interceptor = FakeInterceptor()
-        interceptor.register(Uploadcare, self.client)
-        interceptor.register(HTTPClient, self.http)
-        self.di = self.enterContext(di_for_tests(interceptor = interceptor))
+        self.di = self.enterContext(di_for_tests())
+        self.client = cast(FakeUploadcareClient, self.di.uploadcare_client())
+        self.http = cast(FakeHTTPClient, self.di.http_client())
         self.storage = self.di.uploadcare_attachment_storage()
 
     def test_declares_public_delivery_capability(self):

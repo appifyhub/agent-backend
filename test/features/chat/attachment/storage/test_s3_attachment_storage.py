@@ -1,22 +1,22 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 from unittest import TestCase
 
 from fakes.s3_client import FakeS3Client
 from pydantic import SecretStr
 from stubs import domain, external
-from util.di import FakeInterceptor, di_for_tests
+from util.di import di_for_tests
 
 from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
-from features.chat.attachment.storage.s3_client import S3Client
 from util.config import config
 from util.errors import ExternalServiceError
 
 
 class S3AttachmentStorageTest(TestCase):
 
-    def test_declares_public_delivery_capability(self):
-        self.assertFalse(S3AttachmentStorage.SERVES_PUBLIC_URLS)
+    storage: S3AttachmentStorage
+    client: FakeS3Client
 
     def setUp(self):
         for name, value in {
@@ -28,6 +28,13 @@ class S3AttachmentStorageTest(TestCase):
         }.items():
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
+        di = self.enterContext(di_for_tests())
+        self.client = cast(FakeS3Client, di.s3_client())
+        self.client.buckets.add(config.s3_bucket)
+        self.storage = di.s3_attachment_storage()
+
+    def test_declares_public_delivery_capability(self):
+        self.assertFalse(S3AttachmentStorage.SERVES_PUBLIC_URLS)
 
     def test_can_be_used_requires_complete_config(self):
         self.assertTrue(S3AttachmentStorage.can_be_used())
@@ -41,32 +48,26 @@ class S3AttachmentStorageTest(TestCase):
                     setattr(config, name, previous)
 
     def test_owns_uri_recognizes_own_bucket_locator(self):
-        storage = self.__storage(FakeS3Client())
         metadata = domain.chat_attachment()
 
-        self.assertTrue(storage.owns_uri(f"s3://the-agent/{metadata.uri}"))
-        self.assertFalse(storage.owns_uri("s3://other-bucket/chats/x"))
-        self.assertFalse(storage.owns_uri("file:///tmp/chats/x"))
-        self.assertFalse(storage.owns_uri(None))
-        self.assertFalse(storage.owns_uri(""))
+        self.assertTrue(self.storage.owns_uri(f"s3://the-agent/{metadata.uri}"))
+        self.assertFalse(self.storage.owns_uri("s3://other-bucket/chats/x"))
+        self.assertFalse(self.storage.owns_uri("file:///tmp/chats/x"))
+        self.assertFalse(self.storage.owns_uri(None))
+        self.assertFalse(self.storage.owns_uri(""))
 
     def test_ensure_ready_accepts_existing_bucket(self):
-        client = FakeS3Client()
-        storage = self.__storage(client)
+        self.storage.ensure_ready()
 
-        storage.ensure_ready()
-
-        self.assertEqual(client.calls, [("head_bucket", {"Bucket": "the-agent"})])
+        self.assertEqual(self.client.calls, [("head_bucket", {"Bucket": "the-agent"})])
 
     def test_ensure_ready_creates_missing_bucket(self):
-        client = FakeS3Client()
-        storage = self.__storage(client)
-        client.buckets.clear()
+        self.client.buckets.clear()
 
-        storage.ensure_ready()
+        self.storage.ensure_ready()
 
         self.assertEqual(
-            client.calls,
+            self.client.calls,
             [
                 ("head_bucket", {"Bucket": "the-agent"}),
                 (
@@ -77,18 +78,16 @@ class S3AttachmentStorageTest(TestCase):
         )
 
     def test_put_open_and_delete_use_configured_bucket(self):
-        client = FakeS3Client()
-        storage = self.__storage(client)
         metadata = domain.chat_attachment(mime_type = "text/plain")
 
-        storage.put(metadata, b"stored content")
-        with storage.open(metadata) as stream:
+        self.storage.put(metadata, b"stored content")
+        with self.storage.open(metadata) as stream:
             self.assertEqual(stream.read(), b"stored content")
-        storage.delete(metadata)
+        self.storage.delete(metadata)
 
-        self.assertNotIn(("the-agent", metadata.uri), client.objects)
+        self.assertNotIn(("the-agent", metadata.uri), self.client.objects)
         self.assertEqual(
-            client.calls,
+            self.client.calls,
             [
                 (
                     "put_object",
@@ -105,14 +104,12 @@ class S3AttachmentStorageTest(TestCase):
         )
 
     def test_put_omits_content_type_when_canonical_mime_type_is_missing(self):
-        client = FakeS3Client()
-        storage = self.__storage(client)
         metadata = domain.chat_attachment(mime_type = None, extension = "png")
 
-        storage.put(metadata, b"stored content")
+        self.storage.put(metadata, b"stored content")
 
         self.assertEqual(
-            client.calls,
+            self.client.calls,
             [
                 (
                     "put_object",
@@ -126,19 +123,17 @@ class S3AttachmentStorageTest(TestCase):
         )
 
     def test_put_file_uploads_path_with_content_type(self):
-        client = FakeS3Client()
-        storage = self.__storage(client)
         metadata = domain.chat_attachment(mime_type = "video/mp4", extension = "mp4")
 
         with TemporaryDirectory() as temp_dir:
             source = Path(temp_dir).joinpath("source.mp4")
             source.write_bytes(b"video")
 
-            locator = storage.put_file(metadata, source)
+            locator = self.storage.put_file(metadata, source)
 
         self.assertEqual(locator, f"s3://the-agent/{metadata.uri}")
         self.assertEqual(
-            client.calls,
+            self.client.calls,
             [
                 (
                     "upload_file",
@@ -153,12 +148,10 @@ class S3AttachmentStorageTest(TestCase):
         )
 
     def test_open_rejects_missing_body(self):
-        client = FakeS3Client()
-        client.omit_body = True
-        storage = self.__storage(client)
+        self.client.omit_body = True
 
         with self.assertRaisesRegex(ExternalServiceError, "returned no body"):
-            storage.open(domain.chat_attachment())
+            self.storage.open(domain.chat_attachment())
 
     def test_storage_failures_preserve_cause(self):
         for operation, message in (
@@ -169,28 +162,23 @@ class S3AttachmentStorageTest(TestCase):
             ("delete", "delete"),
         ):
             with self.subTest(operation = operation):
-                client = FakeS3Client()
-                storage = self.__storage(client)
                 failure = external.s3_client_error()
-                setattr(client, f"{operation}_error", failure)
-                if operation == "create_bucket":
-                    client.buckets.clear()
-                metadata = domain.chat_attachment()
-                with self.assertRaises(ExternalServiceError) as raised:
-                    if operation in ("head_bucket", "create_bucket"):
-                        storage.ensure_ready()
-                    elif operation == "upload":
-                        storage.put(metadata, b"content")
-                    elif operation == "read":
-                        storage.open(metadata)
-                    else:
-                        storage.delete(metadata)
-                self.assertIn(message, str(raised.exception))
-                self.assertIs(raised.exception.__cause__, failure)
-
-    def __storage(self, client: FakeS3Client) -> S3AttachmentStorage:
-        client.buckets.add(config.s3_bucket)
-        interceptor = FakeInterceptor()
-        interceptor.register(S3Client, client)
-        di = self.enterContext(di_for_tests(interceptor = interceptor))
-        return di.s3_attachment_storage()
+                setattr(self.client, f"{operation}_error", failure)
+                try:
+                    if operation == "create_bucket":
+                        self.client.buckets.clear()
+                    metadata = domain.chat_attachment()
+                    with self.assertRaises(ExternalServiceError) as raised:
+                        if operation in ("head_bucket", "create_bucket"):
+                            self.storage.ensure_ready()
+                        elif operation == "upload":
+                            self.storage.put(metadata, b"content")
+                        elif operation == "read":
+                            self.storage.open(metadata)
+                        else:
+                            self.storage.delete(metadata)
+                    self.assertIn(message, str(raised.exception))
+                    self.assertIs(raised.exception.__cause__, failure)
+                finally:
+                    setattr(self.client, f"{operation}_error", None)
+                    self.client.buckets.add(config.s3_bucket)

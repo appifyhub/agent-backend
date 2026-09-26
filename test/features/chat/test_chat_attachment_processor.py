@@ -8,11 +8,10 @@ import requests_mock
 import stubs
 
 from db.model.chat_config import ChatConfigDB
+from di.di import DI
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.chat_attachment_processor import CACHE_PREFIX, CACHE_TTL, SEARCH_THRESHOLD_TOKENS, ChatAttachmentProcessor
 from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
-from features.documents.docx_loader import DocxLoader
-from features.documents.plain_text_loader import PlainTextLoader
 from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.tools_cache.tools_cache import ToolsCache
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
@@ -51,8 +50,8 @@ class ChatAttachmentProcessorTest(unittest.TestCase):
 
         self.mock_di.telegram_bot_sdk = TelegramBotSDK(self.mock_di)
         self.mock_di.platform_bot_sdk = MagicMock(return_value = PlatformBotSDK(self.mock_di))
-        self.mock_di.plain_text_loader.side_effect = lambda job_id, document_url: PlainTextLoader(job_id, document_url)
-        self.mock_di.docx_loader.side_effect = lambda job_id, document_url: DocxLoader(job_id, document_url)
+        self.mock_di.plain_text_loader.side_effect = DI().plain_text_loader
+        self.mock_di.docx_loader.side_effect = DI().docx_loader
 
         # storage reads return attachment content directly
         self.mock_di.attachment_storage.open.side_effect = lambda att: BytesIO(b"image data")

@@ -1,7 +1,9 @@
 from io import BytesIO
+from json import dumps
 from typing import Any, BinaryIO
 
 from botocore.exceptions import ClientError
+from docx import Document as DocxDocument
 from fakes.uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
 from requests import Response
@@ -46,11 +48,31 @@ from features.web_browsing.twitter_status_fetcher import (
 )
 
 
-def http_response(content: bytes = b"content", status_code: int = 200, url: str = "https://example.com") -> Response:
+def docx_document_bytes(text: str = "A test paragraph.") -> bytes:
+    document = DocxDocument()
+    document.add_paragraph(text)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def http_response(
+    content: bytes = b"content",
+    status_code: int = 200,
+    url: str = "https://example.com",
+    encoding: str | None = "utf-8",
+) -> Response:
     response = Response()
     response.status_code = status_code
     response.url = url
+    response.encoding = encoding
     response.raw = HTTPResponse(body = BytesIO(content), preload_content = False)
+    return response
+
+
+def http_json_response(payload: Any, status_code: int = 200, url: str = "https://example.com") -> Response:
+    response = http_response(content = dumps(payload).encode("utf-8"), status_code = status_code, url = url)
+    response.headers["Content-Type"] = "application/json"
     return response
 
 

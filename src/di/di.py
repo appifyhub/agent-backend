@@ -1221,17 +1221,15 @@ class DI:
         from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
         return ComputerVisionAnalyzer(job_id, image_mime_types, configured_tool, self, image_urls, image_b64s, additional_context)
 
-    # noinspection PyMethodMayBeStatic
     @dependency()
     def plain_text_loader(self, job_id: str, document_url: str) -> "PlainTextLoader":
         from features.documents.plain_text_loader import PlainTextLoader
-        return PlainTextLoader(job_id, document_url)
+        return PlainTextLoader(job_id, document_url, http_client = self.http_client())
 
-    # noinspection PyMethodMayBeStatic
     @dependency()
     def docx_loader(self, job_id: str, document_url: str) -> "DocxLoader":
         from features.documents.docx_loader import DocxLoader
-        return DocxLoader(job_id, document_url)
+        return DocxLoader(job_id, document_url, http_client = self.http_client())
 
     # noinspection PyMethodMayBeStatic
     @dependency()
