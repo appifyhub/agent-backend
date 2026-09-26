@@ -1,43 +1,36 @@
-import io
-import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import TestCase
 
-import stubs
+from fakes.attachment_storage import RecordingAttachmentStorage
+from stubs import domain
 
-from features.chat.attachment.chat_attachment import ChatAttachment
-from features.chat.attachment.storage.attachment_storage import AttachmentStorage
-
-
-class _StubAttachmentStorage(AttachmentStorage):
-
-    def __init__(self, content: bytes):
-        self.stream = io.BytesIO(content)
-
-    def open(self, _: ChatAttachment) -> io.BytesIO:
-        return self.stream
+from util.error_codes import INVALID_ATTACHMENT_OPERATION
+from util.errors import InternalError
 
 
-class AttachmentStorageTest(unittest.TestCase):
+class AttachmentStorageTest(TestCase):
+
+    def setUp(self):
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.storage = RecordingAttachmentStorage(root)
+        self.attachment = domain.chat_attachment(extension = "mp4")
+        self.storage.put(self.attachment, b"video-bytes")
 
     def test_temporary_path_copies_content_closes_stream_and_removes_file(self):
-        storage = _StubAttachmentStorage(b"video-bytes")
-        attachment = stubs.domain.chat_attachment(extension = "mp4")
-
-        with storage.temporary_path(attachment) as temporary_path:
-            self.assertTrue(storage.stream.closed)
+        with self.storage.temporary_path(self.attachment) as temporary_path:
+            self.assertTrue(self.storage.opened_streams[0].closed)
             self.assertTrue(temporary_path.endswith(".mp4"))
             self.assertEqual(Path(temporary_path).read_bytes(), b"video-bytes")
 
         self.assertFalse(Path(temporary_path).exists())
 
     def test_temporary_path_removes_file_after_consumer_failure(self):
-        storage = _StubAttachmentStorage(b"video-bytes")
-        attachment = stubs.domain.chat_attachment(extension = "mp4")
         temporary_path: str | None = None
 
-        with self.assertRaisesRegex(RuntimeError, "consumer failed"):
-            with storage.temporary_path(attachment) as temporary_path:
-                raise RuntimeError("consumer failed")
+        with self.assertRaisesRegex(InternalError, "consumer failed"):
+            with self.storage.temporary_path(self.attachment) as temporary_path:
+                raise InternalError("consumer failed", INVALID_ATTACHMENT_OPERATION)
 
         self.assertIsNotNone(temporary_path)
         self.assertFalse(Path(temporary_path).exists())
