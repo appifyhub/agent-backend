@@ -4,8 +4,8 @@ from tempfile import TemporaryDirectory
 from typing import cast
 from unittest import TestCase
 
-from fakes.http_client import FakeHTTPClient
-from fakes.uploadcare_client import FakeUploadcareClient
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_uploadcare_client import FakeUploadcareClient
 from pydantic import SecretStr
 from requests import ConnectionError
 from stubs import domain, external

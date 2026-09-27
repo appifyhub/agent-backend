@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 from typing import cast
 from unittest import TestCase
 
-from fakes.s3_client import FakeS3Client
+from fakes.fake_s3_client import FakeS3Client
 from pydantic import SecretStr
 from stubs import domain, external
 from util.di_utils import di_for_tests

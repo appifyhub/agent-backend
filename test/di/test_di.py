@@ -6,7 +6,7 @@ from unittest import TestCase
 from uuid import UUID
 
 from botocore.client import BaseClient
-from fakes.attachment_storage import RecordingAttachmentStorage
+from fakes.fake_attachment_storage import RecordingAttachmentStorage
 from google.genai import Client as GoogleSDKClient
 from pydantic import SecretStr
 from replicate.client import Client as ReplicateSDKClient
@@ -35,6 +35,8 @@ class FalseValuedStorage(RecordingAttachmentStorage):
 
 
 class DITest(TestCase):
+
+    root: Path
 
     def setUp(self):
         self.root = Path(self.enterContext(TemporaryDirectory()))

@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from fakes.attachment_storage import RecordingAttachmentStorage
+from fakes.fake_attachment_storage import RecordingAttachmentStorage
 from stubs import domain
 
 from util.error_codes import INVALID_ATTACHMENT_OPERATION

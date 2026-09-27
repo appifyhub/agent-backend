@@ -10,9 +10,9 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import patch
 
-from fakes.http_client import FakeHTTPClient
-from fakes.s3_client import FakeS3Client
-from fakes.uploadcare_client import FakeUploadcareClient
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_s3_client import FakeS3Client
+from fakes.fake_uploadcare_client import FakeUploadcareClient
 from pyuploadcare import Uploadcare
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session

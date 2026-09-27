@@ -3,7 +3,7 @@ from json import dumps
 from typing import cast
 from unittest import TestCase
 
-from fakes.http_client import FakeHTTPClient
+from fakes.fake_http_client import FakeHTTPClient
 from requests.exceptions import Timeout
 from stubs import domain, external
 from util.di_utils import di_for_tests

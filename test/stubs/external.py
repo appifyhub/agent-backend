@@ -4,7 +4,7 @@ from typing import Any, BinaryIO
 
 from botocore.exceptions import ClientError
 from docx import Document as DocxDocument
-from fakes.uploadcare_client import FakeUploadcareFile
+from fakes.fake_uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
 from langchain_core.messages import AIMessage, HumanMessage
 from replicate.client import Client as ReplicateClient
