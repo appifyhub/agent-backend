@@ -6,6 +6,10 @@ from botocore.exceptions import ClientError
 from docx import Document as DocxDocument
 from fakes.uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
+from langchain_core.messages import AIMessage, HumanMessage
+from replicate.client import Client as ReplicateClient
+from replicate.helpers import FileOutput
+from replicate.prediction import Prediction
 from requests import Response
 from urllib3.response import HTTPResponse
 
@@ -46,6 +50,33 @@ from features.web_browsing.twitter_status_fetcher import (
     TweetMediaVariant,
     TweetUserData,
 )
+
+
+def ai_message(**overrides: Any) -> AIMessage:
+    defaults = {"content": "Hello world"}
+    return AIMessage(**(defaults | overrides))
+
+
+def human_message(**overrides: Any) -> HumanMessage:
+    defaults = {"content": "Hello world"}
+    return HumanMessage(**(defaults | overrides))
+
+
+def replicate_prediction(**overrides: Any) -> Prediction:
+    defaults = {
+        "id": "prediction-123",
+        "model": "test/model",
+        "version": "test-version",
+        "status": "succeeded",
+        "output": None,
+        "error": None,
+        "logs": None,
+    }
+    return Prediction(**(defaults | overrides))
+
+
+def replicate_file_output(url: str = "https://example.com/image.png") -> FileOutput:
+    return FileOutput(url = url, client = ReplicateClient(api_token = "test-token"))
 
 
 def docx_document_bytes(text: str = "A test paragraph.") -> bytes:

@@ -2,33 +2,31 @@ import unittest
 from uuid import UUID
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di import di_for_tests
 
+from di.di import DI
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
 
 
 class ChatMembershipRepoTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: ChatMembershipRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.chat_membership_repo()
-        self.chat = self.sql.chat_config_repo().save(
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.chat_membership_repo
+        self.chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat1",
             ),
         )
-        self.user = self.sql.user_repo().save(
+        self.user = self.di.user_repo.save(
             stubs.domain.user(
                 telegram_user_id = 123456,
             ),
         )
-
-    def tearDown(self):
-        self.sql.end_session()
 
     def test_get_returns_none_when_missing(self):
         result = self.repo.get(self.user.id, self.chat.chat_id)
@@ -110,7 +108,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertEqual(fetched.max_output_tokens, 8000)
 
     def test_get_all_for_user_returns_memberships(self):
-        second_chat = self.sql.chat_config_repo().save(
+        second_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = None,
                 external_id = "chat2",
@@ -142,7 +140,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertEqual(len(results), 0)
 
     def test_get_all_for_chat_returns_memberships(self):
-        second_user = self.sql.user_repo().save(
+        second_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = UUID("33333333-3333-4333-8333-c33333333333"),
                 telegram_user_id = 654321,

@@ -2,23 +2,21 @@ import unittest
 from uuid import uuid4
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
+from di.di import DI
 from features.chat.config.chat_config_repo import ChatConfigRepository
 
 
 class ChatConfigRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: ChatConfigRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.chat_config_repo()
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.chat_config_repo
 
     def test_save_creates_chat_config(self):
         chat_config = stubs.domain.chat_config(
