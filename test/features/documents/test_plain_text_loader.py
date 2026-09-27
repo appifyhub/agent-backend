@@ -4,7 +4,7 @@ from unittest import TestCase
 from fakes.http_client import FakeHTTPClient
 from requests.exceptions import ConnectionError
 from stubs import external
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from features.documents.plain_text_loader import MAX_FILE_SIZE_BYTES
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS

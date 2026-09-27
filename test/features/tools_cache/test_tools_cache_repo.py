@@ -3,7 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 
 import stubs
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from di.di import DI
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository

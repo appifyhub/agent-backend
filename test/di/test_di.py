@@ -12,7 +12,7 @@ from pydantic import SecretStr
 from replicate.client import Client as ReplicateSDKClient
 from sqlalchemy.orm import Session
 from stubs import domain
-from util.di import FakeInterceptor, di_for_tests
+from util.di_utils import FakeInterceptor, di_for_tests
 
 from db import sql
 from di.di import DI

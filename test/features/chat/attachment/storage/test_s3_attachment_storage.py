@@ -6,7 +6,7 @@ from unittest import TestCase
 from fakes.s3_client import FakeS3Client
 from pydantic import SecretStr
 from stubs import domain, external
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
 from util.config import config

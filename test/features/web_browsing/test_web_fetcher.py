@@ -6,7 +6,7 @@ from unittest import TestCase
 from fakes.http_client import FakeHTTPClient
 from requests.exceptions import Timeout
 from stubs import domain, external
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from features.tools_cache.tools_cache import ToolsCache
 from features.web_browsing.twitter_status_fetcher import CACHE_PREFIX as TWEET_CACHE_PREFIX

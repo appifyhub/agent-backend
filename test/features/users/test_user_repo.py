@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import stubs
 from pydantic import SecretStr
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from db.model.user import UserDB
 from di.di import DI

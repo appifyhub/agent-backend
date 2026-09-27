@@ -2,7 +2,7 @@ import unittest
 from uuid import uuid4
 
 import stubs
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI

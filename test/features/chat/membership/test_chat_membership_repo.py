@@ -2,7 +2,7 @@ import unittest
 from uuid import UUID
 
 import stubs
-from util.di import di_for_tests
+from util.di_utils import di_for_tests
 
 from di.di import DI
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
