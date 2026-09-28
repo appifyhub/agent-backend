@@ -1,12 +1,10 @@
-import unittest
-from unittest.mock import Mock
+from unittest import TestCase
 
 import stubs
 from pydantic import SecretStr
+from util.di_utils import di_for_tests
 
 from di.di import DI
-from features.external_tools.access_token_resolver import AccessTokenResolver
-from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
@@ -17,16 +15,14 @@ from features.external_tools.external_tool_library import (
 from features.external_tools.tool_choice_resolver import ToolChoiceResolver, ToolResolutionError
 
 
-class ToolChoiceResolverTest(unittest.TestCase):
+class ToolChoiceResolverTest(TestCase):
 
-    mock_access_token_resolver: Mock
-    mock_di: DI
+    di: DI
+    resolver: ToolChoiceResolver
 
     def setUp(self):
-        self.mock_access_token_resolver = Mock(spec = AccessTokenResolver)
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.access_token_resolver = self.mock_access_token_resolver
+        self.di = self.enterContext(di_for_tests())
+        self.resolver = self.di.tool_choice_resolver
 
     def test_find_tool_by_id_success_existing_tool(self):
         tool = ToolChoiceResolver.find_tool_by_id(GPT_5_6_TERRA.id)
@@ -128,140 +124,120 @@ class ToolChoiceResolverTest(unittest.TestCase):
             self.assertIn(ToolType.chat, tool.types)
 
     def test_get_tool_success_user_has_access_to_user_choice(self):
-        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved
-        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
+        user = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id, anthropic_key = SecretStr("test_token"))
+        self.di.inject_invoker(user)
 
-        resolver = ToolChoiceResolver(self.mock_di)
-        result = resolver.get_tool(ToolType.chat)
+        result = self.resolver.get_tool(ToolType.chat)
 
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIsInstance(result, ConfiguredTool)
-        self.assertEqual(result.definition, CLAUDE_4_6_SONNET)
-        self.assertEqual(result.token.get_secret_value(), "test_token")
-        self.assertEqual(result.purpose, ToolType.chat)
-        self.assertFalse(result.uses_credits)
+        self.assertEqual(result, stubs.domain.configured_tool(
+            definition = CLAUDE_4_6_SONNET,
+            token = user.anthropic_key,
+            purpose = ToolType.chat,
+            payer_id = user.id,
+        ))
 
     def test_get_tool_success_user_no_access_to_user_choice_but_has_access_to_others(self):
-        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
+        self.di.inject_invoker(stubs.domain.user(
+            tool_choice_chat = CLAUDE_4_6_SONNET.id,
+            anthropic_key = None,
+            open_ai_key = SecretStr("test_token"),
+            credit_balance = 0,
+        ))
 
-        def mock_get_access_token_for_tool(test_tool):
-            if test_tool == CLAUDE_4_6_SONNET:
-                return None
-            return resolved
-
-        self.mock_access_token_resolver.get_access_token_for_tool.side_effect = mock_get_access_token_for_tool
-        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
-
-        resolver = ToolChoiceResolver(self.mock_di)
-        result = resolver.get_tool(ToolType.chat)
+        result = self.resolver.get_tool(ToolType.chat)
 
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertIsInstance(result, ConfiguredTool)
         self.assertNotEqual(result.definition, CLAUDE_4_6_SONNET)
         self.assertIn(ToolType.chat, result.definition.types)
         self.assertEqual(result.token.get_secret_value(), "test_token")
         self.assertEqual(result.purpose, ToolType.chat)
 
     def test_get_tool_success_with_default_tool_prioritized(self):
-        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
+        user = stubs.domain.user(
+            tool_choice_chat = CLAUDE_4_6_SONNET.id,
+            anthropic_key = None,
+            open_ai_key = SecretStr("test_token"),
+            credit_balance = 0,
+        )
+        self.di.inject_invoker(user)
 
-        def mock_get_access_token_for_tool(test_tool):
-            if test_tool == CLAUDE_4_6_SONNET:
-                return None
-            if test_tool == GPT_5_6_TERRA:
-                return resolved
-            return None
+        result = self.resolver.get_tool(ToolType.chat, default_tool = GPT_5_6_TERRA.id)
 
-        self.mock_access_token_resolver.get_access_token_for_tool.side_effect = mock_get_access_token_for_tool
-        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
-
-        resolver = ToolChoiceResolver(self.mock_di)
-        result = resolver.get_tool(ToolType.chat, default_tool = GPT_5_6_TERRA.id)
-
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIsInstance(result, ConfiguredTool)
-        self.assertEqual(result.definition, GPT_5_6_TERRA)
-        self.assertEqual(result.token.get_secret_value(), "test_token")
-        self.assertEqual(result.purpose, ToolType.chat)
+        self.assertEqual(result, stubs.domain.configured_tool(
+            definition = GPT_5_6_TERRA,
+            token = user.open_ai_key,
+            purpose = ToolType.chat,
+            payer_id = user.id,
+        ))
 
     def test_get_tool_failure_no_access_to_any_tool(self):
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = None
-        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
+        self.di.inject_invoker(stubs.domain.user(
+            tool_choice_chat = CLAUDE_4_6_SONNET.id,
+            open_ai_key = None,
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            x_ai_key = None,
+            credit_balance = 0,
+        ))
 
-        resolver = ToolChoiceResolver(self.mock_di)
-        result = resolver.get_tool(ToolType.chat)
+        result = self.resolver.get_tool(ToolType.chat)
 
         self.assertIsNone(result)
 
     def test_require_tool_success(self):
-        resolved = stubs.domain.resolved_token(token = SecretStr("test_token"))
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved
-        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
+        user = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id, anthropic_key = SecretStr("test_token"))
+        self.di.inject_invoker(user)
 
-        resolver = ToolChoiceResolver(self.mock_di)
-        result = resolver.require_tool(ToolType.chat)
+        result = self.resolver.require_tool(ToolType.chat)
 
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIsInstance(result, ConfiguredTool)
-        self.assertEqual(result.definition, CLAUDE_4_6_SONNET)
-        self.assertEqual(result.token.get_secret_value(), "test_token")
-        self.assertEqual(result.purpose, ToolType.chat)
+        self.assertEqual(result, stubs.domain.configured_tool(
+            definition = CLAUDE_4_6_SONNET,
+            token = user.anthropic_key,
+            purpose = ToolType.chat,
+            payer_id = user.id,
+        ))
 
     def test_require_tool_failure_raises_exception(self):
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = None
-        self.mock_di.invoker = stubs.domain.user(tool_choice_chat = CLAUDE_4_6_SONNET.id)
-
-        resolver = ToolChoiceResolver(self.mock_di)
+        self.di.inject_invoker(stubs.domain.user(
+            tool_choice_chat = CLAUDE_4_6_SONNET.id,
+            open_ai_key = None,
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            x_ai_key = None,
+            credit_balance = 0,
+        ))
 
         with self.assertRaises(ToolResolutionError) as context:
-            resolver.require_tool(ToolType.chat)
+            self.resolver.require_tool(ToolType.chat)
 
         error_message = str(context.exception)
         self.assertIn("Unable to resolve a tool for 'chat'", error_message)
-        self.assertIn(str(self.mock_di.invoker.id.hex), error_message)
+        self.assertIn(self.di.invoker.id.hex, error_message)
 
     def test_user_tool_choice_mapping_through_public_interface(self):
-        resolved_1 = stubs.domain.resolved_token(token = SecretStr("test_token_1"))
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved_1
-        self.mock_di.invoker = stubs.domain.user(
+        user = stubs.domain.user(
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
             tool_choice_vision = GPT_5_6_TERRA.id,
+            anthropic_key = SecretStr("test_token_1"),
+            open_ai_key = SecretStr("test_token_2"),
         )
+        self.di.inject_invoker(user)
 
-        resolver = ToolChoiceResolver(self.mock_di)
+        for purpose, definition, token in (
+            (ToolType.chat, CLAUDE_4_6_SONNET, user.anthropic_key),
+            (ToolType.vision, GPT_5_6_TERRA, user.open_ai_key),
+            (ToolType.api_stock_quote, TWELVE_DATA_STOCK_QUOTE, user.twelve_data_api_key),
+            (ToolType.videos_gen, VIDEO_GEN_P_VIDEO, user.replicate_key),
+        ):
+            with self.subTest(purpose = purpose):
+                result = self.resolver.get_tool(purpose)
 
-        chat_result = resolver.get_tool(ToolType.chat)
-        self.assertIsNotNone(chat_result)
-        assert chat_result is not None
-        self.assertIsInstance(chat_result, ConfiguredTool)
-        self.assertEqual(chat_result.definition, CLAUDE_4_6_SONNET)
-        self.assertEqual(chat_result.token.get_secret_value(), "test_token_1")
-        self.assertEqual(chat_result.purpose, ToolType.chat)
-
-        resolved_2 = stubs.domain.resolved_token(token = SecretStr("test_token_2"))
-        self.mock_access_token_resolver.get_access_token_for_tool.return_value = resolved_2
-
-        vision_result = resolver.get_tool(ToolType.vision)
-        self.assertIsNotNone(vision_result)
-        assert vision_result is not None
-        self.assertIsInstance(vision_result, ConfiguredTool)
-        self.assertEqual(vision_result.definition, GPT_5_6_TERRA)
-        self.assertEqual(vision_result.token.get_secret_value(), "test_token_2")
-        self.assertEqual(vision_result.purpose, ToolType.vision)
-
-        stock_result = resolver.get_tool(ToolType.api_stock_quote)
-        self.assertIsNotNone(stock_result)
-        assert stock_result is not None
-        self.assertEqual(stock_result.definition, TWELVE_DATA_STOCK_QUOTE)
-        self.assertEqual(stock_result.purpose, ToolType.api_stock_quote)
-
-        video_result = resolver.get_tool(ToolType.videos_gen)
-        self.assertIsNotNone(video_result)
-        assert video_result is not None
-        self.assertEqual(video_result.definition, VIDEO_GEN_P_VIDEO)
-        self.assertEqual(video_result.purpose, ToolType.videos_gen)
+                self.assertEqual(result, stubs.domain.configured_tool(
+                    definition = definition,
+                    token = token,
+                    purpose = purpose,
+                    payer_id = user.id,
+                ))

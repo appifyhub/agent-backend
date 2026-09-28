@@ -1,16 +1,15 @@
 from datetime import datetime, timedelta
 from unittest import TestCase
-from unittest.mock import Mock, create_autospec
 from uuid import UUID
 
 import stubs
 from pydantic import SecretStr
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
-from features.chat.config.chat_config_repo import ChatConfigRepository
-from features.chat.message.chat_message_repo import ChatMessageRepository
+from features.chat.config.chat_config import ChatConfig
 from features.integrations.integrations import (
     WHATSAPP_MESSAGING_WINDOW_HOURS,
     format_handle,
@@ -28,7 +27,6 @@ from features.integrations.integrations import (
     resolve_user_link,
     resolve_user_to_create,
 )
-from features.integrations.platform_bot_sdk import PlatformBotSDK
 from features.users.user import User
 from features.users.user_repo import UserRepository
 from util.config import config
@@ -144,64 +142,6 @@ class IntegrationsTest(TestCase):
     def test_is_the_agent_none_user(self):
         result = is_the_agent(None, ChatConfigDB.ChatType.telegram)
         self.assertFalse(result)
-
-    def test_lookup_user_by_handle_telegram_success(self):
-        mock_user_repo = Mock(spec = UserRepository)
-        user = stubs.domain.user()
-        mock_user_repo.get_by_telegram_username.return_value = user
-
-        result = lookup_user_by_handle("test_user", ChatConfigDB.ChatType.telegram, mock_user_repo)
-
-        self.assertEqual(result, user)
-        mock_user_repo.get_by_telegram_username.assert_called_once_with("test_user")
-
-    def test_lookup_user_by_handle_telegram_not_found(self):
-        mock_user_repo = Mock(spec = UserRepository)
-        mock_user_repo.get_by_telegram_username.return_value = None
-
-        result = lookup_user_by_handle("nonexistent_user", ChatConfigDB.ChatType.telegram, mock_user_repo)
-
-        self.assertIsNone(result)
-        mock_user_repo.get_by_telegram_username.assert_called_once_with("nonexistent_user")
-
-    def test_lookup_user_by_handle_telegram_with_at(self):
-        mock_user_repo = Mock(spec = UserRepository)
-        user = stubs.domain.user()
-        mock_user_repo.get_by_telegram_username.return_value = user
-
-        result = lookup_user_by_handle("@test_user", ChatConfigDB.ChatType.telegram, mock_user_repo)
-
-        self.assertEqual(result, user)
-        mock_user_repo.get_by_telegram_username.assert_called_once_with("test_user")
-
-    def test_lookup_user_by_handle_unsupported_platform(self):
-        mock_user_repo = Mock(spec = UserRepository)
-
-        result = lookup_user_by_handle("test_user", ChatConfigDB.ChatType.background, mock_user_repo)
-
-        self.assertIsNone(result)
-        mock_user_repo.get_by_telegram_username.assert_not_called()
-
-    def test_lookup_user_by_handle_whatsapp_success(self):
-        mock_user_repo = Mock(spec = UserRepository)
-        user = stubs.domain.user()
-        mock_user_repo.get_by_whatsapp_user_id.return_value = user
-
-        result = lookup_user_by_handle("+1 (555) 123-4567", ChatConfigDB.ChatType.whatsapp, mock_user_repo)
-
-        self.assertEqual(result, user)
-        mock_user_repo.get_by_whatsapp_user_id.assert_called_once_with("15551234567")
-
-    def test_lookup_user_by_handle_whatsapp_not_found(self):
-        mock_user_repo = Mock(spec = UserRepository)
-        mock_user_repo.get_by_whatsapp_user_id.return_value = None
-        mock_user_repo.get_by_whatsapp_phone_number.return_value = None
-
-        result = lookup_user_by_handle("+1 (555) 999-9999", ChatConfigDB.ChatType.whatsapp, mock_user_repo)
-
-        self.assertIsNone(result)
-        mock_user_repo.get_by_whatsapp_user_id.assert_called_once_with("15559999999")
-        mock_user_repo.get_by_whatsapp_phone_number.assert_called_once_with("15559999999")
 
     def test_resolve_user_to_create_telegram_success(self):
         result = resolve_user_to_create("test_user", ChatConfigDB.ChatType.telegram)
@@ -537,257 +477,186 @@ class IntegrationsTest(TestCase):
         result = is_own_chat(chat_config, user)
         self.assertFalse(result)
 
-    def test_all_mode_sends_both_photo_and_document(self):
-        """Test that 'all' mode sends both photo (resized) and document (original)"""
-        sdk_mock = create_autospec(PlatformBotSDK, instance = True)
-        sdk_mock.send_photo = Mock(return_value = "photo-sent")
-        sdk_mock.send_document = Mock(return_value = "document-sent")
-        # Call the actual smart_send_photo method
-        result = PlatformBotSDK.smart_send_photo(
-            sdk_mock,
-            media_mode = ChatConfigDB.MediaMode.all,
-            chat_id = 1,
-            photo_url = "http://example.com/img.png",
-            caption = "test",
-        )
-        # Verify photo was sent
-        sdk_mock.send_photo.assert_called_once_with(1, "http://example.com/img.png", "test")
-        # Verify document was sent with original URL
-        sdk_mock.send_document.assert_called_once_with(1, "http://example.com/img.png", "test", thumbnail = None)
-        # Return value should be from document (last message sent)
-        self.assertEqual(result, "document-sent")
 
-    def test_all_mode_continues_with_document_when_photo_fails(self):
-        """Test that 'all' mode still sends document even if photo send fails"""
-        sdk_mock = create_autospec(PlatformBotSDK, instance = True)
-        sdk_mock.send_photo = Mock(side_effect = Exception("photo send failed"))
-        sdk_mock.send_document = Mock(return_value = "document-sent")
-        result = PlatformBotSDK.smart_send_photo(
-            sdk_mock,
-            media_mode = ChatConfigDB.MediaMode.all,
-            chat_id = 1,
-            photo_url = "http://example.com/img.png",
-        )
-        # Verify photo was attempted
-        sdk_mock.send_photo.assert_called_once_with(1, "http://example.com/img.png", None)
-        # Verify document was still sent despite photo failure
-        sdk_mock.send_document.assert_called_once_with(1, "http://example.com/img.png", None, thumbnail = None)
-        # Return value should be from document
-        self.assertEqual(result, "document-sent")
+class LookupUserByHandleTest(TestCase):
 
-    def test_file_mode_sends_document_only(self):
-        """Test that 'file' mode sends document directly"""
-        sdk_mock = create_autospec(PlatformBotSDK, instance = True)
-        sdk_mock.send_document = Mock(return_value = "document-sent")
-        sdk_mock.send_photo = Mock()
-        result = PlatformBotSDK.smart_send_photo(
-            sdk_mock,
-            media_mode = ChatConfigDB.MediaMode.file,
-            chat_id = 1,
-            photo_url = "http://example.com/img.png",
-            caption = "test",
-        )
-        # Verify document was sent with original URL
-        sdk_mock.send_document.assert_called_once_with(1, "http://example.com/img.png", "test", thumbnail = None)
-        # Verify photo was not called
-        sdk_mock.send_photo.assert_not_called()
-        self.assertEqual(result, "document-sent")
+    di: DI
+    repo: UserRepository
 
-    def test_photo_mode_sends_photo_with_fallback(self):
-        """Test that 'photo' mode sends photo, falls back to document on failure"""
-        sdk_mock = create_autospec(PlatformBotSDK, instance = True)
-        sdk_mock.send_photo = Mock(side_effect = Exception("photo failed"))
-        sdk_mock.send_document = Mock(return_value = "document-sent")
-        result = PlatformBotSDK.smart_send_photo(
-            sdk_mock,
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_id = 1,
-            photo_url = "http://example.com/img.png",
-        )
-        # Verify photo was attempted
-        sdk_mock.send_photo.assert_called_once()
-        # Verify document was sent as fallback
-        sdk_mock.send_document.assert_called_once_with(1, "http://example.com/img.png", None, thumbnail = None)
-        self.assertEqual(result, "document-sent")
+    def setUp(self):
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.user_repo
+
+    def test_lookup_user_by_handle_telegram_success(self):
+        user = self.repo.save(stubs.domain.user(telegram_username = "test_user"))
+
+        result = lookup_user_by_handle("test_user", ChatConfigDB.ChatType.telegram, self.repo)
+
+        self.assertEqual(result, user)
+
+    def test_lookup_user_by_handle_telegram_not_found(self):
+        result = lookup_user_by_handle("nonexistent_user", ChatConfigDB.ChatType.telegram, self.repo)
+
+        self.assertIsNone(result)
+
+    def test_lookup_user_by_handle_telegram_with_at(self):
+        user = self.repo.save(stubs.domain.user(telegram_username = "test_user"))
+
+        result = lookup_user_by_handle("@test_user", ChatConfigDB.ChatType.telegram, self.repo)
+
+        self.assertEqual(result, user)
+
+    def test_lookup_user_by_handle_unsupported_platform(self):
+        self.repo.save(stubs.domain.user(telegram_username = "test_user"))
+
+        result = lookup_user_by_handle("test_user", ChatConfigDB.ChatType.background, self.repo)
+
+        self.assertIsNone(result)
+
+    def test_lookup_user_by_handle_whatsapp_success(self):
+        user = self.repo.save(stubs.domain.user(whatsapp_user_id = "15551234567"))
+
+        result = lookup_user_by_handle("+1 (555) 123-4567", ChatConfigDB.ChatType.whatsapp, self.repo)
+
+        self.assertEqual(result, user)
+
+    def test_lookup_user_by_handle_whatsapp_falls_back_to_phone_number(self):
+        user = self.repo.save(stubs.domain.user(
+            whatsapp_user_id = None,
+            whatsapp_phone_number = SecretStr("15551234567"),
+        ))
+
+        result = lookup_user_by_handle("+1 (555) 123-4567", ChatConfigDB.ChatType.whatsapp, self.repo)
+
+        self.assertEqual(result, user)
+
+    def test_lookup_user_by_handle_whatsapp_not_found(self):
+        result = lookup_user_by_handle("+1 (555) 999-9999", ChatConfigDB.ChatType.whatsapp, self.repo)
+
+        self.assertIsNone(result)
 
 
 class NotificationChatResolutionTest(TestCase):
 
-    mock_di: DI
+    di: DI
+    user: User
+    telegram_chat: ChatConfig
+    whatsapp_chat: ChatConfig
 
     def setUp(self):
-        self.mock_di = Mock(spec = DI)
-        self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
-        self.mock_di.chat_message_repo = Mock(spec = ChatMessageRepository)
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.telegram_chat = stubs.domain.chat_config(external_id = str(self.user.telegram_user_id))
+        self.whatsapp_chat = stubs.domain.chat_config(
+            chat_id = UUID("33333333-3333-4333-8333-c33333333333"),
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = self.user.whatsapp_user_id,
+        )
 
     def test_no_platforms_available(self):
-        user = stubs.domain.user()
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(return_value = None)
-        result = resolve_best_notification_chat(user, self.mock_di)
+        result = resolve_best_notification_chat(self.user, self.di)
+
         self.assertIsNone(result)
 
-    def test_telegram_only(self):
-        user = stubs.domain.user()
-        telegram_chat = stubs.domain.chat_config()
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            telegram_chat if chat_type == ChatConfigDB.ChatType.telegram else None
-        ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(return_value = [])
-
-        result = resolve_best_notification_chat(user, self.mock_di)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.telegram)
-
     def test_telegram_no_messages_still_selected(self):
-        user = stubs.domain.user()
-        telegram_chat = stubs.domain.chat_config()
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            telegram_chat if chat_type == ChatConfigDB.ChatType.telegram else None
-        ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(return_value = [])
+        chat = self.di.chat_config_repo.save(self.telegram_chat)
 
-        result = resolve_best_notification_chat(user, self.mock_di)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.telegram)
+        result = resolve_best_notification_chat(self.user, self.di)
+
+        self.assertEqual(result, chat)
 
     def test_whatsapp_within_window(self):
-        user = stubs.domain.user()
-        whatsapp_chat = stubs.domain.chat_config(chat_type = ChatConfigDB.ChatType.whatsapp)
-        recent_msg = stubs.domain.chat_message(
-            chat_id = whatsapp_chat.chat_id,
-            author_id = user.id,
+        chat = self.di.chat_config_repo.save(self.whatsapp_chat)
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = 12),
-        )
-
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp else None
+            ingestion_order = None,
         ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(return_value = [recent_msg])
 
-        result = resolve_best_notification_chat(user, self.mock_di)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.whatsapp)
+        result = resolve_best_notification_chat(self.user, self.di)
+
+        self.assertEqual(result, chat)
 
     def test_whatsapp_outside_window(self):
-        user = stubs.domain.user()
-        whatsapp_chat = stubs.domain.chat_config(chat_type = ChatConfigDB.ChatType.whatsapp)
-        old_msg = stubs.domain.chat_message(
-            chat_id = whatsapp_chat.chat_id,
-            author_id = user.id,
+        chat = self.di.chat_config_repo.save(self.whatsapp_chat)
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = WHATSAPP_MESSAGING_WINDOW_HOURS + 1),
-        )
-
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp else None
+            ingestion_order = None,
         ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(return_value = [old_msg])
 
-        result = resolve_best_notification_chat(user, self.mock_di)
+        result = resolve_best_notification_chat(self.user, self.di)
+
         self.assertIsNone(result)
 
     def test_both_eligible_whatsapp_more_recent(self):
-        user = stubs.domain.user()
-        telegram_chat = stubs.domain.chat_config(chat_id = UUID(int = 1))
-        whatsapp_chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 2),
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        telegram_msg = stubs.domain.chat_message(
+        telegram_chat = self.di.chat_config_repo.save(self.telegram_chat)
+        whatsapp_chat = self.di.chat_config_repo.save(self.whatsapp_chat)
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = telegram_chat.chat_id,
-            author_id = user.id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = 10),
-        )
-        whatsapp_msg = stubs.domain.chat_message(
+            ingestion_order = None,
+        ))
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = whatsapp_chat.chat_id,
-            author_id = user.id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = 2),
-        )
-
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            telegram_chat if chat_type == ChatConfigDB.ChatType.telegram
-            else whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp
-            else None
-        ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(side_effect = lambda chat_id, limit: (
-            [telegram_msg] if chat_id == telegram_chat.chat_id
-            else [whatsapp_msg] if chat_id == whatsapp_chat.chat_id
-            else []
+            ingestion_order = None,
         ))
 
-        result = resolve_best_notification_chat(user, self.mock_di)
-        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.whatsapp)
+        result = resolve_best_notification_chat(self.user, self.di)
+
+        self.assertEqual(result, whatsapp_chat)
 
     def test_both_eligible_telegram_more_recent(self):
-        user = stubs.domain.user()
-        telegram_chat = stubs.domain.chat_config(chat_id = UUID(int = 1))
-        whatsapp_chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 2),
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        telegram_msg = stubs.domain.chat_message(
+        telegram_chat = self.di.chat_config_repo.save(self.telegram_chat)
+        whatsapp_chat = self.di.chat_config_repo.save(self.whatsapp_chat)
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = telegram_chat.chat_id,
-            author_id = user.id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = 2),
-        )
-        whatsapp_msg = stubs.domain.chat_message(
+            ingestion_order = None,
+        ))
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = whatsapp_chat.chat_id,
-            author_id = user.id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = 10),
-        )
-
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            telegram_chat if chat_type == ChatConfigDB.ChatType.telegram
-            else whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp
-            else None
-        ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(side_effect = lambda chat_id, limit: (
-            [telegram_msg] if chat_id == telegram_chat.chat_id
-            else [whatsapp_msg] if chat_id == whatsapp_chat.chat_id
-            else []
+            ingestion_order = None,
         ))
 
-        result = resolve_best_notification_chat(user, self.mock_di)
-        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.telegram)
+        result = resolve_best_notification_chat(self.user, self.di)
+
+        self.assertEqual(result, telegram_chat)
 
     def test_whatsapp_outside_window_telegram_available(self):
-        user = stubs.domain.user()
-        telegram_chat = stubs.domain.chat_config(chat_id = UUID(int = 1))
-        whatsapp_chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 2),
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        telegram_msg = stubs.domain.chat_message(
+        telegram_chat = self.di.chat_config_repo.save(self.telegram_chat)
+        whatsapp_chat = self.di.chat_config_repo.save(self.whatsapp_chat)
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = telegram_chat.chat_id,
-            author_id = user.id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = 48),
-        )
-        whatsapp_msg = stubs.domain.chat_message(
+            ingestion_order = None,
+        ))
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = whatsapp_chat.chat_id,
-            author_id = user.id,
+            author_id = self.user.id,
             sent_at = datetime.now() - timedelta(hours = WHATSAPP_MESSAGING_WINDOW_HOURS + 2),
-        )
-
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            telegram_chat if chat_type == ChatConfigDB.ChatType.telegram
-            else whatsapp_chat if chat_type == ChatConfigDB.ChatType.whatsapp
-            else None
-        ))
-        self.mock_di.chat_message_repo.get_latest_by_chat = Mock(side_effect = lambda chat_id, limit: (
-            [telegram_msg] if chat_id == telegram_chat.chat_id
-            else [whatsapp_msg] if chat_id == whatsapp_chat.chat_id
-            else []
+            ingestion_order = None,
         ))
 
-        result = resolve_best_notification_chat(user, self.mock_di)
-        self.assertEqual(result.chat_type, ChatConfigDB.ChatType.telegram)
+        result = resolve_best_notification_chat(self.user, self.di)
+
+        self.assertEqual(result, telegram_chat)
 
     def test_non_private_chat_excluded(self):
-        user = stubs.domain.user()
-        public_chat = stubs.domain.chat_config(is_private = False)
-
-        self.mock_di.chat_config_repo.get_by_external_identifiers = Mock(side_effect = lambda external_id, chat_type: (
-            public_chat if chat_type == ChatConfigDB.ChatType.telegram else None
+        self.di.chat_config_repo.save(stubs.domain.chat_config(
+            external_id = self.telegram_chat.external_id,
+            is_private = False,
         ))
 
-        result = resolve_best_notification_chat(user, self.mock_di)
+        result = resolve_best_notification_chat(self.user, self.di)
+
         self.assertIsNone(result)

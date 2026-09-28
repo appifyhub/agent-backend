@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from langchain_core.messages import AIMessage, HumanMessage
 from openai.types import CreateEmbeddingResponse, Embedding
 from openai.types.audio import Transcription
+from PIL import Image
 from replicate.client import Client as ReplicateClient
 from replicate.helpers import FileOutput
 from replicate.prediction import Prediction
@@ -22,7 +23,14 @@ from features.chat.telegram.model.attachment.photo_size import PhotoSize as Tele
 from features.chat.telegram.model.attachment.video import Video as TelegramVideo
 from features.chat.telegram.model.attachment.voice import Voice as TelegramVoice
 from features.chat.telegram.model.chat import Chat as TelegramChat
-from features.chat.telegram.model.chat_member import ChatMemberLeft, ChatMemberMember, ChatMemberOwner
+from features.chat.telegram.model.chat_member import (
+    ChatMemberAdministrator,
+    ChatMemberBanned,
+    ChatMemberLeft,
+    ChatMemberMember,
+    ChatMemberOwner,
+    ChatMemberRestricted,
+)
 from features.chat.telegram.model.message import Message as TelegramMessage
 from features.chat.telegram.model.text_quote import TextQuote as TelegramTextQuote
 from features.chat.telegram.model.update import Update as TelegramUpdate
@@ -98,6 +106,26 @@ def ffprobe_result() -> CompletedProcess[str]:
     return CompletedProcess(args = ["ffprobe"], returncode = 0, stdout = dumps(payload), stderr = "")
 
 
+def image_bytes(
+    image_format: str = "PNG",
+    size: tuple[int, int] = (16, 16),
+    color: tuple[int, int, int] | tuple[int, int, int, int] = (100, 150, 200),
+    **save_options: Any,
+) -> bytes:
+    buffer = BytesIO()
+    with Image.new("RGBA" if len(color) == 4 else "RGB", size, color = color) as image:
+        image.save(buffer, format = image_format, **save_options)
+    return buffer.getvalue()
+
+
+def mp4_container_bytes(content: bytes = b"video", fast_start: bool = True) -> bytes:
+    """Build MP4 container bytes for tests that supply FFprobe metadata separately."""
+    header = (20).to_bytes(4, "big") + b"ftyp" + b"isom" + bytes(4) + b"isom"
+    metadata = (8).to_bytes(4, "big") + b"moov"
+    media = (len(content) + 8).to_bytes(4, "big") + b"mdat" + content
+    return header + (metadata + media if fast_start else media + metadata)
+
+
 def telegram_chat_member(**overrides: Any) -> ChatMemberMember:
     defaults = {"status": "member", "user": telegram_user()}
     return ChatMemberMember(**(defaults | overrides))
@@ -106,6 +134,35 @@ def telegram_chat_member(**overrides: Any) -> ChatMemberMember:
 def telegram_chat_owner(**overrides: Any) -> ChatMemberOwner:
     defaults = {"status": "creator", "user": telegram_user(), "is_anonymous": False}
     return ChatMemberOwner(**(defaults | overrides))
+
+
+def telegram_chat_administrator(**overrides: Any) -> ChatMemberAdministrator:
+    defaults = {
+        "status": "administrator", "user": telegram_user(),
+        "can_be_edited": False, "is_anonymous": False, "can_manage_chat": True,
+        "can_delete_messages": False, "can_manage_video_chats": False,
+        "can_restrict_members": False, "can_promote_members": False,
+        "can_change_info": False, "can_invite_users": False,
+        "can_post_stories": False, "can_edit_stories": False, "can_delete_stories": False,
+    }
+    return ChatMemberAdministrator(**(defaults | overrides))
+
+
+def telegram_chat_member_restricted(**overrides: Any) -> ChatMemberRestricted:
+    defaults = {
+        "status": "restricted", "user": telegram_user(), "is_member": True,
+        "can_send_messages": False, "can_send_audios": False, "can_send_documents": False,
+        "can_send_photos": False, "can_send_videos": False, "can_send_video_notes": False,
+        "can_send_voice_notes": False, "can_send_polls": False, "can_send_other_messages": False,
+        "can_add_web_page_previews": False, "can_change_info": False, "can_invite_users": False,
+        "can_pin_messages": False, "can_manage_topics": False, "until_date": 0,
+    }
+    return ChatMemberRestricted(**(defaults | overrides))
+
+
+def telegram_chat_member_banned(**overrides: Any) -> ChatMemberBanned:
+    defaults = {"status": "kicked", "user": telegram_user(), "until_date": 0}
+    return ChatMemberBanned(**(defaults | overrides))
 
 
 def telegram_chat_member_left(**overrides: Any) -> ChatMemberLeft:

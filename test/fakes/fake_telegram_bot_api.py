@@ -18,6 +18,8 @@ class FakeTelegramBotAPI:
     statuses: dict[str, str]
     reactions: dict[tuple[str, str], str | None]
     delivery_errors: dict[str, Exception]
+    photo_error: Exception | None
+    video_error: Exception | None
 
     def __init__(self):
         self._messages = {}
@@ -26,6 +28,8 @@ class FakeTelegramBotAPI:
         self.statuses = {}
         self.reactions = {}
         self.delivery_errors = {}
+        self.photo_error = None
+        self.video_error = None
 
     def get_sent_message(self, message_id: str) -> dict[str, Any]:
         return deepcopy(self._messages[message_id])
@@ -54,6 +58,8 @@ class FakeTelegramBotAPI:
         parse_mode: str = "markdown",
         disable_notification: bool = False,
     ) -> dict:
+        if self.photo_error is not None:
+            raise self.photo_error
         return self._send({
             "chat_id": chat_id, "photo_url": photo_url, "caption": caption,
             "parse_mode": parse_mode, "disable_notification": disable_notification,
@@ -86,6 +92,8 @@ class FakeTelegramBotAPI:
         parse_mode: str = "markdown",
         disable_notification: bool = False,
     ) -> dict:
+        if self.video_error is not None:
+            raise self.video_error
         return self._send({
             "chat_id": chat_id, "content": Path(video_path).read_bytes(), "metadata": metadata,
             "caption": caption, "parse_mode": parse_mode, "disable_notification": disable_notification,
