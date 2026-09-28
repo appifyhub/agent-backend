@@ -5,13 +5,17 @@ import stubs
 from util.di_utils import di_for_tests
 
 from di.di import DI
+from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
+from features.users.user import User
 
 
 class ChatMembershipRepoTest(unittest.TestCase):
 
     di: DI
     repo: ChatMembershipRepository
+    chat: ChatConfig
+    user: User
 
     def setUp(self):
         self.di = self.enterContext(di_for_tests())

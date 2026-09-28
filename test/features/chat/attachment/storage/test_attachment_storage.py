@@ -5,11 +5,15 @@ from unittest import TestCase
 from fakes.fake_attachment_storage import RecordingAttachmentStorage
 from stubs import domain
 
+from features.chat.attachment.chat_attachment import ChatAttachment
 from util.error_codes import INVALID_ATTACHMENT_OPERATION
 from util.errors import InternalError
 
 
 class AttachmentStorageTest(TestCase):
+
+    storage: RecordingAttachmentStorage
+    attachment: ChatAttachment
 
     def setUp(self):
         root = Path(self.enterContext(TemporaryDirectory()))

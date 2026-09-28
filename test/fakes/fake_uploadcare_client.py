@@ -7,11 +7,16 @@ from util.errors import InternalError
 
 class FakeUploadcareFile:
 
+    __cdn_url: str
+    __filename: str
+    deleted: bool
+    delete_error: Exception | None
+
     def __init__(self, cdn_url: str, filename: str):
         self.__cdn_url = cdn_url
         self.__filename = filename
         self.deleted = False
-        self.delete_error: Exception | None = None
+        self.delete_error = None
 
     @property
     def cdn_url(self) -> str:
@@ -29,12 +34,18 @@ class FakeUploadcareFile:
 
 class FakeUploadcareClient:
 
+    uploads: list[tuple[str, bytes, bool]]
+    upload_streams: list[BinaryIO]
+    upload_results: deque[FakeUploadcareFile | Exception | None]
+    files: dict[str, FakeUploadcareFile]
+    requested_files: list[str]
+
     def __init__(self):
-        self.uploads: list[tuple[str, bytes, bool]] = []
-        self.upload_streams: list[BinaryIO] = []
-        self.upload_results: deque[FakeUploadcareFile | Exception | None] = deque()
-        self.files: dict[str, FakeUploadcareFile] = {}
-        self.requested_files: list[str] = []
+        self.uploads = []
+        self.upload_streams = []
+        self.upload_results = deque()
+        self.files = {}
+        self.requested_files = []
 
     def upload(self, file_handle: BinaryIO, store: bool = True) -> FakeUploadcareFile | None:
         self.uploads.append((file_handle.name, file_handle.read(), store))

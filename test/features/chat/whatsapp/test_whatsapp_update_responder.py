@@ -1,300 +1,148 @@
 import asyncio
-import unittest
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+from datetime import datetime
+from typing import cast
+from unittest import TestCase
 from uuid import UUID
 
-import stubs
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.message_burst_service import MessageBurstService
-from features.chat.whatsapp.whatsapp_update_responder import (
-    _ingest_update,
-    _IngressOutcome,
-    respond_to_update,
-)
+from features.chat.config.chat_config import ChatConfig
+from features.chat.whatsapp.whatsapp_update_responder import _ingest_update, respond_to_update
+from features.users.user import User
+from util.config import config
 
 
-class WhatsAppUpdateResponderTest(unittest.TestCase):
+class WhatsAppUpdateResponderTest(TestCase):
+
+    di: DI
+    api: FakeWhatsAppBotAPI
+    model: FakeChatModel
+    author: User
+    chat: ChatConfig
 
     def setUp(self):
-        self.di = Mock(spec = DI)
-        self.burst_service = Mock(spec = MessageBurstService)
-        # noinspection PyPropertyAccess
-        self.di.message_burst_service = self.burst_service
+        self.di = self.enterContext(di_for_tests())
+        self.author = self.di.user_repo.save(domain.user(whatsapp_user_id = "1"))
+        self.chat = self.di.chat_config_repo.save(domain.chat_config(
+            external_id = "1",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        ))
+        self.api = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(domain.configured_tool(), max_tokens = 500))
+        self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)
+        config.chat_burst_quiet_period_s = 0
 
     def test_photo_and_prompt_deliveries_schedule_same_author_bursts(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        photo_message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        prompt_message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-2",
-            ingestion_order = 8,
-            author_id = author.id,
-            sent_at = photo_message.sent_at + timedelta(milliseconds = 100),
-            text = "describe these",
-        )
-        photo = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = photo_message,
-            attachments = [],
-            raw_message_text = "",
-        )
-        prompt = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = prompt_message,
-            attachments = [],
-            raw_message_text = "describe these",
-        )
-        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [photo, prompt]
-        first_scheduled = stubs.domain.scheduled_chat_message_burst(
-            chat_id = chat.chat_id,
-            author_id = author.id,
-            message_count = 1,
-            wait_seconds = 0.5,
-        )
-        second_scheduled = stubs.domain.scheduled_chat_message_burst(
-            chat_id = chat.chat_id,
-            author_id = author.id,
-            message_count = 2,
-            wait_seconds = 0.5,
-        )
-        session = MagicMock()
-        self.burst_service.record.side_effect = [first_scheduled, second_scheduled]
-        with (
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.get_detached_session",
-                return_value = session,
-            ),
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.DI",
-                return_value = self.di,
-            ),
-        ):
-            outcome = _ingest_update(stubs.external.whatsapp_update(entry = []))
+        self.api.downloads["photo"] = b"image content"
+        update = external.whatsapp_update(entry = [external.whatsapp_entry(changes = [external.whatsapp_change(
+            value = external.whatsapp_value(messages = [
+                external.whatsapp_message(
+                    id = "photo-message",
+                    type = "image",
+                    text = None,
+                    image = external.whatsapp_media_attachment(id = "photo"),
+                    **{"from": "1"},
+                ),
+                external.whatsapp_message(
+                    id = "prompt-message",
+                    text = external.whatsapp_text(body = "Describe these"),
+                    **{"from": "1"},
+                ),
+            ]),
+        )])])
 
-        self.assertEqual(outcome.scheduled_bursts, [first_scheduled, second_scheduled])
-        self.assertEqual(self.burst_service.record.call_count, 2)
-        self.assertEqual(
-            [record.kwargs["message"].author_id for record in self.burst_service.record.call_args_list],
-            [author.id, author.id],
-        )
+        outcome = _ingest_update(update)
 
-    def test_different_group_authors_schedule_independent_bursts(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-            is_private = False,
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        ingested = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            attachments = [],
-            raw_message_text = "hello",
-        )
-        other_author = stubs.domain.user(
-            id = UUID(int = 21),
-        )
-        other_message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-2",
-            ingestion_order = 8,
-            author_id = other_author.id,
-            sent_at = message.sent_at,
-            text = "other",
-        )
-        other = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = other_author,
-            message = other_message,
-            attachments = [],
-            raw_message_text = "other",
-        )
-        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [ingested, other]
-        session = MagicMock()
-        self.burst_service.record.side_effect = [
-            stubs.domain.scheduled_chat_message_burst(
-                chat_id = chat.chat_id,
-                author_id = author.id,
-                message_count = 1,
-                wait_seconds = 0.5,
-            ),
-            stubs.domain.scheduled_chat_message_burst(
-                chat_id = chat.chat_id,
-                author_id = other_author.id,
-                message_count = 1,
-                wait_seconds = 0.5,
-            ),
-        ]
-        with (
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.get_detached_session",
-                return_value = session,
-            ),
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.DI",
-                return_value = self.di,
-            ),
-        ):
-            _ingest_update(stubs.external.whatsapp_update(entry = []))
+        self.assertEqual([burst.message_count for burst in outcome.scheduled_bursts], [1, 2])
+        self.assertEqual([burst.chat_id for burst in outcome.scheduled_bursts], [self.chat.chat_id, self.chat.chat_id])
+        self.assertEqual([burst.author_id for burst in outcome.scheduled_bursts], [self.author.id, self.author.id])
+        self.assertFalse(outcome.processed)
 
-        self.assertEqual(
-            [item.kwargs["message"].author_id for item in self.burst_service.record.call_args_list],
-            [author.id, other_author.id],
-        )
+    def test_different_chats_schedule_independent_bursts(self):
+        other_author = self.di.user_repo.save(domain.user(
+            id = UUID("33333333-3333-4333-8333-b33333333333"),
+            telegram_user_id = None,
+            telegram_username = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = "2",
+            connect_key = "OTHER-USER",
+        ))
+        update = external.whatsapp_update(entry = [external.whatsapp_entry(changes = [external.whatsapp_change(
+            value = external.whatsapp_value(messages = [
+                external.whatsapp_message(id = "first", **{"from": "1"}),
+                external.whatsapp_message(id = "second", **{"from": "2"}),
+            ]),
+        )])])
+
+        outcome = _ingest_update(update)
+
+        self.assertEqual([burst.message_count for burst in outcome.scheduled_bursts], [1, 1])
+        self.assertEqual([burst.author_id for burst in outcome.scheduled_bursts], [self.author.id, other_author.id])
+        self.assertNotEqual(outcome.scheduled_bursts[0].chat_id, outcome.scheduled_bursts[1].chat_id)
 
     def test_command_does_not_extend_conversational_burst(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        command = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            attachments = [],
-            raw_message_text = "/help",
-        )
-        prompt_message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-2",
-            ingestion_order = 8,
-            author_id = author.id,
-            sent_at = message.sent_at + timedelta(milliseconds = 100),
-            text = "prompt",
-        )
-        prompt = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = prompt_message,
-            attachments = [],
-            raw_message_text = "prompt",
-        )
-        self.di.whatsapp_chat_inbound_service.ingest_update.return_value = [command, prompt]
-        self.burst_service.process_message.return_value = False
-        session = MagicMock()
-        self.burst_service.record.return_value = stubs.domain.scheduled_chat_message_burst(
-            chat_id = chat.chat_id,
-            author_id = author.id,
-            message_count = 1,
-            wait_seconds = 0.5,
-        )
-        with (
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.get_detached_session",
-                return_value = session,
-            ),
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.DI",
-                return_value = self.di,
-            ),
-        ):
-            outcome = _ingest_update(stubs.external.whatsapp_update(entry = []))
+        update = external.whatsapp_update(entry = [external.whatsapp_entry(changes = [external.whatsapp_change(
+            value = external.whatsapp_value(messages = [
+                external.whatsapp_message(
+                    id = "command",
+                    text = external.whatsapp_text(body = "/help"),
+                    **{"from": "1"},
+                ),
+                external.whatsapp_message(
+                    id = "prompt",
+                    text = external.whatsapp_text(body = "Hello"),
+                    **{"from": "1"},
+                ),
+            ]),
+        )])])
 
-        self.burst_service.process_message.assert_called_once_with(
-            command,
-            command_only = True,
-        )
-        self.burst_service.record.assert_called_once()
-        self.assertEqual(self.burst_service.record.call_args.kwargs["message"], prompt_message)
+        outcome = _ingest_update(update)
+
         self.assertEqual(len(outcome.scheduled_bursts), 1)
+        self.assertEqual(outcome.scheduled_bursts[0].message_count, 1)
+        self.assertEqual(len(self.api.get_sent_messages("1")), 1)
+        self.assertEqual(self.api.get_sent_messages("1")[0]["text"], "⚙️ https://example.com/short")
+        self.assertEqual(self.model.prompts, [])
 
     def test_async_responder_processes_every_scheduled_burst(self):
-        chat_id = UUID(int = 10)
-        author_id = UUID(int = 20)
-        first = stubs.domain.scheduled_chat_message_burst(
-            chat_id = chat_id,
-            author_id = author_id,
-            message_count = 1,
-            wait_seconds = 0.5,
-        )
-        second = stubs.domain.scheduled_chat_message_burst(
-            chat_id = chat_id,
-            author_id = UUID(int = 21),
-            message_count = 2,
-            wait_seconds = 0.5,
-        )
-        outcome = _IngressOutcome(scheduled_bursts = [first, second])
-        second_di = Mock(spec = DI)
-        second_burst_service = Mock(spec = MessageBurstService)
-        # noinspection PyPropertyAccess
-        second_di.message_burst_service = second_burst_service
-        self.burst_service.process_after_quiet_period.return_value = False
-        second_burst_service.process_after_quiet_period.return_value = True
-        with (
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.asyncio.to_thread",
-                new = AsyncMock(return_value = outcome),
-            ),
-            patch(
-                "features.chat.whatsapp.whatsapp_update_responder.DI",
-                side_effect = [self.di, second_di],
-            ) as di_factory,
-        ):
-            result = asyncio.run(
-                respond_to_update(stubs.external.whatsapp_update(entry = [])),
-            )
+        self.di.user_repo.save(domain.user(
+            id = UUID("33333333-3333-4333-8333-b33333333333"),
+            telegram_user_id = None,
+            telegram_username = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = "2",
+            connect_key = "OTHER-USER",
+        ))
+        self.model.responses.extend([
+            external.ai_message(content = "First reply"),
+            external.ai_message(content = "Second reply"),
+        ])
+        update = external.whatsapp_update(entry = [external.whatsapp_entry(changes = [external.whatsapp_change(
+            value = external.whatsapp_value(messages = [
+                external.whatsapp_message(
+                    id = "first",
+                    timestamp = str(int(datetime.now().timestamp())),
+                    **{"from": "1"},
+                ),
+                external.whatsapp_message(
+                    id = "second",
+                    timestamp = str(int(datetime.now().timestamp())),
+                    **{"from": "2"},
+                ),
+            ]),
+        )])])
+
+        result = asyncio.run(respond_to_update(update))
 
         self.assertTrue(result)
-        self.assertEqual(
-            di_factory.call_args_list,
-            [
-                call(
-                    invoker_id = first.author_id.hex,
-                    invoker_chat_id = first.chat_id.hex,
-                ),
-                call(
-                    invoker_id = second.author_id.hex,
-                    invoker_chat_id = second.chat_id.hex,
-                ),
-            ],
-        )
-        self.burst_service.process_after_quiet_period.assert_awaited_once()
-        self.assertEqual(
-            self.burst_service.process_after_quiet_period.await_args.kwargs["scheduled"],
-            first,
-        )
-        second_burst_service.process_after_quiet_period.assert_awaited_once()
-        self.assertEqual(
-            second_burst_service.process_after_quiet_period.await_args.kwargs["scheduled"],
-            second,
-        )
+        first = self.api.get_sent_messages("1")
+        second = self.api.get_sent_messages("2")
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+        self.assertCountEqual([message["text"] for message in first + second], ["First reply", "Second reply"])
+        self.assertEqual(self.api.read_messages, {"first", "second"})

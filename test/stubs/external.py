@@ -1,5 +1,6 @@
 from io import BytesIO
 from json import dumps
+from subprocess import CompletedProcess
 from typing import Any, BinaryIO
 
 from botocore.exceptions import ClientError
@@ -7,6 +8,8 @@ from docx import Document as DocxDocument
 from fakes.fake_uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
 from langchain_core.messages import AIMessage, HumanMessage
+from openai.types import CreateEmbeddingResponse, Embedding
+from openai.types.audio import Transcription
 from replicate.client import Client as ReplicateClient
 from replicate.helpers import FileOutput
 from replicate.prediction import Prediction
@@ -19,6 +22,7 @@ from features.chat.telegram.model.attachment.photo_size import PhotoSize as Tele
 from features.chat.telegram.model.attachment.video import Video as TelegramVideo
 from features.chat.telegram.model.attachment.voice import Voice as TelegramVoice
 from features.chat.telegram.model.chat import Chat as TelegramChat
+from features.chat.telegram.model.chat_member import ChatMemberLeft, ChatMemberMember, ChatMemberOwner
 from features.chat.telegram.model.message import Message as TelegramMessage
 from features.chat.telegram.model.text_quote import TextQuote as TelegramTextQuote
 from features.chat.telegram.model.update import Update as TelegramUpdate
@@ -34,6 +38,9 @@ from features.chat.whatsapp.model.metadata import Metadata as WhatsAppMetadata
 from features.chat.whatsapp.model.profile import Profile as WhatsAppProfile
 from features.chat.whatsapp.model.response import (
     ContactResponse as WhatsAppContactResponse,
+)
+from features.chat.whatsapp.model.response import (
+    MarkAsReadResponse as WhatsAppMarkAsReadResponse,
 )
 from features.chat.whatsapp.model.response import (
     MessageResponse as WhatsAppMessageResponse,
@@ -60,6 +67,58 @@ def ai_message(**overrides: Any) -> AIMessage:
 def human_message(**overrides: Any) -> HumanMessage:
     defaults = {"content": "Hello world"}
     return HumanMessage(**(defaults | overrides))
+
+
+def openai_transcription(**overrides: Any) -> Transcription:
+    return Transcription(**({"text": "Audio transcription"} | overrides))
+
+
+def openai_embedding(**overrides: Any) -> Embedding:
+    return Embedding(**({"embedding": [1.0, 0.0], "index": 0, "object": "embedding"} | overrides))
+
+
+def openai_embedding_response(**overrides: Any) -> CreateEmbeddingResponse:
+    defaults = {
+        "data": [openai_embedding()],
+        "model": "text-embedding-3-small",
+        "object": "list",
+        "usage": {"prompt_tokens": 1, "total_tokens": 1},
+    }
+    return CreateEmbeddingResponse(**(defaults | overrides))
+
+
+def ffprobe_result() -> CompletedProcess[str]:
+    payload = {
+        "streams": [
+            {"codec_type": "video", "codec_name": "h264", "pix_fmt": "yuv420p", "width": 1920, "height": 1080},
+            {"codec_type": "audio", "codec_name": "aac"},
+        ],
+        "format": {"format_name": "mp4", "duration": "12"},
+    }
+    return CompletedProcess(args = ["ffprobe"], returncode = 0, stdout = dumps(payload), stderr = "")
+
+
+def telegram_chat_member(**overrides: Any) -> ChatMemberMember:
+    defaults = {"status": "member", "user": telegram_user()}
+    return ChatMemberMember(**(defaults | overrides))
+
+
+def telegram_chat_owner(**overrides: Any) -> ChatMemberOwner:
+    defaults = {"status": "creator", "user": telegram_user(), "is_anonymous": False}
+    return ChatMemberOwner(**(defaults | overrides))
+
+
+def telegram_chat_member_left(**overrides: Any) -> ChatMemberLeft:
+    defaults = {"status": "left", "user": telegram_user()}
+    return ChatMemberLeft(**(defaults | overrides))
+
+
+def telegram_message_response(**message_overrides: Any) -> dict[str, Any]:
+    return {"ok": True, "result": telegram_message(**message_overrides).model_dump(by_alias = True)}
+
+
+def whatsapp_mark_as_read_response(**overrides: Any) -> WhatsAppMarkAsReadResponse:
+    return WhatsAppMarkAsReadResponse(**({"success": True} | overrides))
 
 
 def replicate_prediction(**overrides: Any) -> Prediction:

@@ -10,9 +10,8 @@ from fakes.fake_attachment_storage import RecordingAttachmentStorage
 from google.genai import Client as GoogleSDKClient
 from pydantic import SecretStr
 from replicate.client import Client as ReplicateSDKClient
-from sqlalchemy.orm import Session
 from stubs import domain
-from util.di_utils import FakeInterceptor, di_for_tests
+from util.di_utils import FakeInterceptor, context_local_interceptor, di_for_tests
 
 from db import sql
 from di.di import DI
@@ -51,7 +50,7 @@ class DITest(TestCase):
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
         self.enterContext(di_for_tests())
-        client = cast(BaseClient, DI().s3_client())
+        client = cast(BaseClient, DI(interceptor = lambda _: None).s3_client())
         self.addCleanup(client.close)
 
         self.assertEqual(client.meta.endpoint_url, "http://s3.invalid")
@@ -70,7 +69,7 @@ class DITest(TestCase):
             setattr(config, name, value)
         self.enterContext(di_for_tests())
 
-        client = DI().uploadcare_client()
+        client = DI(interceptor = lambda _: None).uploadcare_client()
 
         self.assertEqual(client.public_key, "public")
         self.assertEqual(client.secret_key, "private")
@@ -207,7 +206,7 @@ class DITest(TestCase):
         service = di.chat_attachment_service
         storage = di.attachment_storage
 
-        with Session(di.db.get_bind()) as session:
+        with di.new_session() as session:
             clone = di.clone(db = session, invoker_id = user.id.hex)
 
             self.assertIs(clone.db, session)
@@ -215,6 +214,20 @@ class DITest(TestCase):
             self.assertIsNot(clone.chat_attachment_service, service)
             self.assertEqual(clone.user_repo.get(user.id).id, user.id)
             self.assertIs(clone.attachment_storage, storage)
+
+    def test_session_injection_rejects_replacing_an_existing_session(self):
+        self.enterContext(di_for_tests())
+        di = DI()
+
+        with di.new_session() as db:
+            di.inject_db_session(db)
+
+            with di.new_session() as replacement:
+                with self.assertRaisesRegex(InternalError, "Database session already provided") as raised:
+                    di.inject_db_session(replacement)
+
+            self.assertEqual(raised.exception.error_code, DI_DEPENDENCY_NOT_MET)
+            self.assertIs(di.db, db)
 
     def test_clone_uses_its_own_invoker_context(self):
         first = domain.user()
@@ -310,11 +323,10 @@ class DITest(TestCase):
 
             with di_for_tests() as second:
                 self.assertIsNone(second.user_repo.get(user.id))
-                self.assertIsNot(second.attachment_storage, first.attachment_storage)
                 with self.assertRaises(FileNotFoundError):
-                    second.attachment_storage.open(attachment)
+                    DI().attachment_storage.open(attachment)
 
-            with first.attachment_storage.open(attachment) as stream:
+            with DI().attachment_storage.open(attachment) as stream:
                 self.assertEqual(stream.read(), b"first only")
 
         self.assertFalse(Path(locator.removeprefix("file://")).exists())
@@ -354,6 +366,8 @@ class DITest(TestCase):
 
     def test_failure_cleans_up_storage_and_database_without_resetting_configuration(self):
         self.addCleanup(setattr, config, "user_agent", config.user_agent)
+        enclosing_interceptor = context_local_interceptor.get()
+        original_init = DI.__init__
         database_path: Path | None = None
         storage_path: Path | None = None
 
@@ -370,9 +384,14 @@ class DITest(TestCase):
         self.assertFalse(database_path.exists())
         self.assertFalse(storage_path.exists())
         self.assertEqual(config.user_agent, "temporary setting")
+        self.assertIs(context_local_interceptor.get(), enclosing_interceptor)
+        self.assertIs(DI.__init__, original_init)
 
 
 class DIAttachmentStorageTest(TestCase):
+
+    di: DI
+    storages: dict[str, RecordingAttachmentStorage]
 
     def setUp(self):
         for name in (

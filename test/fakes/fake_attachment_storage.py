@@ -7,6 +7,9 @@ from features.chat.attachment.storage.local_attachment_storage import LocalAttac
 
 class RecordingAttachmentStorage(LocalAttachmentStorage):
 
+    ready_calls: int
+    opened_streams: list[BinaryIO]
+
     def __init__(self, root: Path):
         super().__init__(root = root)
         self.ready_calls = 0

@@ -1,96 +1,60 @@
 import asyncio
-import unittest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from uuid import UUID
+from typing import cast
+from unittest import TestCase
 
-import stubs
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
+from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.chat.message_burst_service import MessageBurstService
-from features.chat.telegram.telegram_update_responder import (
-    _ingest_update,
-    _IngressOutcome,
-    respond_to_update,
-)
+from features.chat.telegram.telegram_update_responder import _ingest_update, respond_to_update
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
+from util.config import config
 
 
-class TelegramUpdateResponderTest(unittest.TestCase):
+class TelegramUpdateResponderTest(TestCase):
+
+    di: DI
+    api: FakeTelegramBotAPI
+    model: FakeChatModel
 
     def setUp(self):
-        self.di = Mock(spec = DI)
-        self.burst_service = Mock(spec = MessageBurstService)
-        # noinspection PyPropertyAccess
-        self.di.message_burst_service = self.burst_service
-        self.di.telegram_chat_inbound_service = Mock()
+        self.di = self.enterContext(di_for_tests())
+        self.di.user_repo.save(domain.user())
+        self.di.chat_config_repo.save(domain.chat_config(external_id = "123456789"))
+        self.api = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(domain.configured_tool(), max_tokens = 500))
+        self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)
+        config.chat_burst_quiet_period_s = 0
 
     def test_command_is_processed_without_creating_burst(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        ingested = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            attachments = [],
-            raw_message_text = "hello",
-        )
-        agent = resolve_agent_user(ingested.chat.chat_type)
-        agent_handle = resolve_external_handle(agent, ingested.chat.chat_type)
-        ingested.raw_message_text = f"/help@{agent_handle}"
-        self.di.telegram_chat_inbound_service.ingest_update.return_value = ingested
-        self.burst_service.process_message.return_value = False
-        session = MagicMock()
-        with (
-            patch(
-                "features.chat.telegram.telegram_update_responder.get_detached_session",
-                return_value = session,
-            ),
-            patch(
-                "features.chat.telegram.telegram_update_responder.DI",
-                return_value = self.di,
-            ),
-        ):
-            outcome = _ingest_update(stubs.external.telegram_update())
+        chat_type = ChatConfigDB.ChatType.telegram
+        handle = resolve_external_handle(resolve_agent_user(chat_type), chat_type)
+        update = external.telegram_update(message = external.telegram_message(
+            text = f"/help@{handle}",
+            date = int(datetime.now().timestamp()),
+            **{"from": external.telegram_user()},
+        ))
+
+        outcome = _ingest_update(update)
 
         self.assertIsNone(outcome.scheduled_burst)
-        self.burst_service.process_message.assert_called_once_with(
-            ingested,
-            command_only = True,
-        )
-        self.burst_service.record.assert_not_called()
+        self.assertEqual(len(self.api.get_sent_messages("123456789")), 1)
+        self.assertEqual(self.api.get_sent_messages("123456789")[0]["link_url"], "https://example.com/short")
+        self.assertEqual(self.model.prompts, [])
 
-    def test_async_responder_offloads_ingestion_and_processing(self):
-        scheduled = stubs.domain.scheduled_chat_message_burst()
-        self.burst_service.process_after_quiet_period.return_value = True
-        with (
-            patch(
-                "features.chat.telegram.telegram_update_responder.asyncio.to_thread",
-                new = AsyncMock(return_value = _IngressOutcome(scheduled_burst = scheduled)),
-            ) as to_thread,
-            patch(
-                "features.chat.telegram.telegram_update_responder.DI",
-                return_value = self.di,
-            ) as di_factory,
-        ):
-            result = asyncio.run(respond_to_update(stubs.external.telegram_update()))
+    def test_async_responder_delivers_reply(self):
+        self.model.responses.append(external.ai_message(content = "Hello back"))
+        update = external.telegram_update(message = external.telegram_message(
+            text = "Hello",
+            date = int(datetime.now().timestamp()),
+            **{"from": external.telegram_user()},
+        ))
+
+        result = asyncio.run(respond_to_update(update))
 
         self.assertTrue(result)
-        to_thread.assert_awaited_once()
-        di_factory.assert_called_once_with(
-            invoker_id = scheduled.author_id.hex,
-            invoker_chat_id = scheduled.chat_id.hex,
-        )
-        self.burst_service.process_after_quiet_period.assert_awaited_once()
+        self.assertEqual([message["text"] for message in self.api.get_sent_messages("123456789")], ["Hello back"])

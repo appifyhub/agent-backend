@@ -11,6 +11,7 @@ from requests import ConnectionError
 from stubs import domain, external
 from util.di_utils import di_for_tests
 
+from di.di import DI
 from features.chat.attachment.storage.uploadcare_attachment_storage import (
     UPLOADCARE_PUBLIC_URL_TTL_SECONDS,
     UploadcareAttachmentStorage,
@@ -21,6 +22,11 @@ from util.errors import ExternalServiceError
 
 
 class UploadcareAttachmentStorageTest(TestCase):
+
+    di: DI
+    client: FakeUploadcareClient
+    http: FakeHTTPClient
+    storage: UploadcareAttachmentStorage
 
     def setUp(self):
         for name, value in {

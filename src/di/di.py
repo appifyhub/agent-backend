@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 
     from google.genai import Client as GoogleSDKClient
     from langchain_core.documents import Document
+    from langchain_core.language_models import BaseChatModel
     from openai import OpenAI
     from pyuploadcare import Uploadcare
     from replicate.client import Client as ReplicateSDKClient
@@ -273,6 +275,12 @@ class DI:
             raise InternalError("Database session not provided", DI_DEPENDENCY_NOT_MET)
         return self._db
 
+    @dependency()
+    def new_session(self) -> AbstractContextManager[Session]:
+        """Return a fresh session scope managed by the SQL layer."""
+        from db.sql import get_detached_session
+        return get_detached_session()
+
     def rollback_db_session(self) -> None:
         if self.db.in_transaction():
             self.db.rollback()
@@ -324,6 +332,12 @@ class DI:
         return self.invoker_chat_type
 
     # === Dynamic injections ===
+
+    def inject_db_session(self, db: Session) -> None:
+        """Attach the initial session, leaving its lifetime under the caller's control."""
+        if self._db is not None:
+            raise InternalError("Database session already provided; clone DI to use another session", DI_DEPENDENCY_NOT_MET)
+        self._db = db
 
     def inject_invoker_id(self, invoker_id: str | None):
         self._invoker_id = invoker_id
@@ -755,16 +769,22 @@ class DI:
 
     # === Features & Dynamic Instances ===
 
+    # noinspection PyMethodMayBeStatic
+    @dependency()
+    def base_chat_langchain_model(self, configured_tool: ConfiguredTool, max_tokens: int) -> "BaseChatModel":
+        from features.llm import langchain_factory
+
+        return langchain_factory.create(configured_tool, max_tokens)
+
     @dependency()
     def chat_langchain_model(
         self,
         configured_tool: ConfiguredTool,
     ) -> "ChatModelUsageTrackingDecorator":
         from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
-        from features.llm import langchain_factory
 
         resolved_max_tokens = self.__resolve_max_output_tokens(configured_tool)
-        base_model = langchain_factory.create(configured_tool, resolved_max_tokens)
+        base_model = self.base_chat_langchain_model(configured_tool, resolved_max_tokens)
         return ChatModelUsageTrackingDecorator(
             base_model,
             self.usage_tracking_service,

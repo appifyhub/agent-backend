@@ -9,15 +9,25 @@ from features.chat.attachment.storage.s3_client import S3Client
 
 class FakeS3Client(S3Client):
 
+    calls: list[tuple[str, dict[str, object]]]
+    buckets: set[str]
+    objects: dict[tuple[str, str], bytes]
+    head_bucket_error: Exception | None
+    create_bucket_error: Exception | None
+    upload_error: Exception | None
+    read_error: Exception | None
+    delete_error: Exception | None
+    omit_body: bool
+
     def __init__(self):
-        self.calls: list[tuple[str, dict[str, object]]] = []
-        self.buckets: set[str] = set()
-        self.objects: dict[tuple[str, str], bytes] = {}
-        self.head_bucket_error: Exception | None = None
-        self.create_bucket_error: Exception | None = None
-        self.upload_error: Exception | None = None
-        self.read_error: Exception | None = None
-        self.delete_error: Exception | None = None
+        self.calls = []
+        self.buckets = set()
+        self.objects = {}
+        self.head_bucket_error = None
+        self.create_bucket_error = None
+        self.upload_error = None
+        self.read_error = None
+        self.delete_error = None
         self.omit_body = False
 
     def head_bucket(self, Bucket: str) -> object:

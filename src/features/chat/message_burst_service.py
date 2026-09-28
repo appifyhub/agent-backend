@@ -5,7 +5,6 @@ from time import sleep
 from langchain_core.messages import AIMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.sql import get_detached_session
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
 from features.chat.config.chat_config import ChatConfig
@@ -198,9 +197,14 @@ class MessageBurstService:
                 return processed
 
     def __process_claimed_burst(self, claim: ClaimedChatMessageBurst) -> bool:
+        """Process a claimed burst with a session owned by this worker.
+
+        The async coordinator stays sessionless while waiting. Each asyncio.to_thread
+        phase opens and closes its own session; cloning binds fresh repositories to it.
+        """
         try:
-            with get_detached_session() as db:
-                di = self.__di.clone(db)
+            with self.__di.new_session() as db:
+                di = self.__di.clone(db = db)
                 service = di.message_burst_service
 
                 resolved_domain_data = service.load_claimed_message(claim)
@@ -249,9 +253,9 @@ class MessageBurstService:
         log.t("Replied with the error")
 
     def __claim(self, scheduled: ScheduledChatMessageBurst) -> ClaimedChatMessageBurst | None:
-        with get_detached_session() as db:
+        with self.__di.new_session() as db:
             return self.__di.clone(db).chat_message_burst_repo.claim(scheduled)
 
     def __finalize(self, claimed: ClaimedChatMessageBurst) -> ScheduledChatMessageBurst | None:
-        with get_detached_session() as db:
+        with self.__di.new_session() as db:
             return self.__di.clone(db).chat_message_burst_repo.finalize(claimed)

@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass
 
-from db.sql import get_detached_session
 from di.di import DI
 from features.chat.command_processor import is_known_command
 from features.chat.message_burst import ScheduledChatMessageBurst
@@ -24,24 +23,18 @@ async def respond_to_update(update: Update) -> bool:
     return await _process_scheduled_burst(outcome.scheduled_burst)
 
 
-async def _process_scheduled_burst(
-    scheduled: ScheduledChatMessageBurst,
-) -> bool:
-    di = DI(
-        invoker_id = scheduled.author_id.hex,
-        invoker_chat_id = scheduled.chat_id.hex,
-    )
-    return await di.message_burst_service.process_after_quiet_period(
-        scheduled = scheduled,
-    )
+async def _process_scheduled_burst(scheduled: ScheduledChatMessageBurst) -> bool:
+    di = DI(invoker_id = scheduled.author_id.hex, invoker_chat_id = scheduled.chat_id.hex)
+    return await di.message_burst_service.process_after_quiet_period(scheduled = scheduled)
 
 
 def _ingest_update(update: Update) -> _IngressOutcome:
     if config.log_telegram_update:
         log.t(f"Received a Telegram update: `{update}`")
 
-    with get_detached_session() as db:
-        di = DI(db)
+    di = DI()
+    with di.new_session() as db:
+        di.inject_db_session(db)
         try:
             # store and map to domain models (throws in case of error)
             resolved_domain_data = di.telegram_chat_inbound_service.ingest_update(update)
