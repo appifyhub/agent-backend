@@ -1,165 +1,41 @@
-import unittest
-from datetime import date, datetime
-from unittest.mock import Mock, patch
+from dataclasses import replace
+from datetime import date
+from unittest import TestCase
 from uuid import UUID
 
 import stubs
 from pydantic import SecretStr
+from util.di_utils import di_for_tests
 
-from db.model.chat_message import ChatMessageDB
-from db.model.price_alert import PriceAlertDB
-from db.model.sponsorship import SponsorshipDB
 from db.model.user import UserDB
+from di.di import DI
 from features.connect.profile_connect_service import ProfileConnectService
 from features.users.user import User, generate_connect_key
 
 
-class ProfileConnectServiceTest(unittest.TestCase):
+class ProfileConnectServiceTest(TestCase):
+
+    di: DI
+    service: ProfileConnectService
+    requester: User
+    target: User
 
     def setUp(self):
-        self.mock_user_repo = Mock()
-        mock_di = Mock()
-        mock_di.user_repo = self.mock_user_repo
-        mock_db = Mock()
-        transaction_mock = Mock()
-        transaction_mock.is_active = True
-
-        def _commit_side_effect():
-            transaction_mock.is_active = False
-
-        def _rollback_side_effect():
-            transaction_mock.is_active = False
-
-        transaction_mock.commit.side_effect = _commit_side_effect
-        transaction_mock.rollback.side_effect = _rollback_side_effect
-        mock_db.begin.return_value = transaction_mock
-        nested_transaction_mock = Mock()
-        mock_db.begin_nested.return_value = nested_transaction_mock
-        mock_db.in_transaction.return_value = False
-        mock_db.rollback = Mock()
-        self.query_calls = []
-
-        def make_query(model):
-            query = Mock(name = f"query_{getattr(model, '__name__', 'unknown')}")
-            query.model = model
-            query.filter_calls = []
-            query.update_calls = []
-            query.delete_calls = []
-
-            def filter_side_effect(*conditions):
-                query.filter_calls.append(conditions)
-                return query
-
-            def update_side_effect(values, **kwargs):
-                query.update_calls.append((values, kwargs))
-                return 1
-
-            def delete_side_effect(**kwargs):
-                query.delete_calls.append(kwargs)
-                return 1
-
-            query.filter.side_effect = filter_side_effect
-            query.update.side_effect = update_side_effect
-            query.delete.side_effect = delete_side_effect
-            self.query_calls.append(query)
-            return query
-
-        mock_db.query.side_effect = make_query
-        mock_di.db = mock_db
-        self.service = ProfileConnectService(mock_di)
-
-    def _assert_filter_conditions(self, query_mock: Mock, expected_conditions: list):
-        self.assertEqual(len(query_mock.filter_calls), 1)
-        actual_conditions = query_mock.filter_calls[0]
-        self.assertEqual(len(actual_conditions), len(expected_conditions))
-        for actual, expected in zip(actual_conditions, expected_conditions):
-            self.assertTrue(actual.compare(expected))
-
-    def _assert_single_update(self, query_mock: Mock, expected_values: dict):
-        self.assertEqual(len(query_mock.update_calls), 1)
-        values, kwargs = query_mock.update_calls[0]
-        self.assertEqual(values, expected_values)
-        self.assertEqual(kwargs, {"synchronize_session": False})
-
-    def _assert_single_delete(self, query_mock: Mock):
-        self.assertEqual(len(query_mock.delete_calls), 1)
-        self.assertEqual(query_mock.delete_calls[0], {"synchronize_session": False})
-
-    def _assert_migration_queries(self, survivor_id: UUID, casualty_id: UUID):
-        chat_query = next(query for query in self.query_calls if query.model is ChatMessageDB)
-        self._assert_filter_conditions(chat_query, [ChatMessageDB.author_id == casualty_id])
-        self._assert_single_update(chat_query, {ChatMessageDB.author_id: survivor_id})
-
-        price_query = next(query for query in self.query_calls if query.model is PriceAlertDB)
-        self._assert_filter_conditions(price_query, [PriceAlertDB.owner_id == casualty_id])
-        self._assert_single_update(price_query, {PriceAlertDB.owner_id: survivor_id})
-
-        sponsorship_queries = [query for query in self.query_calls if query.model is SponsorshipDB]
-        self.assertEqual(len(sponsorship_queries), 4)
-
-        self._assert_filter_conditions(
-            sponsorship_queries[0],
-            [
-                SponsorshipDB.sponsor_id == casualty_id,
-                SponsorshipDB.receiver_id == survivor_id,
-            ],
-        )
-        self._assert_single_delete(sponsorship_queries[0])
-
-        self._assert_filter_conditions(
-            sponsorship_queries[1],
-            [SponsorshipDB.sponsor_id == casualty_id],
-        )
-        self._assert_single_update(
-            sponsorship_queries[1],
-            {SponsorshipDB.sponsor_id: survivor_id},
-        )
-
-        self._assert_filter_conditions(
-            sponsorship_queries[2],
-            [
-                SponsorshipDB.sponsor_id == survivor_id,
-                SponsorshipDB.receiver_id == casualty_id,
-            ],
-        )
-        self._assert_single_delete(sponsorship_queries[2])
-
-        self._assert_filter_conditions(
-            sponsorship_queries[3],
-            [SponsorshipDB.receiver_id == casualty_id],
-        )
-        self._assert_single_update(
-            sponsorship_queries[3],
-            {SponsorshipDB.receiver_id: survivor_id},
-        )
-
-    def _validate_connection(self, requester: User, target: User) -> str | None:
-        validate_connection = getattr(
-            self.service,
-            "_ProfileConnectService__validate_connection",
-        )
-        return validate_connection(requester, target)
-
-    def _classify_profiles(self, user1: User, user2: User) -> tuple[User, User]:
-        classify_profiles = getattr(
-            self.service,
-            "_ProfileConnectService__classify_profiles",
-        )
-        return classify_profiles(user1, user2)
-
-    def _merge_user_data(self, survivor: User, casualty: User) -> User:
-        merge_user_data = getattr(
-            self.service,
-            "_ProfileConnectService__merge_user_data",
-        )
-        return merge_user_data(survivor, casualty)
-
-    def _migrate_dependent_entities(self, survivor_id: UUID, casualty_id: UUID) -> None:
-        migrate = getattr(
-            self.service,
-            "_ProfileConnectService__migrate_dependent_entities",
-        )
-        migrate(survivor_id, casualty_id)
+        self.di = self.enterContext(di_for_tests())
+        self.service = self.di.profile_connect_service
+        self.requester = self.di.user_repo.save(stubs.domain.user(
+            whatsapp_user_id = None,
+            whatsapp_phone_number = None,
+            created_at = date(2023, 1, 1),
+        ))
+        self.target = self.di.user_repo.save(stubs.domain.user(
+            id = UUID("22222222-2222-4222-8222-b22222222222"),
+            telegram_user_id = None,
+            telegram_username = None,
+            telegram_chat_id = None,
+            connect_key = "TARGET-KEY-1234",
+            created_at = date(2024, 1, 1),
+        ))
 
     def test_generate_connect_key(self):
         key = generate_connect_key()
@@ -171,84 +47,63 @@ class ProfileConnectServiceTest(unittest.TestCase):
         self.assertTrue(key.replace("-", "").isupper())
         self.assertTrue(key.replace("-", "").isalnum())
 
-    def test_validate_connection_same_user(self):
-        user1 = stubs.domain.user()
-        result = self._validate_connection(user1, user1)
+    def test_connect_profiles_same_user(self):
+        result, message = self.service.connect_profiles(self.requester, self.requester.connect_key)
 
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIn("Cannot connect a profile to itself", result)
+        self.assertEqual(result, ProfileConnectService.Result.failure)
+        self.assertIn("Cannot connect a profile to itself", message)
+        self.assertEqual(self.di.user_repo.get(self.requester.id), self.requester)
 
-    def test_validate_connection_both_telegram_only(self):
-        user1 = stubs.domain.user(
-            id = UUID(int = 1),
-            telegram_user_id = 123,
-            whatsapp_user_id = None,
-        )
-        user2 = stubs.domain.user(
-            id = UUID(int = 2),
+    def test_connect_profiles_both_telegram_only(self):
+        target = self.di.user_repo.save(replace(
+            self.target,
             telegram_user_id = 456,
+            telegram_username = "target_user",
+            telegram_chat_id = "456",
             whatsapp_user_id = None,
-        )
+            whatsapp_phone_number = None,
+        ))
 
-        result = self._validate_connection(user1, user2)
+        result, message = self.service.connect_profiles(self.requester, target.connect_key)
 
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIn("Telegram only", result)
+        self.assertEqual(result, ProfileConnectService.Result.failure)
+        self.assertIn("Telegram only", message)
+        self.assertEqual(self.di.user_repo.get(self.requester.id), self.requester)
+        self.assertEqual(self.di.user_repo.get(target.id), target)
 
-    def test_validate_connection_both_whatsapp_only(self):
-        user1 = stubs.domain.user(
-            id = UUID(int = 1),
+    def test_connect_profiles_both_whatsapp_only(self):
+        requester = self.di.user_repo.save(replace(
+            self.requester,
             telegram_user_id = None,
-            whatsapp_user_id = "123",
-        )
-        user2 = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_user_id = None,
-            whatsapp_user_id = "456",
-        )
+            telegram_username = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = "wa-requester",
+            whatsapp_phone_number = SecretStr("+15559876543"),
+        ))
 
-        result = self._validate_connection(user1, user2)
+        result, message = self.service.connect_profiles(requester, self.target.connect_key)
 
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIn("WhatsApp only", result)
+        self.assertEqual(result, ProfileConnectService.Result.failure)
+        self.assertIn("WhatsApp only", message)
+        self.assertEqual(self.di.user_repo.get(requester.id), requester)
+        self.assertEqual(self.di.user_repo.get(self.target.id), self.target)
 
-    def test_validate_connection_different_platforms_valid(self):
-        user1 = stubs.domain.user(
-            id = UUID(int = 1),
-            telegram_user_id = 123,
-            whatsapp_user_id = None,
-        )
-        user2 = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_user_id = None,
-            whatsapp_user_id = "456",
-        )
+    def test_connect_profiles_preserves_older_target(self):
+        result, _ = self.service.connect_profiles(self.target, self.requester.connect_key)
 
-        result = self._validate_connection(user1, user2)
+        self.assertEqual(result, ProfileConnectService.Result.success)
+        survivor = self.di.user_repo.get(self.requester.id)
+        self.assertIsNotNone(survivor)
+        assert survivor is not None
+        self.assertEqual(survivor.created_at, self.requester.created_at)
+        self.assertEqual(survivor.telegram_user_id, self.requester.telegram_user_id)
+        self.assertEqual(survivor.whatsapp_user_id, self.target.whatsapp_user_id)
+        self.assertIsNone(self.di.user_repo.get(self.target.id))
 
-        self.assertIsNone(result)
-
-    def test_classify_profiles_older_wins(self):
-        older_date = datetime(2023, 1, 1).date()
-        newer_date = datetime(2024, 1, 1).date()
-
-        user1 = stubs.domain.user(id = UUID(int = 1), created_at = older_date)
-        user2 = stubs.domain.user(id = UUID(int = 2), created_at = newer_date)
-
-        survivor, deleted = self._classify_profiles(user1, user2)
-
-        self.assertEqual(survivor.id, user1.id)
-        self.assertEqual(deleted.id, user2.id)
-
-    def test_merge_user_data_prefer_non_null(self):
-        survivor = stubs.domain.user(
-            id = UUID(int = 1),
+    def test_connect_profiles_merges_user_data(self):
+        survivor = self.di.user_repo.save(replace(
+            self.requester,
             full_name = "Survivor",
-            telegram_user_id = 123,
-            whatsapp_user_id = None,
             is_invited_to_start = False,
             open_ai_key = SecretStr("survivor-key"),
             anthropic_key = None,
@@ -258,10 +113,10 @@ class ProfileConnectServiceTest(unittest.TestCase):
             tool_choice_api_stock_quote = None,
             tool_choice_images_gen = None,
             tool_choice_videos_gen = None,
-        )
-        deleted = stubs.domain.user(
-            id = UUID(int = 2),
-            whatsapp_user_id = "456",
+        ))
+        casualty = self.di.user_repo.save(replace(
+            self.target,
+            full_name = "Casualty",
             are_policies_accepted = False,
             anthropic_key = SecretStr("deleted-key"),
             twelve_data_api_key = SecretStr("deleted-twelve-data-key"),
@@ -269,113 +124,127 @@ class ProfileConnectServiceTest(unittest.TestCase):
             x_ai_key = SecretStr("deleted-x-ai-key"),
             credit_balance = 50.0,
             group = UserDB.Group.developer,
+        ))
+
+        result, _ = self.service.connect_profiles(survivor, casualty.connect_key)
+
+        self.assertEqual(result, ProfileConnectService.Result.success)
+        merged = self.di.user_repo.get(survivor.id)
+        self.assertIsNotNone(merged)
+        assert merged is not None
+        self.assertEqual(merged.full_name, survivor.full_name)
+        self.assertEqual(merged.telegram_user_id, survivor.telegram_user_id)
+        self.assertEqual(merged.whatsapp_user_id, casualty.whatsapp_user_id)
+        self.assertEqual(merged.open_ai_key, survivor.open_ai_key)
+        self.assertEqual(merged.anthropic_key, casualty.anthropic_key)
+        self.assertEqual(merged.twelve_data_api_key, casualty.twelve_data_api_key)
+        self.assertEqual(merged.x_key, casualty.x_key)
+        self.assertEqual(merged.x_ai_key, casualty.x_ai_key)
+        self.assertEqual(merged.tool_choice_api_stock_quote, casualty.tool_choice_api_stock_quote)
+        self.assertEqual(merged.tool_choice_images_gen, casualty.tool_choice_images_gen)
+        self.assertEqual(merged.tool_choice_videos_gen, casualty.tool_choice_videos_gen)
+        self.assertEqual(merged.credit_balance, 150.0)
+        self.assertEqual(merged.group, UserDB.Group.developer)
+        self.assertTrue(merged.are_policies_accepted)
+        self.assertFalse(merged.is_on_waitlist)
+        self.assertFalse(merged.is_invited_to_start)
+
+    def test_connect_profiles_resets_invite_when_merged_user_is_active(self):
+        requester = self.di.user_repo.save(replace(self.requester, is_invited_to_start = False))
+        target = self.di.user_repo.save(replace(self.target, is_on_waitlist = True, are_policies_accepted = False))
+
+        result, _ = self.service.connect_profiles(requester, target.connect_key)
+
+        self.assertEqual(result, ProfileConnectService.Result.success)
+        merged = self.di.user_repo.get(requester.id)
+        self.assertIsNotNone(merged)
+        assert merged is not None
+        self.assertFalse(merged.is_on_waitlist)
+        self.assertFalse(merged.is_invited_to_start)
+        self.assertTrue(merged.are_policies_accepted)
+
+    def test_connect_profiles_moves_related_records(self):
+        other_user = self.di.user_repo.save(stubs.domain.user(
+            id = UUID("33333333-3333-4333-8333-c33333333333"),
+            telegram_user_id = 789,
+            telegram_chat_id = "789",
+            whatsapp_user_id = None,
+            whatsapp_phone_number = None,
+            connect_key = "OTHER-KEY-1234",
+        ))
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
+        message = self.di.chat_message_repo.save(stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = self.target.id,
+        ))
+        alert = self.di.price_alert_repo.save(stubs.domain.price_alert(
+            chat_id = chat.chat_id,
+            owner_id = self.target.id,
+        ))
+        outgoing = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.target.id,
+            receiver_id = other_user.id,
+        ))
+        incoming = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = other_user.id,
+            receiver_id = self.target.id,
+        ))
+        self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.requester.id,
+            receiver_id = self.target.id,
+        ))
+        self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.target.id,
+            receiver_id = self.requester.id,
+        ))
+
+        result, _ = self.service.connect_profiles(self.requester, self.target.connect_key)
+
+        self.assertEqual(result, ProfileConnectService.Result.success)
+        self.assertEqual(
+            self.di.chat_message_repo.get(chat.chat_id, message.message_id),
+            replace(message, author_id = self.requester.id),
         )
-
-        merged = self._merge_user_data(survivor, deleted)
-
-        self.assertEqual(merged.full_name, "Survivor")  # Survivor has value
-        self.assertEqual(merged.telegram_user_id, 123)  # Survivor has value
-        self.assertEqual(merged.whatsapp_user_id, "456")  # Deleted has value, survivor doesn't
-        self.assertEqual(merged.open_ai_key, survivor.open_ai_key)  # Survivor has value
-        self.assertEqual(merged.anthropic_key, deleted.anthropic_key)  # Deleted has value, survivor doesn't
-        self.assertEqual(merged.twelve_data_api_key, deleted.twelve_data_api_key)
-        self.assertEqual(merged.x_key, deleted.x_key)  # Deleted has value, survivor doesn't
-        self.assertEqual(merged.x_ai_key, deleted.x_ai_key)  # Deleted has value, survivor doesn't
-        self.assertEqual(merged.tool_choice_api_stock_quote, deleted.tool_choice_api_stock_quote)
-        self.assertEqual(merged.tool_choice_images_gen, deleted.tool_choice_images_gen)
-        self.assertEqual(merged.tool_choice_videos_gen, deleted.tool_choice_videos_gen)
-        self.assertEqual(merged.credit_balance, 150.0)  # Credit balances are summed
-        self.assertEqual(merged.group, UserDB.Group.developer)  # Developer group takes precedence
-        self.assertTrue(merged.are_policies_accepted)
-        self.assertFalse(merged.is_on_waitlist)
-        self.assertFalse(merged.is_invited_to_start)
-
-    def test_merge_user_data_resets_invite_when_merged_user_is_active(self):
-        survivor = stubs.domain.user(is_invited_to_start = False)
-        casualty = stubs.domain.user(is_on_waitlist = True, are_policies_accepted = False)
-
-        merged = self._merge_user_data(survivor, casualty)
-        self.assertFalse(merged.is_on_waitlist)
-        self.assertFalse(merged.is_invited_to_start)
-        self.assertTrue(merged.are_policies_accepted)
-
-    def test_migrate_dependent_entities_moves_related_records(self):
-        survivor_id = UUID(int = 1)
-        casualty_id = UUID(int = 2)
-
-        self._migrate_dependent_entities(survivor_id, casualty_id)
-
-        self.assertEqual(len(self.query_calls), 6)
-        self._assert_migration_queries(survivor_id, casualty_id)
+        self.assertEqual(
+            self.di.price_alert_repo.get(chat.chat_id, alert.asset_type, alert.asset_id, alert.currency),
+            replace(alert, owner_id = self.requester.id),
+        )
+        self.assertCountEqual(self.di.sponsorship_repo.get_all(), [
+            replace(outgoing, sponsor_id = self.requester.id),
+            replace(incoming, receiver_id = self.requester.id),
+        ])
 
     def test_connect_profiles_invalid_key(self):
-        requester = stubs.domain.user()
-        self.mock_user_repo.get_by_connect_key.return_value = None
-
-        result, message = self.service.connect_profiles(requester, "INVALID-KEY-HERE")
+        result, message = self.service.connect_profiles(self.requester, "INVALID-KEY-HERE")
 
         self.assertEqual(result, ProfileConnectService.Result.failure)
         self.assertIn("Invalid connect key", message)
+        self.assertEqual(self.di.user_repo.get(self.requester.id), self.requester)
+        self.assertEqual(self.di.user_repo.get(self.target.id), self.target)
 
-    @patch("features.connect.profile_connect_service.generate_connect_key", return_value = "ABCD-EFGH-IJKL")
-    def test_connect_profiles_success(self, mock_generate: Mock):
-        survivor_user = stubs.domain.user(
-            id = UUID(int = 1),
-            telegram_user_id = 123,
-            whatsapp_user_id = None,
-            connect_key = "SURV-KEY-AAAA",
-            created_at = date(2023, 1, 1),
-        )
-        casualty_id = UUID(int = 2)
-        target_connect_key = "CAST-KEY-BBBB"
-        casualty = stubs.domain.user(
-            id = casualty_id,
-            telegram_user_id = None,
-            whatsapp_user_id = "wa-456",
-            created_at = date(2024, 1, 1),
-        )
-
-        self.mock_user_repo.get_by_connect_key.return_value = casualty
-        self.mock_user_repo.save.side_effect = lambda user, commit = True: user
-        self.mock_user_repo.delete.return_value = casualty
-
-        result, message = self.service.connect_profiles(survivor_user, target_connect_key)
+    def test_connect_profiles_success(self):
+        result, message = self.service.connect_profiles(self.requester, self.target.connect_key)
 
         self.assertEqual(result, ProfileConnectService.Result.success)
         self.assertEqual(
             message,
             "Profiles connected successfully! Data was merged and you have a new connect key on the new joint profile.",
         )
-        self.assertEqual(self.mock_user_repo.delete.call_count, 1)
-        self.assertEqual(self.mock_user_repo.save.call_count, 2)
-        first_saved_user = self.mock_user_repo.save.call_args_list[0].args[0]
-        self.assertIsInstance(first_saved_user, User)
-        self.assertEqual(first_saved_user.id, survivor_user.id)
-        self.assertEqual(first_saved_user.whatsapp_user_id, casualty.whatsapp_user_id)
-        self.assertEqual(first_saved_user.connect_key, survivor_user.connect_key)
-        second_saved_user = self.mock_user_repo.save.call_args_list[1].args[0]
-        self.assertIsInstance(second_saved_user, User)
-        self.assertEqual(second_saved_user.connect_key, "ABCD-EFGH-IJKL")
-        self.mock_user_repo.delete.assert_called_once_with(casualty_id, commit = False)
-        first_save_call = self.mock_user_repo.save.call_args_list[0]
-        self.assertEqual(first_save_call.kwargs, {"commit": False})
-        second_save_call = self.mock_user_repo.save.call_args_list[1]
-        self.assertEqual(second_save_call.kwargs, {"commit": False})
-        mock_generate.assert_called_once()
-        self.assertGreaterEqual(len(self.query_calls), 6)
-        self._assert_migration_queries(survivor_user.id, casualty_id)
+        survivor = self.di.user_repo.get(self.requester.id)
+        self.assertIsNotNone(survivor)
+        assert survivor is not None
+        self.assertEqual(survivor.telegram_user_id, self.requester.telegram_user_id)
+        self.assertEqual(survivor.whatsapp_user_id, self.target.whatsapp_user_id)
+        self.assertIsNone(self.di.user_repo.get(self.target.id))
+        self.assertNotIn(survivor.connect_key, (self.requester.connect_key, self.target.connect_key))
+        self.assertEqual(self.di.user_repo.get_by_connect_key(survivor.connect_key), survivor)
+        self.assertIsNone(self.di.user_repo.get_by_connect_key(self.requester.connect_key))
+        self.assertIsNone(self.di.user_repo.get_by_connect_key(self.target.connect_key))
 
-    @patch("features.connect.profile_connect_service.generate_connect_key", return_value = "NEW-KEY-9999")
-    def test_regenerate_connect_key(self, mock_generate: Mock):
-        user = stubs.domain.user()
-        updated_user = stubs.domain.user(connect_key = "NEW-KEY-9999")
-        self.mock_user_repo.save.return_value = updated_user
+    def test_regenerate_connect_key(self):
+        new_key = self.service.regenerate_connect_key(self.requester)
 
-        new_key = self.service.regenerate_connect_key(user)
-
-        self.assertEqual(new_key, "NEW-KEY-9999")
-        self.mock_user_repo.save.assert_called_once()
-        saved_payload = self.mock_user_repo.save.call_args.args[0]
-        self.assertIsInstance(saved_payload, User)
-        self.assertEqual(saved_payload.connect_key, "NEW-KEY-9999")
-        mock_generate.assert_called_once()
+        self.assertNotEqual(new_key, self.requester.connect_key)
+        self.assertRegex(new_key, r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
+        self.assertEqual(self.di.user_repo.get(self.requester.id), replace(self.requester, connect_key = new_key))
+        self.assertIsNone(self.di.user_repo.get_by_connect_key(self.requester.connect_key))
