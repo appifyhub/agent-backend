@@ -1,6 +1,5 @@
 import unittest
 import uuid
-from unittest.mock import patch
 
 import stubs
 
@@ -75,23 +74,23 @@ class UsageRecordMapperTest(unittest.TestCase):
         self.assertIsNone(domain_obj)
 
     def test_db_to_domain_deprecated_tool_and_purpose(self):
-        # Test case where tool is not found in library and purpose is invalid
+        # test case where tool is not found in library and purpose is invalid
         record = stubs.db.usage_record_db(
+            tool_id = "retired-test-tool",
             purpose = "unknown_purpose_that_does_not_exist",
         )
 
-        with patch("features.accounting.usage.usage_record_mapper.ALL_EXTERNAL_TOOLS", []):
-            domain_obj = domain(record)
+        domain_obj = domain(record)
 
-            self.assertIsInstance(domain_obj, UsageRecord)
-            # Should have reconstructed a deprecated tool
-            self.assertEqual(domain_obj.tool.id, record.tool_id)
-            self.assertEqual(domain_obj.tool.name, record.tool_name)
-            self.assertEqual(domain_obj.tool.types, [])
-            self.assertEqual(domain_obj.tool.provider.id, record.provider_id)
-            self.assertEqual(domain_obj.tool.provider.name, record.provider_name)
-            # Purpose should fall back to deprecated
-            self.assertEqual(domain_obj.tool_purpose, ToolType.deprecated)
+        self.assertIsInstance(domain_obj, UsageRecord)
+        # should have reconstructed a deprecated tool
+        self.assertEqual(domain_obj.tool.id, record.tool_id)
+        self.assertEqual(domain_obj.tool.name, record.tool_name)
+        self.assertEqual(domain_obj.tool.types, [])
+        self.assertEqual(domain_obj.tool.provider.id, record.provider_id)
+        self.assertEqual(domain_obj.tool.provider.name, record.provider_name)
+        # purpose should fall back to deprecated
+        self.assertEqual(domain_obj.tool_purpose, ToolType.deprecated)
 
     def test_db_to_domain_null_participant_details(self):
         record = stubs.db.usage_record_db(participant_details = None)

@@ -1,349 +1,235 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock, patch
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
+from fakes.fake_replicate_client import FakeReplicateClient
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
-from features.accounting.usage.decorators import replicate_usage_tracking_decorator
-from features.accounting.usage.decorators.replicate_usage_tracking_decorator import (
-    PredictionUsageTrackingDecorator,
-    ReplicateUsageTrackingDecorator,
-)
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
+from di.di import DI
+from features.accounting.usage.decorators.replicate_usage_tracking_decorator import ReplicateUsageTrackingDecorator
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from util.errors import ExternalServiceError
+from features.external_tools.external_tool_library import IMAGE_GEN_EDIT_FLUX_2_PRO, VIDEO_GEN_P_VIDEO
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR, VIDEO_GENERATION_FAILED
+from util.errors import ExternalServiceError, ValidationError
 
 
-class ReplicateUsageTrackingDecoratorTest(unittest.TestCase):
+class ReplicateUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    client: FakeReplicateClient
+    decorator: ReplicateUsageTrackingDecorator
 
     def setUp(self):
-        self.image_size = "512x512"
-        self.mock_client = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_image_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = IMAGE_GEN_EDIT_FLUX_2_PRO.id),
+            purpose = ToolType.images_gen,
+            uses_credits = True,
         )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
+        self.client = cast(FakeReplicateClient, self.di.base_replicate_client(self.tool.token.get_secret_value()))
+        self.decorator = self.di.replicate_client(self.tool, output_image_sizes = ["1k"])
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
 
-        self.decorator = ReplicateUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
+    def test_create_defers_accounting_until_wait_and_exposes_prediction(self):
+        response = stubs.external.replicate_prediction(output = ["https://example.com/image.png"], logs = "done")
+        self.client.predictions.responses.append(response)
 
-    def test_predictions_property_returns_proxy(self):
-        predictions = self.decorator.predictions
+        prediction = self.decorator.predictions.create(input = {"prompt": "test"})
 
-        self.assertIsNotNone(predictions)
+        self.assertEqual(self.client.predictions.requests, [("create", {"input": {"prompt": "test"}})])
+        self.assertEqual(prediction.id, response.id)
+        self.assertEqual(prediction.output, response.output)
+        self.assertEqual(prediction.logs, "done")
+        self.assertEqual(prediction.status, "succeeded")
+        self.assertIsNone(prediction.error)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
-    def test_create_returns_wrapped_prediction(self):
-        mock_prediction = Mock()
-        self.mock_client.predictions.create = Mock(return_value = mock_prediction)
+    def test_other_prediction_methods_pass_through_without_tracking(self):
+        response = stubs.external.replicate_prediction()
+        self.client.predictions.updates[response.id].append(response)
 
-        result = self.decorator.predictions.create(input = {"prompt": "test"})
-
-        self.assertIsInstance(result, PredictionUsageTrackingDecorator)
-        self.mock_client.predictions.create.assert_called_once_with(input = {"prompt": "test"})
-
-    def test_other_predictions_methods_pass_through(self):
-        self.mock_client.predictions.list = Mock(return_value = ["pred1", "pred2"])
-
-        result = self.decorator.predictions.list()
-
-        self.assertEqual(result, ["pred1", "pred2"])
+        self.assertEqual(self.decorator.predictions.get(response.id), response)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
 
     def test_client_attributes_pass_through(self):
-        self.mock_client.some_attribute = "test_value"
+        self.assertEqual(self.decorator.poll_interval, self.client.poll_interval)
 
-        result = self.decorator.some_attribute
+    def test_create_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
 
-        self.assertEqual(result, "test_value")
+        with self.assertRaises(ValidationError) as raised:
+            self.decorator.predictions.create(input = {"prompt": "test"})
 
-    def test_create_calls_validate_pre_flight(self):
-        mock_prediction = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = ReplicateUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.predictions.requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
+
+    def test_video_create_preflights_size_and_duration(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 2.5))
+        tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = VIDEO_GEN_P_VIDEO.id),
+            purpose = ToolType.videos_gen,
+            uses_credits = True,
         )
-        self.mock_client.predictions.create = Mock(return_value = mock_prediction)
+        decorator = self.di.replicate_client(tool, output_video_size = "2K", output_video_duration_seconds = 10)
 
-        decorator.predictions.create(input = {"prompt": "test"})
+        with self.assertRaises(ValidationError) as raised:
+            decorator.predictions.create(input = {"prompt": "test"})
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
-            configured_tool,
-            input_image_sizes = None,
-            output_image_sizes = [self.image_size],
-            output_video_size = None,
-            output_video_duration_seconds = None,
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.predictions.requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
+
+    def test_wait_tracks_usage_and_deducts_credits_once(self):
+        initial = stubs.external.replicate_prediction(status = "processing")
+        self.client.predictions.responses.append(initial)
+        self.client.predictions.updates[initial.id].append(stubs.external.replicate_prediction(
+            metrics = {"predict_time": 1.5}, output = ["https://example.com/image.png"],
+        ))
+        prediction = self.decorator.predictions.create(input = {"prompt": "test"})
+
+        self.assertIsNone(prediction.wait())
+        self.assertIsNone(prediction.wait())
+
+        self.assertEqual(prediction.output, ["https://example.com/image.png"])
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "get"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.tool.id, self.tool.definition.id)
+        self.assertEqual(record.tool_purpose, ToolType.images_gen)
+        self.assertEqual(record.output_image_sizes, ["1k"])
+        self.assertEqual(record.remote_runtime_seconds, 1.5)
+        self.assertTrue(record.uses_credits)
+        self.assertFalse(record.is_failed)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
         )
-
-    def test_create_releases_db_session_after_preflight_and_before_provider_call(self):
-        events = []
-        mock_prediction = Mock()
-        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
-        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
-        self.mock_client.predictions.create = Mock(
-            side_effect = lambda **kwargs: events.append("provider") or mock_prediction,
-        )
-
-        self.decorator.predictions.create(input = {"prompt": "test"})
-
-        self.assertEqual(events, ["preflight", "rollback", "provider"])
-
-    def test_video_create_preflights_mapped_size_and_duration_and_returns_wrapped_prediction(self):
-        mock_prediction = Mock()
-        self.mock_client.predictions.create = Mock(return_value = mock_prediction)
-        configured_tool = stubs.domain.configured_tool(
-            purpose = ToolType.images_gen,
-        )
-        decorator = ReplicateUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_video_size = "2K",
-            output_video_duration_seconds = 10,
-        )
-
-        prediction = decorator.predictions.create(input = {"prompt": "test"})
-
-        self.assertIsInstance(prediction, PredictionUsageTrackingDecorator)
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
-            configured_tool,
-            input_image_sizes = None,
-            output_image_sizes = None,
-            output_video_size = "2K",
-            output_video_duration_seconds = 10,
-        )
-
-
-class PredictionUsageTrackingDecoratorTest(unittest.TestCase):
-
-    def setUp(self):
-        self.image_size = "512x512"
-        self.mock_prediction = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_image_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
-        )
-        self.mock_tracking_service.track_video_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 20.0),
-        )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-
-        self.decorator = PredictionUsageTrackingDecorator(
-            wrapped_prediction = self.mock_prediction,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-
-    def test_wait_tracks_usage(self):
-        self.mock_prediction.metrics = Mock()
-        self.mock_prediction.metrics.predict_time = 1.5
-        self.mock_prediction.wait.return_value = "result"
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = PredictionUsageTrackingDecorator(
-            wrapped_prediction = self.mock_prediction,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-
-        result = decorator.wait()
-
-        self.assertEqual(result, "result")
-        self.mock_tracking_service.track_image_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.images_gen)
-        self.assertEqual(call_args.kwargs["output_image_sizes"], [self.image_size])
-        self.assertEqual(call_args.kwargs["remote_runtime_seconds"], 1.5)
-        self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
-        self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
-
-    def test_wait_releases_db_session_before_provider_wait(self):
-        events = []
-        self.mock_prediction.metrics = None
-        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
-        self.mock_prediction.wait = Mock(side_effect = lambda: events.append("provider") or "result")
-
-        def track_image_model(**kwargs):
-            events.append("accounting")
-            return stubs.domain.usage_record(total_cost_credits = 10.0)
-
-        self.mock_tracking_service.track_image_model.side_effect = track_image_model
-
-        self.decorator.wait()
-
-        self.assertEqual(events, ["rollback", "provider", "accounting"])
 
     def test_wait_measures_runtime(self):
-        self.mock_prediction.metrics = None
+        self.client.predictions.responses.append(stubs.external.replicate_prediction())
+        # the wrapper measures from creation through wait; control only the system clock
+        with patch("features.accounting.usage.decorators.replicate_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            prediction = self.decorator.predictions.create(input = {"prompt": "test"})
+            prediction.wait()
 
-        def slow_wait():
-            sleep(0.01)
-            return "result"
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
-        self.mock_prediction.wait = slow_wait
+    def test_wait_without_numeric_metrics(self):
+        for metrics in (None, {"predict_time": "not_a_number"}):
+            with self.subTest(metrics = metrics):
+                self.client.predictions.responses.append(stubs.external.replicate_prediction(metrics = metrics))
+                prediction = self.decorator.predictions.create(input = {"prompt": "test"})
 
-        self.decorator.wait()
+                prediction.wait()
 
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
-
-    def test_wait_with_no_metrics(self):
-        self.mock_prediction.metrics = None
-        self.mock_prediction.wait = Mock(return_value = "result")
-
-        self.decorator.wait()
-
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIsNone(call_args.kwargs["remote_runtime_seconds"])
-
-    def test_wait_tracks_only_once(self):
-        self.mock_prediction.metrics = None
-        self.mock_prediction.wait = Mock(return_value = None)
-
-        self.decorator.wait()
-        self.decorator.wait()
-
-        self.mock_prediction.wait.assert_called_once_with()
-        self.assertEqual(self.mock_tracking_service.track_image_model.call_count, 1)
-
-    def test_wait_with_non_numeric_gpu_time(self):
-        self.mock_prediction.metrics = Mock()
-        self.mock_prediction.metrics.predict_time = "not_a_number"
-        self.mock_prediction.wait = Mock(return_value = "result")
-
-        self.decorator.wait()
-
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIsNone(call_args.kwargs["remote_runtime_seconds"])
-
-    def test_prediction_attributes_pass_through(self):
-        self.mock_prediction.status = "succeeded"
-
-        result = self.decorator.status
-
-        self.assertEqual(result, "succeeded")
+                record = self.di.usage_record_repo.get_by_user(self.user.id)[0]
+                self.assertIsNone(record.remote_runtime_seconds)
 
     def test_wait_failure_is_cached_and_tracks_without_deduction(self):
-        error = RuntimeError("Prediction failed")
-        self.mock_prediction.wait = Mock(side_effect = error)
+        initial = stubs.external.replicate_prediction(status = "processing")
+        error = ExternalServiceError("Prediction failed", UNEXPECTED_ERROR)
+        self.client.predictions.responses.append(initial)
+        self.client.predictions.updates[initial.id].append(error)
+        prediction = self.decorator.predictions.create(input = {"prompt": "test"})
 
-        with self.assertRaises(RuntimeError) as first_context:
-            self.decorator.wait()
-        with self.assertRaises(RuntimeError) as second_context:
-            self.decorator.wait()
+        with self.assertRaises(ExternalServiceError) as first:
+            prediction.wait()
+        with self.assertRaises(ExternalServiceError) as second:
+            prediction.wait()
 
-        self.assertIs(first_context.exception, error)
-        self.assertIs(second_context.exception, error)
-        self.mock_prediction.wait.assert_called_once_with()
-        self.mock_tracking_service.track_image_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+        self.assertIs(first.exception, error)
+        self.assertIs(second.exception, error)
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "get"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_video_wait_polls_to_success_and_tracks_mapped_output(self):
-        self.mock_prediction.status = "processing"
-        self.mock_prediction.metrics = None
-        self.mock_prediction.reload.side_effect = lambda: setattr(self.mock_prediction, "status", "succeeded")
-        configured_tool = stubs.domain.configured_tool(
-            purpose = ToolType.images_gen,
+        initial = stubs.external.replicate_prediction(status = "processing")
+        self.client.predictions.responses.append(initial)
+        self.client.predictions.updates[initial.id].append(stubs.external.replicate_prediction(
+            output = "https://example.com/video.mp4",
+        ))
+        tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = VIDEO_GEN_P_VIDEO.id),
+            purpose = ToolType.videos_gen,
+            uses_credits = True,
         )
+        decorator = self.di.replicate_client(tool, output_video_size = "2K", output_video_duration_seconds = 10)
+        prediction = decorator.predictions.create(input = {"prompt": "test"})
 
-        decorator = PredictionUsageTrackingDecorator(
-            wrapped_prediction = self.mock_prediction,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_video_size = "2K",
-            output_video_duration_seconds = 10,
-        )
-
-        with patch.object(replicate_usage_tracking_decorator, "sleep"):
-            result = decorator.wait()
+        # skip the system polling delay while real prediction reloads consume fake client responses
+        with patch("features.accounting.usage.decorators.replicate_usage_tracking_decorator.sleep"):
+            result = prediction.wait()
 
         self.assertIsNone(result)
-        self.mock_prediction.wait.assert_not_called()
-        self.mock_prediction.reload.assert_called_once_with()
-        self.mock_tracking_service.track_video_model.assert_called_once()
-        tracking_args = self.mock_tracking_service.track_video_model.call_args.kwargs
-        self.assertEqual(tracking_args["output_video_size"], "2K")
-        self.assertEqual(tracking_args["output_video_duration_seconds"], 10)
-        self.assertNotIn("is_failed", tracking_args)
-        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 20.0)
+        self.assertEqual(prediction.status, "succeeded")
+        self.assertEqual(prediction.output, "https://example.com/video.mp4")
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "get"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.output_video_size, "2k")
+        self.assertEqual(record.output_video_duration_seconds, 10)
+        self.assertFalse(record.is_failed)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
+        )
 
     def test_video_wait_tracks_terminal_failure_without_deduction(self):
-        self.mock_prediction.status = "failed"
-        self.mock_prediction.error = "provider failure"
-        self.mock_prediction.logs = None
-        self.mock_prediction.metrics = None
-
-        decorator = PredictionUsageTrackingDecorator(
-            wrapped_prediction = self.mock_prediction,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen),
-            rollback_db_session = self.mock_rollback_db_session,
-            output_video_size = "2K",
-            output_video_duration_seconds = 10,
+        self.client.predictions.responses.append(stubs.external.replicate_prediction(
+            status = "failed", error = "provider failure",
+        ))
+        tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = VIDEO_GEN_P_VIDEO.id),
+            purpose = ToolType.videos_gen,
+            uses_credits = True,
         )
+        decorator = self.di.replicate_client(tool, output_video_size = "2K", output_video_duration_seconds = 10)
+        prediction = decorator.predictions.create(input = {"prompt": "test"})
 
-        with self.assertRaises(ExternalServiceError) as context:
-            decorator.wait()
+        with self.assertRaises(ExternalServiceError) as raised:
+            prediction.wait()
 
-        self.assertIn("status 'failed': provider failure", str(context.exception))
-        self.mock_prediction.reload.assert_not_called()
-        self.assertTrue(self.mock_tracking_service.track_video_model.call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+        self.assertEqual(raised.exception.error_code, VIDEO_GENERATION_FAILED)
+        self.assertIn("status 'failed': provider failure", str(raised.exception))
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_video_wait_cancels_and_tracks_timeout_without_deduction(self):
-        self.mock_prediction.status = "processing"
-        self.mock_prediction.id = "prediction-id"
-        self.mock_prediction.metrics = None
-
-        decorator = PredictionUsageTrackingDecorator(
-            wrapped_prediction = self.mock_prediction,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen),
-            rollback_db_session = self.mock_rollback_db_session,
-            output_video_size = "2K",
-            output_video_duration_seconds = 10,
+        self.client.predictions.responses.append(stubs.external.replicate_prediction(status = "processing"))
+        tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = VIDEO_GEN_P_VIDEO.id),
+            purpose = ToolType.videos_gen,
+            uses_credits = True,
         )
+        decorator = self.di.replicate_client(tool, output_video_size = "2K", output_video_duration_seconds = 10)
+        prediction = decorator.predictions.create(input = {"prompt": "test"})
 
-        with patch.object(
-            replicate_usage_tracking_decorator,
-            "monotonic",
-            side_effect = [0, 600],
-        ):
-            with self.assertRaises(ExternalServiceError) as context:
-                decorator.wait()
+        # advance the system deadline without waiting ten minutes
+        with patch("features.accounting.usage.decorators.replicate_usage_tracking_decorator.monotonic", side_effect = [0, 600]):
+            with self.assertRaises(ExternalServiceError) as raised:
+                prediction.wait()
 
-        self.assertIn("timed out", str(context.exception))
-        self.mock_prediction.cancel.assert_called_once_with()
-        self.mock_prediction.reload.assert_not_called()
-        self.assertTrue(self.mock_tracking_service.track_video_model.call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+        self.assertEqual(raised.exception.error_code, VIDEO_GENERATION_FAILED)
+        self.assertIn("timed out", str(raised.exception))
+        self.assertEqual(prediction.status, "canceled")
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "cancel"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)

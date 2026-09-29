@@ -3,26 +3,26 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di_utils import di_for_tests
 
 from db.model.usage_record import UsageRecordDB
+from di.di import DI
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import CLAUDE_4_5_HAIKU, GPT_5_5, TRANSFER_TOOL
+from features.users.user import User
 
 
 class UsageRecordRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: UsageRecordRepository
+    user: User
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.usage_record_repo()
-        self.user = self.sql.user_repo().save(stubs.domain.user())
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.usage_record_repo
+        self.user = self.di.user_repo.save(stubs.domain.user())
 
     def test_create(self):
         record = stubs.domain.usage_record(
@@ -56,14 +56,14 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
         self.repo.create(record, commit = False)
 
-        self.sql.get_session().rollback()
+        self.di.db.rollback()
         self.assertEqual(len(self.repo.get_by_user(self.user.id)), 0)
 
     def test_create_deferred_commit_persists_with_caller_commit(self):
         record = stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id)
 
         self.repo.create(record, commit = False)
-        self.sql.get_session().commit()
+        self.di.db.commit()
 
         self.assertEqual(len(self.repo.get_by_user(self.user.id)), 1)
 
@@ -72,7 +72,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.repo.create(record)
 
         db_record = (
-            self.sql.get_session()
+            self.di.db
             .query(UsageRecordDB)
             .filter(
                 UsageRecordDB.user_id == self.user.id,
@@ -164,7 +164,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(len(records), 1)
 
     def test_get_by_user_include_sponsored(self):
-        sponsored_user = self.sql.user_repo().save(
+        sponsored_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -193,7 +193,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(len(records), 2)
 
     def test_get_by_user_exclude_self(self):
-        sponsored_user = self.sql.user_repo().save(
+        sponsored_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -327,7 +327,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(stats.total_cost_credits, 10.0)
 
     def test_get_aggregates_by_user_include_sponsored(self):
-        sponsored_user = self.sql.user_repo().save(
+        sponsored_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -613,7 +613,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertNotIn(ToolType.chat.value, stats.all_purposes_used)
 
     def test_get_by_user_includes_incoming_transfer_as_counterpart(self):
-        other_user = self.sql.user_repo().save(
+        other_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -647,7 +647,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertIn(ToolType.chat, purposes)
 
     def test_get_by_user_excludes_incoming_transfer_when_transfers_excluded(self):
-        other_user = self.sql.user_repo().save(
+        other_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -679,7 +679,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(records[0].tool_purpose, ToolType.chat)
 
     def test_get_by_user_only_transfers_includes_counterpart(self):
-        other_user = self.sql.user_repo().save(
+        other_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -712,7 +712,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(records[0].counterpart_id, self.user.id)
 
     def test_get_aggregates_includes_incoming_transfer_as_counterpart(self):
-        other_user = self.sql.user_repo().save(
+        other_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,

@@ -1,190 +1,128 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
-from google.genai.types import GenerateContentResponse
+from fakes.fake_google_ai_client import FakeGoogleAIClient
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
+from di.di import DI
 from features.accounting.usage.decorators.google_ai_usage_tracking_decorator import GoogleAIUsageTrackingDecorator
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
+from features.external_tools.external_tool_library import NANO_BANANA
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
+from util.errors import ExternalServiceError, ValidationError
 
 
-class GoogleAIUsageTrackingDecoratorTest(unittest.TestCase):
+class GoogleAIUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    client: FakeGoogleAIClient
+    decorator: GoogleAIUsageTrackingDecorator
 
     def setUp(self):
-        self.image_size = "1024x1024"
-        self.mock_client = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_image_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
-        )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool(
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = NANO_BANANA.id),
             purpose = ToolType.images_gen,
+            uses_credits = True,
         )
-
-        self.decorator = GoogleAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-
-    def test_models_property_returns_proxy(self):
-        models = self.decorator.models
-
-        self.assertIsNotNone(models)
-
-    def test_generate_content_tracks_usage(self):
-        mock_response = Mock(spec = GenerateContentResponse)
-        mock_response.usage_metadata = Mock()
-        mock_response.usage_metadata.prompt_token_count = 100
-        mock_response.usage_metadata.candidates_token_count = 200
-        mock_response.usage_metadata.total_token_count = 300
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = GoogleAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-
-        self.mock_client.models.generate_content = Mock(return_value = mock_response)
-
-        result = decorator.models.generate_content(model = "test-model", contents = "test prompt")
-
-        self.assertEqual(result, mock_response)
-        self.mock_tracking_service.track_image_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.images_gen)
-        self.assertEqual(call_args.kwargs["output_image_sizes"], [self.image_size])
-        self.assertEqual(call_args.kwargs["input_tokens"], 100)
-        self.assertEqual(call_args.kwargs["output_tokens"], 200)
-        self.assertEqual(call_args.kwargs["total_tokens"], 300)
-        self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
-        self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
+        self.client = cast(FakeGoogleAIClient, self.di.base_google_ai_client(self.tool.token.get_secret_value()))
+        self.decorator = self.di.google_ai_client(self.tool, output_image_sizes = ["1k"], input_image_sizes = ["2k"])
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
 
     def test_generate_content_measures_runtime(self):
-        mock_response = Mock(spec = GenerateContentResponse)
-        mock_response.usage_metadata = None
+        self.client.models.responses.append(stubs.external.google_generate_content_response())
+        # control only the system clock to make elapsed time deterministic
+        with patch("features.accounting.usage.decorators.google_ai_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
 
-        def slow_generate(*args, **kwargs):
-            sleep(0.01)
-            return mock_response
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
-        self.mock_client.models.generate_content = slow_generate
+    def test_other_models_methods_pass_through_without_tracking(self):
+        model = stubs.external.google_model()
+        self.client.models.catalog[model.name] = model
 
-        self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
-
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
-
-    def test_generate_content_with_no_usage_metadata(self):
-        mock_response = Mock(spec = GenerateContentResponse)
-        mock_response.usage_metadata = None
-
-        self.mock_client.models.generate_content = Mock(return_value = mock_response)
-
-        self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
-
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIsNone(call_args.kwargs["input_tokens"])
-        self.assertIsNone(call_args.kwargs["output_tokens"])
-        self.assertIsNone(call_args.kwargs["total_tokens"])
-
-    def test_other_models_methods_pass_through(self):
-        self.mock_client.models.list_models = Mock(return_value = ["model1", "model2"])
-
-        result = self.decorator.models.list_models()
-
-        self.assertEqual(result, ["model1", "model2"])
-        self.mock_tracking_service.track_image_model.assert_not_called()
+        self.assertEqual(self.decorator.models.get(model = model.name), model)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_client_attributes_pass_through(self):
-        self.mock_client.some_attribute = "test_value"
-
-        result = self.decorator.some_attribute
-
-        self.assertEqual(result, "test_value")
+        self.assertFalse(self.decorator.vertexai)
 
     def test_decorator_passes_arguments_correctly(self):
-        mock_response = Mock(spec = GenerateContentResponse)
-        mock_response.usage_metadata = None
-
-        self.mock_client.models.generate_content = Mock(return_value = mock_response)
+        self.client.models.responses.append(stubs.external.google_generate_content_response())
 
         self.decorator.models.generate_content(
-            model = "test-model",
-            contents = "test prompt",
-            config = {"temperature": 0.7},
+            model = "test-model", contents = "test prompt", config = {"temperature": 0.7},
         )
 
-        self.mock_client.models.generate_content.assert_called_once_with(
-            model = "test-model",
-            contents = "test prompt",
-            config = {"temperature": 0.7},
-        )
+        self.assertEqual(self.client.models.requests, [{
+            "model": "test-model", "contents": "test prompt", "config": {"temperature": 0.7},
+        }])
 
-    def test_generate_content_calls_validate_pre_flight(self):
-        mock_response = Mock(spec = GenerateContentResponse)
-        mock_response.usage_metadata = None
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = GoogleAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
+    def test_generate_content_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
 
-        self.mock_client.models.generate_content = Mock(return_value = mock_response)
+        with self.assertRaises(ValidationError) as raised:
+            self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
 
-        decorator.models.generate_content(model = "test-model", contents = "test prompt")
-
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
-            configured_tool,
-            input_image_sizes = None,
-            output_image_sizes = [self.image_size],
-        )
-
-    def test_generate_content_releases_db_session_after_preflight_and_before_provider_call(self):
-        events = []
-        mock_response = Mock(spec = GenerateContentResponse)
-        mock_response.usage_metadata = None
-        self.mock_spending_service.validate_pre_flight.side_effect = (
-            lambda *args, **kwargs: events.append("preflight")
-        )
-        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
-        self.mock_client.models.generate_content = Mock(
-            side_effect = lambda *args, **kwargs: events.append("provider") or mock_response,
-        )
-        self.mock_tracking_service.track_image_model.side_effect = (
-            lambda **kwargs: (
-                events.append("accounting") or stubs.domain.usage_record(total_cost_credits = 10.0)
-            )
-        )
-
-        self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
-
-        self.assertEqual(events, ["preflight", "rollback", "provider", "accounting"])
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.models.requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
 
     def test_generate_content_failure_tracks_without_deduction(self):
-        self.mock_client.models.generate_content = Mock(side_effect = RuntimeError("API error"))
+        error = ExternalServiceError("API error", UNEXPECTED_ERROR)
+        self.client.models.responses.append(error)
 
-        with self.assertRaises(RuntimeError):
-            self.decorator.models.generate_content(model = "test-model", contents = "test prompt")
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
 
-        self.mock_tracking_service.track_image_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+        self.assertIs(raised.exception, error)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
+
+    def test_generate_content_tracks_usage_and_deducts_credits(self):
+        response = stubs.external.google_generate_content_response()
+        self.client.models.responses.append(response)
+
+        result = self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
+
+        self.assertEqual(result, response)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.tool.id, self.tool.definition.id)
+        self.assertEqual(record.tool_purpose, ToolType.images_gen)
+        self.assertEqual(record.output_image_sizes, ["1k"])
+        self.assertEqual(record.input_image_sizes, ["2k"])
+        self.assertEqual((record.input_tokens, record.output_tokens, record.total_tokens), (100, 200, 300))
+        self.assertTrue(record.uses_credits)
+        self.assertFalse(record.is_failed)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
+        )
+
+    def test_generate_content_with_no_usage_metadata(self):
+        self.client.models.responses.append(stubs.external.google_generate_content_response(usage_metadata = None))
+
+        self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
+
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertIsNone(record.input_tokens)
+        self.assertIsNone(record.output_tokens)
+        self.assertIsNone(record.total_tokens)
+        self.assertEqual(record.output_image_sizes, ["1k"])
+        self.assertEqual(record.input_image_sizes, ["2k"])
+        self.assertEqual(record.model_cost_credits, 0.7)

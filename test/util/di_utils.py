@@ -12,18 +12,24 @@ from typing import Any
 from unittest.mock import patch
 
 from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_google_ai_client import FakeGoogleAIClient
 from fakes.fake_http_client import FakeHTTPClient
 from fakes.fake_openai_client import FakeOpenAIClient
+from fakes.fake_replicate_client import FakeReplicateClient
 from fakes.fake_s3_client import FakeS3Client
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
 from fakes.fake_uploadcare_client import FakeUploadcareClient
 from fakes.fake_url_shortener import FakeUrlShortener
 from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
+from fakes.fake_x_ai_client import FakeXAIClient
+from google.genai import Client as GoogleSDKClient
 from langchain_core.language_models import BaseChatModel
 from openai import OpenAI
 from pyuploadcare import Uploadcare
+from replicate.client import Client as ReplicateSDKClient
 from sqlalchemy import Integer, MetaData, PrimaryKeyConstraint, UniqueConstraint, create_engine
 from sqlalchemy.orm import Session
+from xai_sdk import Client as XAISDKClient
 
 from db.model.base import BaseModel
 from di.di import DI
@@ -137,8 +143,8 @@ def di_for_tests(
 
     Use with di_for_tests() as di, or self.enterContext(di_for_tests()) in unittest.
     The supplied interceptor runs before shared defaults; None falls back to normal
-    construction. HTTP, storage clients, bot APIs, OpenAI audio/embeddings, the base
-    chat model, and URL shortening have shared per-environment fakes, configurable
+    construction. HTTP, storage clients, bot APIs, OpenAI, Google, Replicate, xAI,
+    the base chat model, and URL shortening have shared per-environment fakes, configurable
     through normal DI providers. The model's usage decorator, services, repositories, and bot SDKs
     remain real. Network access is blocked for the scope.
     Exit closes the session, disposes the engine, removes files, and restores network
@@ -174,6 +180,9 @@ def di_for_tests(
         defaults.register(WhatsAppBotAPI, FakeWhatsAppBotAPI())
         defaults.register(BaseChatModel, FakeChatModel())
         defaults.register(OpenAI, FakeOpenAIClient())
+        defaults.register(GoogleSDKClient, FakeGoogleAIClient())
+        defaults.register(ReplicateSDKClient, FakeReplicateClient())
+        defaults.register(XAISDKClient, FakeXAIClient())
         defaults.register(UrlShortener, FakeUrlShortener("https://example.com/short"))
         defaults.register(AttachmentStorage, storage)
         defaults.register_factory(

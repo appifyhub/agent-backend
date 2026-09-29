@@ -175,7 +175,8 @@ class DITest(TestCase):
         replicate = ReplicateSDKClient(api_token = "test-replicate-key")
         interceptor = FakeInterceptor()
         interceptor.register(ReplicateSDKClient, replicate)
-        di = self.enterContext(di_for_tests(interceptor = interceptor))
+        self.enterContext(di_for_tests())
+        di = DI(interceptor = interceptor)
 
         google = di.base_google_ai_client("test-google-key")
         self.addCleanup(google.close)

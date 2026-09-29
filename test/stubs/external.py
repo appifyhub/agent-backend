@@ -7,7 +7,9 @@ from botocore.exceptions import ClientError
 from docx import Document as DocxDocument
 from fakes.fake_uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
+from google.genai.types import GenerateContentResponse, Model
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.outputs import ChatResult
 from openai.types import CreateEmbeddingResponse, Embedding
 from openai.types.audio import Transcription
 from PIL import Image
@@ -16,6 +18,9 @@ from replicate.helpers import FileOutput
 from replicate.prediction import Prediction
 from requests import Response
 from urllib3.response import HTTPResponse
+from xai_sdk.chat import Response as XAIChatResponse
+from xai_sdk.proto import chat_pb2, image_pb2
+from xai_sdk.sync.image import ImageResponse as XAIImageResponse
 
 from features.chat.telegram.model.attachment.audio import Audio as TelegramAudio
 from features.chat.telegram.model.attachment.document import Document as TelegramDocument
@@ -75,6 +80,57 @@ def ai_message(**overrides: Any) -> AIMessage:
 def human_message(**overrides: Any) -> HumanMessage:
     defaults = {"content": "Hello world"}
     return HumanMessage(**(defaults | overrides))
+
+
+def chat_result(**overrides: Any) -> ChatResult:
+    return ChatResult(**({"generations": [{"message": ai_message()}]} | overrides))
+
+
+def google_generate_content_response(**overrides: Any) -> GenerateContentResponse:
+    defaults = {
+        "usage_metadata": {
+            "prompt_token_count": 100,
+            "candidates_token_count": 200,
+            "total_token_count": 300,
+        },
+    }
+    return GenerateContentResponse(**(defaults | overrides))
+
+
+def google_grounding_response(query_count: int = 2, **overrides: Any) -> GenerateContentResponse:
+    defaults = {
+        "usage_metadata": {
+            "prompt_token_count": 10,
+            "candidates_token_count": 200,
+            "thoughts_token_count": 50,
+            "total_token_count": 260,
+        },
+        "candidates": [{"grounding_metadata": {"web_search_queries": [f"query {i}" for i in range(query_count)]}}],
+    }
+    return google_generate_content_response(**(defaults | overrides))
+
+
+def google_model(**overrides: Any) -> Model:
+    return Model(**({"name": "test-model", "display_name": "Test Model"} | overrides))
+
+
+def x_ai_chat_response(**overrides: Any) -> XAIChatResponse:
+    defaults = {
+        "id": "response-123",
+        "model": "grok-4.3",
+        "usage": {
+            "cost_in_usd_ticks": 25_000_000,
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        },
+    }
+    return XAIChatResponse(chat_pb2.GetChatCompletionResponse(**(defaults | overrides)), index = None)
+
+
+def x_ai_image_response(**overrides: Any) -> XAIImageResponse:
+    defaults = {"model": "grok-imagine-image", "images": [{"url": "https://example.com/image.png"}]}
+    return XAIImageResponse(image_pb2.ImageResponse(**(defaults | overrides)), index = 0)
 
 
 def openai_transcription(**overrides: Any) -> Transcription:

@@ -1,182 +1,147 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
-from google.genai.types import GenerateContentResponse
+from fakes.fake_google_ai_client import FakeGoogleAIClient
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
+from di.di import DI
 from features.accounting.usage.decorators.google_search_usage_tracking_decorator import GoogleSearchUsageTrackingDecorator
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
+from features.external_tools.external_tool_library import GEMINI_FLASH_LATEST
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
+from util.errors import ExternalServiceError, ValidationError
 
 
-class GoogleSearchUsageTrackingDecoratorTest(unittest.TestCase):
+class GoogleSearchUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    client: FakeGoogleAIClient
+    decorator: GoogleSearchUsageTrackingDecorator
 
     def setUp(self):
-        self.mock_client = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_text_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 2.5),
-        )
-        self.mock_tracking_service.track_web_search_query = Mock(
-            return_value = [stubs.domain.usage_record(total_cost_credits = 1.4)],
-        )
-        self.mock_spending_service = Mock(spec = SpendingService)
-
-        configured_tool = stubs.domain.configured_tool(
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = GEMINI_FLASH_LATEST.id),
             purpose = ToolType.search,
+            uses_credits = True,
         )
-
-        self.decorator = GoogleSearchUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
-
-    def _make_response(self, query_count: int = 2, candidates_tokens: int = 200, thoughts_tokens: int = 50) -> Mock:
-        response = Mock(spec = GenerateContentResponse)
-        response.usage_metadata = Mock()
-        response.usage_metadata.prompt_token_count = 10
-        response.usage_metadata.candidates_token_count = candidates_tokens
-        response.usage_metadata.thoughts_token_count = thoughts_tokens
-        response.usage_metadata.total_token_count = 10 + candidates_tokens + thoughts_tokens
-        candidate = Mock()
-        grounding = Mock()
-        grounding.web_search_queries = ["q"] * query_count
-        candidate.grounding_metadata = grounding
-        response.candidates = [candidate]
-        return response
-
-    def test_models_property_returns_proxy(self):
-        self.assertIsNotNone(self.decorator.models)
-
-    def test_generate_content_tracks_token_record(self):
-        response = self._make_response()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.search)
-        decorator = GoogleSearchUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
-        self.mock_client.models.generate_content = Mock(return_value = response)
-
-        decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_kwargs = self.mock_tracking_service.track_text_model.call_args.kwargs
-        self.assertIs(call_kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_kwargs["tool_purpose"], ToolType.search)
-        self.assertEqual(call_kwargs["input_tokens"], 10)
-        self.assertEqual(call_kwargs["output_tokens"], 250)  # candidates + thoughts
-        self.assertFalse(call_kwargs["uses_credits"])
-
-    def test_generate_content_tracks_query_records(self):
-        response = self._make_response(query_count = 3)
-        self.mock_client.models.generate_content = Mock(return_value = response)
-
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        self.mock_tracking_service.track_web_search_query.assert_called_once()
-        call_kwargs = self.mock_tracking_service.track_web_search_query.call_args.kwargs
-        self.assertEqual(call_kwargs["query_count"], 3)
-
-    def test_generate_content_skips_query_records_when_zero_queries(self):
-        response = self._make_response(query_count = 0)
-        self.mock_client.models.generate_content = Mock(return_value = response)
-
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        self.mock_tracking_service.track_web_search_query.assert_not_called()
-
-    def test_generate_content_deducts_token_and_query_costs(self):
-        response = self._make_response(query_count = 2)
-        self.mock_client.models.generate_content = Mock(return_value = response)
-
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        # 1 deduction for the token record + 1 for the single query record returned by the mock
-        self.assertEqual(self.mock_spending_service.deduct.call_count, 2)
-
-    def test_generate_content_calls_validate_pre_flight(self):
-        response = self._make_response()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.search)
-        decorator = GoogleSearchUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
-        self.mock_client.models.generate_content = Mock(return_value = response)
-
-        decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
+        self.client = cast(FakeGoogleAIClient, self.di.base_google_ai_client(self.tool.token.get_secret_value()))
+        self.decorator = self.di.google_search_client(self.tool)
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
 
     def test_generate_content_measures_runtime(self):
-        response = self._make_response()
+        self.client.models.responses.append(stubs.external.google_generate_content_response())
+        # control only the system clock to make elapsed time deterministic
+        with patch("features.accounting.usage.decorators.google_search_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
 
-        def slow_generate(*args, **kwargs):
-            sleep(0.01)
-            return response
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
-        self.mock_client.models.generate_content = slow_generate
+    def test_other_models_methods_pass_through_without_tracking(self):
+        model = stubs.external.google_model()
+        self.client.models.catalog[model.name] = model
 
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        call_kwargs = self.mock_tracking_service.track_text_model.call_args.kwargs
-        self.assertGreaterEqual(call_kwargs["runtime_seconds"], 0.01)
-
-    def test_generate_content_with_no_usage_metadata(self):
-        response = self._make_response()
-        response.usage_metadata = None
-        self.mock_client.models.generate_content = Mock(return_value = response)
-
-        self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        call_kwargs = self.mock_tracking_service.track_text_model.call_args.kwargs
-        self.assertIsNone(call_kwargs["input_tokens"])
-        self.assertIsNone(call_kwargs["output_tokens"])
-        self.assertIsNone(call_kwargs["total_tokens"])
-
-    def test_failure_tracks_without_deduction(self):
-        self.mock_client.models.generate_content = Mock(side_effect = RuntimeError("API error"))
-
-        with self.assertRaises(RuntimeError):
-            self.decorator.models.generate_content(model = "gemini-flash-latest", contents = "query")
-
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_kwargs = self.mock_tracking_service.track_text_model.call_args.kwargs
-        self.assertTrue(call_kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
-
-    def test_other_models_methods_pass_through(self):
-        self.mock_client.models.list_models = Mock(return_value = ["model1"])
-
-        result = self.decorator.models.list_models()
-
-        self.assertEqual(result, ["model1"])
-        self.mock_tracking_service.track_text_model.assert_not_called()
+        self.assertEqual(self.decorator.models.get(model = model.name), model)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_client_attributes_pass_through(self):
-        self.mock_client.some_attribute = "test_value"
+        self.assertFalse(self.decorator.vertexai)
 
-        self.assertEqual(self.decorator.some_attribute, "test_value")
-
-    def test_decorator_passes_arguments_to_generate_content(self):
-        response = self._make_response()
-        self.mock_client.models.generate_content = Mock(return_value = response)
+    def test_decorator_passes_arguments_correctly(self):
+        self.client.models.responses.append(stubs.external.google_generate_content_response())
 
         self.decorator.models.generate_content(
-            model = "gemini-flash-latest",
-            contents = "query",
-            config = {"temperature": 0.5},
+            model = "test-model", contents = "test prompt", config = {"temperature": 0.7},
         )
 
-        self.mock_client.models.generate_content.assert_called_once_with(
-            model = "gemini-flash-latest",
-            contents = "query",
-            config = {"temperature": 0.5},
+        self.assertEqual(self.client.models.requests, [{
+            "model": "test-model", "contents": "test prompt", "config": {"temperature": 0.7},
+        }])
+
+    def test_generate_content_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
+
+        with self.assertRaises(ValidationError) as raised:
+            self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
+
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.models.requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
+
+    def test_generate_content_failure_tracks_without_deduction(self):
+        error = ExternalServiceError("API error", UNEXPECTED_ERROR)
+        self.client.models.responses.append(error)
+
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.decorator.models.generate_content(model = self.tool.definition.id, contents = "test prompt")
+
+        self.assertIs(raised.exception, error)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
+
+    def test_generate_content_tracks_tokens_and_query_costs(self):
+        response = stubs.external.google_grounding_response(query_count = 3)
+        self.client.models.responses.append(response)
+
+        result = self.decorator.models.generate_content(model = self.tool.definition.id, contents = "query")
+
+        self.assertEqual(result, response)
+        records = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(len(records), 4)
+        token_record, = [record for record in records if record.total_tokens is not None]
+        self.assertEqual((token_record.input_tokens, token_record.output_tokens, token_record.total_tokens), (10, 250, 260))
+        self.assertEqual(token_record.tool.id, self.tool.definition.id)
+        self.assertEqual(token_record.tool_purpose, ToolType.search)
+        self.assertTrue(token_record.uses_credits)
+        self.assertFalse(token_record.is_failed)
+        query_records = [record for record in records if record.total_tokens is None]
+        for record in query_records:
+            self.assertEqual(record.total_cost_credits, self.tool.definition.cost_estimate.web_search_query)
+            self.assertEqual(record.maintenance_fee_credits, 0)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - sum(record.total_cost_credits for record in records),
+        )
+
+    def test_generate_content_skips_query_records_when_zero_queries(self):
+        self.client.models.responses.append(stubs.external.google_grounding_response(query_count = 0))
+
+        self.decorator.models.generate_content(model = self.tool.definition.id, contents = "query")
+
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.total_tokens, 260)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
+        )
+
+    def test_generate_content_with_no_usage_metadata(self):
+        self.client.models.responses.append(stubs.external.google_grounding_response(usage_metadata = None))
+
+        self.decorator.models.generate_content(model = self.tool.definition.id, contents = "query")
+
+        records = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(len(records), 3)
+        token_record, = [record for record in records if record.maintenance_fee_credits > 0]
+        self.assertIsNone(token_record.input_tokens)
+        self.assertIsNone(token_record.output_tokens)
+        self.assertIsNone(token_record.total_tokens)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - sum(record.total_cost_credits for record in records),
         )

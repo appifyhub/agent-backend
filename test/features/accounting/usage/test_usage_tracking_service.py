@@ -1,8 +1,8 @@
-import unittest
-from unittest.mock import MagicMock, Mock
+from unittest import TestCase
 from uuid import UUID
 
 import stubs
+from util.di_utils import di_for_tests
 
 from di.di import DI
 from features.accounting.usage.usage_record import UsageRecord
@@ -11,34 +11,22 @@ from features.external_tools.external_tool import ToolType
 from util.config import config
 
 
-class UsageTrackingServiceTest(unittest.TestCase):
+class UsageTrackingServiceTest(TestCase):
 
-    mock_di: DI
+    di: DI
     service: UsageTrackingService
+    user_id: UUID
+    payer_id: UUID
 
     def setUp(self):
-        self.user_id = UUID(int = 1)
-        self.payer_id = UUID(int = 3)
-        self.mock_di = Mock(spec = DI)
-        mock_user = stubs.domain.user(id = self.user_id)
-        self.mock_di.invoker = mock_user
-
-        mock_chat = stubs.domain.chat_config()
-        self.mock_di.require_invoker_chat = MagicMock(return_value = mock_chat)
-        self.mock_di.invoker_chat = mock_chat
-
-        mock_repo = Mock()
-        mock_repo.create = MagicMock(side_effect = lambda x: x)
-        self.mock_di.usage_record_repo = mock_repo
-        self.mock_di.user_repo.get.return_value = None
-
-        self.original_fee = config.usage_maintenance_fee_credits
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(stubs.domain.user())
+        self.di.inject_invoker_chat(stubs.domain.chat_config())
+        self.user_id = self.di.invoker.id
+        self.payer_id = UUID("22222222-2222-4222-8222-b22222222222")
+        self.service = self.di.usage_tracking_service
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
         config.usage_maintenance_fee_credits = 1.0
-
-        self.service = UsageTrackingService(self.mock_di)
-
-    def tearDown(self):
-        config.usage_maintenance_fee_credits = self.original_fee
 
     def test_track_text_model_with_all_tokens(self):
         tool = stubs.domain.external_tool(
@@ -64,8 +52,11 @@ class UsageTrackingServiceTest(unittest.TestCase):
 
         self.assertIsInstance(record, UsageRecord)
         self.assertEqual(record.user_id, self.user_id)
-        self.assertEqual(record.chat_id, self.mock_di.invoker_chat.chat_id)
-        self.assertEqual(record.tool, tool)
+        self.assertEqual(record.chat_id, self.di.invoker_chat.chat_id)
+        self.assertEqual(record.tool.id, tool.id)
+        self.assertEqual(record.tool.name, tool.name)
+        self.assertEqual(record.tool.provider.id, tool.provider.id)
+        self.assertEqual(record.tool.provider.name, tool.provider.name)
         self.assertEqual(record.runtime_seconds, 5)
         self.assertEqual(record.input_tokens, 1000)
         self.assertEqual(record.output_tokens, 2000)
@@ -585,7 +576,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
                 output_1m_tokens = 200,
             ),
         )
-        self.service.track_text_model(
+        record = self.service.track_text_model(
             tool = tool,
             tool_purpose = ToolType.chat,
             runtime_seconds = 1,
@@ -594,11 +585,11 @@ class UsageTrackingServiceTest(unittest.TestCase):
             input_tokens = 100,
             total_tokens = 100,
         )
-        self.mock_di.usage_record_repo.create.assert_called_once()
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user_id), [record])
 
     def test_track_image_model_persists_to_repo(self):
         tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 10))
-        self.service.track_image_model(
+        record = self.service.track_image_model(
             tool = tool,
             tool_purpose = ToolType.images_gen,
             runtime_seconds = 1,
@@ -606,21 +597,21 @@ class UsageTrackingServiceTest(unittest.TestCase):
             uses_credits = False,
             output_image_sizes = ["1k"],
         )
-        self.mock_di.usage_record_repo.create.assert_called_once()
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user_id), [record])
 
     def test_track_api_call_persists_to_repo(self):
         tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = 5))
-        self.service.track_api_call(
+        record = self.service.track_api_call(
             tool = tool,
             tool_purpose = ToolType.api_twitter,
             runtime_seconds = 1,
             payer_id = self.payer_id,
             uses_credits = False,
         )
-        self.mock_di.usage_record_repo.create.assert_called_once()
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user_id), [record])
 
     def test_track_text_model_stores_payer_id_and_uses_credits(self):
-        payer_id = UUID(int = 99)
+        payer_id = UUID("33333333-3333-4333-8333-c33333333333")
         tool = stubs.domain.external_tool(
             cost_estimate = stubs.domain.cost_estimate(
                 input_1m_tokens = 100,
@@ -639,7 +630,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertTrue(record.uses_credits)
 
     def test_track_image_model_stores_payer_id_and_uses_credits(self):
-        payer_id = UUID(int = 99)
+        payer_id = UUID("33333333-3333-4333-8333-c33333333333")
         tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(output_image_1k = 10))
         record = self.service.track_image_model(
             tool = tool,
@@ -653,7 +644,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertTrue(record.uses_credits)
 
     def test_track_api_call_stores_payer_id_and_uses_credits(self):
-        payer_id = UUID(int = 99)
+        payer_id = UUID("33333333-3333-4333-8333-c33333333333")
         tool = stubs.domain.external_tool(cost_estimate = stubs.domain.cost_estimate(api_call = 5))
         record = self.service.track_api_call(
             tool = tool,
@@ -711,11 +702,10 @@ class UsageTrackingServiceTest(unittest.TestCase):
         self.assertEqual(record.participant_details.owner.user_id, self.user_id)
 
     def test_participant_details_sponsored_payer_found_in_db(self):
-        payer = stubs.domain.user(
+        self.di.user_repo.save(stubs.domain.user(
             id = self.payer_id,
             full_name = "Payer User",
-        )
-        self.mock_di.user_repo.get.return_value = payer
+        ))
 
         tool = stubs.domain.external_tool(
             cost_estimate = stubs.domain.cost_estimate(
@@ -779,7 +769,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
             query_count = 3,
         )
         self.assertEqual(len(records), 3)
-        self.assertEqual(self.mock_di.usage_record_repo.create.call_count, 3)
+        self.assertCountEqual(self.di.usage_record_repo.get_by_user(self.user_id), records)
 
     def test_track_web_search_query_fee_placement(self):
         tool = stubs.domain.external_tool(
@@ -810,7 +800,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
             query_count = 0,
         )
         self.assertEqual(records, [])
-        self.mock_di.usage_record_repo.create.assert_not_called()
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user_id), [])
 
     def test_track_web_search_query_payer_id_stored(self):
         tool = stubs.domain.external_tool()
@@ -852,7 +842,7 @@ class UsageTrackingServiceTest(unittest.TestCase):
     def test_track_provider_reported_cost_persists_to_repo(self):
         tool = stubs.domain.external_tool()
 
-        self.service.track_provider_reported_cost(
+        record = self.service.track_provider_reported_cost(
             tool = tool,
             tool_purpose = ToolType.search,
             runtime_seconds = 1.0,
@@ -861,4 +851,4 @@ class UsageTrackingServiceTest(unittest.TestCase):
             provider_cost_credits = 1.25,
         )
 
-        self.mock_di.usage_record_repo.create.assert_called_once()
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user_id), [record])

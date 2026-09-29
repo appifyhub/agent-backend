@@ -18,7 +18,7 @@ class FakeTranscriptions:
         self.responses = deque()
         self.recordings = []
 
-    def create(self, *, model: str, file: BinaryIO, response_format: str) -> Transcription:
+    def create(self, *, model: str, file: BinaryIO, response_format: str = "json") -> Transcription:
         self.recordings.append(file.read())
         if not self.responses:
             raise InternalError("No transcription response configured", DI_DEPENDENCY_NOT_MET)
@@ -40,14 +40,21 @@ class FakeEmbeddings:
 
     vector: list[float] | None
     inputs: list[str]
+    responses: deque[CreateEmbeddingResponse | Exception]
 
     def __init__(self):
         self.vector = None
         self.inputs = []
+        self.responses = deque()
 
     def create(self, *, model: str, input: str | list[str]) -> CreateEmbeddingResponse:
         texts = [input] if isinstance(input, str) else input
         self.inputs.extend(texts)
+        if self.responses:
+            response = self.responses.popleft()
+            if isinstance(response, Exception):
+                raise response
+            return response.model_copy(deep = True)
         if self.vector is None:
             raise InternalError("No embedding vector configured", DI_DEPENDENCY_NOT_MET)
         return external.openai_embedding_response(
@@ -58,6 +65,7 @@ class FakeEmbeddings:
 
 class FakeOpenAIClient:
 
+    api_key: str = "test-openai-key"
     audio: FakeAudio
     embeddings: FakeEmbeddings
 
