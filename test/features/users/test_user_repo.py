@@ -3,10 +3,11 @@ from dataclasses import replace
 from uuid import UUID, uuid4
 
 import stubs
-from db.sql_util import SQLUtil
 from pydantic import SecretStr
+from util.di_utils import di_for_tests
 
 from db.model.user import UserDB
+from di.di import DI
 from features.users.user import User
 from features.users.user_repo import UserRepository
 from util.errors import NotFoundError
@@ -14,15 +15,12 @@ from util.errors import NotFoundError
 
 class UserRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: UserRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.user_repo()
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.user_repo
 
     def test_save_creates_user_and_generates_id_created_at_and_connect_key(self):
         user = stubs.domain.user(
@@ -260,7 +258,7 @@ class UserRepositoryTest(unittest.TestCase):
 
         self.assertEqual(updated.credit_balance, 25.0)
 
-        self.sql.get_session().rollback()
+        self.di.db.rollback()
 
         self.assertEqual(self.repo.get(created.id).credit_balance, 10.0)
 
@@ -338,7 +336,7 @@ class UserRepositoryTest(unittest.TestCase):
             ),
             commit = False,
         )
-        self.sql.get_session().rollback()
+        self.di.db.rollback()
 
         self.assertEqual(self.repo.get(first.id).credit_balance, 100.0)
         self.assertEqual(self.repo.get(second.id).credit_balance, 25.0)

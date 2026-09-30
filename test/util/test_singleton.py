@@ -12,6 +12,7 @@ class SingletonTestClass(metaclass = Singleton):
 class SingletonTest(unittest.TestCase):
 
     def test_instance_safety(self):
+        self.addCleanup(Singleton._instances.pop, SingletonTestClass, None)
         instances = []
 
         def create_instance():
@@ -23,6 +24,7 @@ class SingletonTest(unittest.TestCase):
         for thread in threads:
             thread.join()
 
+        self.assertEqual(len(instances), 10)
         # check if it's the same instance or not
         for instance in instances:
             self.assertIs(instance, instances[0])

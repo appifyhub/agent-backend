@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy.orm import Session
 
 from db.model.chat_config import ChatConfigDB
+from di.interception import DIInterceptor, dependency
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
@@ -18,7 +21,9 @@ if TYPE_CHECKING:
 
     from google.genai import Client as GoogleSDKClient
     from langchain_core.documents import Document
+    from langchain_core.language_models import BaseChatModel
     from openai import OpenAI
+    from pyuploadcare import Uploadcare
     from replicate.client import Client as ReplicateSDKClient
     from xai_sdk import Client as XAISDKClient
 
@@ -50,6 +55,10 @@ if TYPE_CHECKING:
     from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
     from features.chat.attachment.chat_attachment_service import ChatAttachmentService
     from features.chat.attachment.storage.attachment_storage import AttachmentStorage
+    from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
+    from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
+    from features.chat.attachment.storage.s3_client import S3Client
+    from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
     from features.chat.chat_agent import ChatAgent
     from features.chat.chat_attachment_processor import ChatAttachmentProcessor
     from features.chat.chat_progress_notifier import ChatProgressNotifier
@@ -79,7 +88,10 @@ if TYPE_CHECKING:
     from features.currencies.price_alert_repo import PriceAlertRepository
     from features.currencies.stock_quote_fetcher import StockQuoteFetcher
     from features.documents.document_search import DocumentSearch
+    from features.documents.docx_loader import DocxLoader
     from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
+    from features.documents.pdf_loader import PdfLoader
+    from features.documents.plain_text_loader import PlainTextLoader
     from features.external_tools.access_token_resolver import AccessTokenResolver
     from features.external_tools.tool_choice_resolver import ToolChoiceResolver
     from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
@@ -104,10 +116,13 @@ if TYPE_CHECKING:
     from features.web_browsing.twitter_status_fetcher import TwitterStatusFetcher
     from features.web_browsing.url_shortener import UrlShortener
     from features.web_browsing.web_fetcher import WebFetcher
+    from util.http_client import HTTPClient
     from util.translations_cache import TranslationsCache
 
 
 class DI:
+
+    _interceptor: DIInterceptor | None
 
     # Dynamic dependencies
     _db: Session | None
@@ -161,6 +176,7 @@ class DI:
     _whatsapp_domain_mapper: "WhatsAppDomainMapper | None"
     _telegram_chat_inbound_service: "TelegramChatInboundService | None"
     _whatsapp_chat_inbound_service: "WhatsAppChatInboundService | None"
+    _translations_cache: "TranslationsCache | None"
     # Features & Dynamic Instances
     _llm_tool_library: "LLMToolLibrary | None"
     _command_processor: "CommandProcessor | None"
@@ -173,7 +189,9 @@ class DI:
         db: Session | None = None,
         invoker_id: str | None = None,
         invoker_chat_id: str | None = None,
+        interceptor: DIInterceptor | None = None,
     ):
+        self._interceptor = interceptor
         # Dynamic dependencies
         self._db = db
         self._invoker_id = invoker_id
@@ -226,6 +244,7 @@ class DI:
         self._whatsapp_domain_mapper = None
         self._telegram_chat_inbound_service = None
         self._whatsapp_chat_inbound_service = None
+        self._translations_cache = None
         # Features & Dynamic Instances
         self._llm_tool_library = None
         self._command_processor = None
@@ -245,6 +264,7 @@ class DI:
             db or self._db,
             invoker_id or self._invoker_id,
             invoker_chat_id or self._invoker_chat_id,
+            interceptor = self._interceptor,
         )
 
     # === Dynamic dependencies ===
@@ -254,6 +274,12 @@ class DI:
         if self._db is None:
             raise InternalError("Database session not provided", DI_DEPENDENCY_NOT_MET)
         return self._db
+
+    @dependency()
+    def new_session(self) -> AbstractContextManager[Session]:
+        """Return a fresh session scope managed by the SQL layer."""
+        from db.sql import get_detached_session
+        return get_detached_session()
 
     def rollback_db_session(self) -> None:
         if self.db.in_transaction():
@@ -307,6 +333,12 @@ class DI:
 
     # === Dynamic injections ===
 
+    def inject_db_session(self, db: Session) -> None:
+        """Attach the initial session, leaving its lifetime under the caller's control."""
+        if self._db is not None:
+            raise InternalError("Database session already provided; clone DI to use another session", DI_DEPENDENCY_NOT_MET)
+        self._db = db
+
     def inject_invoker_id(self, invoker_id: str | None):
         self._invoker_id = invoker_id
         if self._invoker and self._invoker.id.hex != invoker_id:
@@ -338,6 +370,7 @@ class DI:
     # === SDKs ===
 
     @property
+    @dependency(cache = "_telegram_bot_api")
     def telegram_bot_api(self) -> "TelegramBotAPI":
         if self._telegram_bot_api is None:
             from features.chat.telegram.sdk.telegram_bot_api import TelegramBotAPI
@@ -345,6 +378,7 @@ class DI:
         return self._telegram_bot_api
 
     @property
+    @dependency(cache = "_whatsapp_bot_api")
     def whatsapp_bot_api(self) -> "WhatsAppBotAPI":
         if self._whatsapp_bot_api is None:
             from features.chat.whatsapp.sdk.whatsapp_bot_api import WhatsAppBotAPI
@@ -352,6 +386,7 @@ class DI:
         return self._whatsapp_bot_api
 
     @property
+    @dependency(cache = "_telegram_bot_sdk")
     def telegram_bot_sdk(self) -> "TelegramBotSDK":
         if self._telegram_bot_sdk is None:
             from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
@@ -359,6 +394,7 @@ class DI:
         return self._telegram_bot_sdk
 
     @property
+    @dependency(cache = "_whatsapp_bot_sdk")
     def whatsapp_bot_sdk(self) -> "WhatsAppBotSDK":
         if self._whatsapp_bot_sdk is None:
             from features.chat.whatsapp.sdk.whatsapp_bot_sdk import WhatsAppBotSDK
@@ -368,6 +404,7 @@ class DI:
     # === Repositories ===
 
     @property
+    @dependency(cache = "_user_repo")
     def user_repo(self) -> "UserRepository":
         if self._user_repo is None:
             from features.users.user_repo import UserRepository
@@ -375,6 +412,7 @@ class DI:
         return self._user_repo
 
     @property
+    @dependency(cache = "_chat_config_repo")
     def chat_config_repo(self) -> "ChatConfigRepository":
         if self._chat_config_repo is None:
             from features.chat.config.chat_config_repo import ChatConfigRepository
@@ -382,6 +420,7 @@ class DI:
         return self._chat_config_repo
 
     @property
+    @dependency(cache = "_chat_membership_repo")
     def chat_membership_repo(self) -> "ChatMembershipRepository":
         if self._chat_membership_repo is None:
             from features.chat.membership.chat_membership_repo import ChatMembershipRepository
@@ -389,6 +428,7 @@ class DI:
         return self._chat_membership_repo
 
     @property
+    @dependency(cache = "_chat_membership_service")
     def chat_membership_service(self) -> "ChatMembershipService":
         if self._chat_membership_service is None:
             from features.chat.membership.chat_membership_service import ChatMembershipService
@@ -396,6 +436,7 @@ class DI:
         return self._chat_membership_service
 
     @property
+    @dependency(cache = "_chat_message_repo")
     def chat_message_repo(self) -> "ChatMessageRepository":
         if self._chat_message_repo is None:
             from features.chat.message.chat_message_repo import ChatMessageRepository
@@ -403,6 +444,7 @@ class DI:
         return self._chat_message_repo
 
     @property
+    @dependency(cache = "_chat_message_burst_repo")
     def chat_message_burst_repo(self) -> "ChatMessageBurstRepository":
         if self._chat_message_burst_repo is None:
             from features.chat.message_burst_repo import ChatMessageBurstRepository
@@ -410,6 +452,7 @@ class DI:
         return self._chat_message_burst_repo
 
     @property
+    @dependency(cache = "_chat_attachment_repo")
     def chat_attachment_repo(self) -> "ChatAttachmentRepository":
         if self._chat_attachment_repo is None:
             from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
@@ -417,6 +460,7 @@ class DI:
         return self._chat_attachment_repo
 
     @property
+    @dependency(cache = "_sponsorship_repo")
     def sponsorship_repo(self) -> "SponsorshipRepository":
         if self._sponsorship_repo is None:
             from features.sponsorships.sponsorship_repo import SponsorshipRepository
@@ -424,6 +468,7 @@ class DI:
         return self._sponsorship_repo
 
     @property
+    @dependency(cache = "_tools_cache_repo")
     def tools_cache_repo(self) -> "ToolsCacheRepository":
         if self._tools_cache_repo is None:
             from features.tools_cache.tools_cache_repo import ToolsCacheRepository
@@ -431,6 +476,7 @@ class DI:
         return self._tools_cache_repo
 
     @property
+    @dependency(cache = "_price_alert_repo")
     def price_alert_repo(self) -> "PriceAlertRepository":
         if self._price_alert_repo is None:
             from features.currencies.price_alert_repo import PriceAlertRepository
@@ -438,6 +484,7 @@ class DI:
         return self._price_alert_repo
 
     @property
+    @dependency(cache = "_usage_record_repo")
     def usage_record_repo(self) -> "UsageRecordRepository":
         if self._usage_record_repo is None:
             from features.accounting.usage.usage_record_repo import UsageRecordRepository
@@ -445,6 +492,7 @@ class DI:
         return self._usage_record_repo
 
     @property
+    @dependency(cache = "_purchase_record_repo")
     def purchase_record_repo(self) -> "PurchaseRecordRepository":
         if self._purchase_record_repo is None:
             from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
@@ -454,6 +502,7 @@ class DI:
     # === Services ===
 
     @property
+    @dependency(cache = "_cleanup_service")
     def cleanup_service(self) -> "CleanupService":
         if self._cleanup_service is None:
             from features.cleanup.cleanup_service import CleanupService
@@ -461,6 +510,7 @@ class DI:
         return self._cleanup_service
 
     @property
+    @dependency(cache = "_message_burst_service")
     def message_burst_service(self) -> "MessageBurstService":
         if self._message_burst_service is None:
             from features.chat.message_burst_service import MessageBurstService
@@ -468,6 +518,7 @@ class DI:
         return self._message_burst_service
 
     @property
+    @dependency(cache = "_chat_attachment_service")
     def chat_attachment_service(self) -> "ChatAttachmentService":
         if self._chat_attachment_service is None:
             from features.chat.attachment.chat_attachment_service import ChatAttachmentService
@@ -475,20 +526,70 @@ class DI:
         return self._chat_attachment_service
 
     @property
+    @dependency(cache = "_attachment_storage")
     def attachment_storage(self) -> "AttachmentStorage":
         if self._attachment_storage is None:
             from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
             from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
             from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
-            for storage_type in (S3AttachmentStorage, UploadcareAttachmentStorage, LocalAttachmentStorage):
+            for storage_type, create in (
+                (S3AttachmentStorage, self.s3_attachment_storage),
+                (UploadcareAttachmentStorage, self.uploadcare_attachment_storage),
+                (LocalAttachmentStorage, self.local_attachment_storage),
+            ):
                 # in order, we find the first storage type that can be used
                 if storage_type.can_be_used():
-                    self._attachment_storage = storage_type()
+                    self._attachment_storage = create()
                     break
             self._attachment_storage.ensure_ready()
         return self._attachment_storage
 
+    @dependency()
+    def local_attachment_storage(self, root: Path = Path(".local/s3")) -> "LocalAttachmentStorage":
+        from features.chat.attachment.storage.local_attachment_storage import LocalAttachmentStorage
+        return LocalAttachmentStorage(root = root)
+
+    @dependency()
+    def s3_attachment_storage(self) -> "S3AttachmentStorage":
+        from features.chat.attachment.storage.s3_attachment_storage import S3AttachmentStorage
+        return S3AttachmentStorage(client = self.s3_client())
+
+    @dependency()
+    def uploadcare_attachment_storage(self) -> "UploadcareAttachmentStorage":
+        from features.chat.attachment.storage.uploadcare_attachment_storage import UploadcareAttachmentStorage
+        return UploadcareAttachmentStorage(client = self.uploadcare_client(), http_client = self.http_client())
+
+    @dependency()
+    def s3_client(self) -> "S3Client":
+        from boto3 import client
+        from botocore.config import Config as BotoConfig
+
+        from features.chat.attachment.storage.s3_client import S3Client
+        return cast(S3Client, client(
+            "s3",
+            endpoint_url = config.s3_base_url,
+            region_name = config.s3_region,
+            aws_access_key_id = config.s3_access_key.get_secret_value(),
+            aws_secret_access_key = config.s3_secret_key.get_secret_value(),
+            config = BotoConfig(s3 = {"addressing_style": "path"}),
+        ))
+
+    @dependency()
+    def uploadcare_client(self) -> "Uploadcare":
+        from pyuploadcare import Uploadcare
+        return Uploadcare(
+            public_key = config.uploadcare_public_key,
+            secret_key = config.uploadcare_private_key.get_secret_value(),
+            cdn_base = f"https://{config.uploadcare_cdn_id}.ucarecd.net/",
+        )
+
+    @dependency()
+    def http_client(self) -> "HTTPClient":
+        from requests import api
+        return api
+
     @property
+    @dependency(cache = "_sponsorship_service")
     def sponsorship_service(self) -> "SponsorshipService":
         if self._sponsorship_service is None:
             from features.sponsorships.sponsorship_service import SponsorshipService
@@ -496,6 +597,7 @@ class DI:
         return self._sponsorship_service
 
     @property
+    @dependency(cache = "_credit_transfer_service")
     def credit_transfer_service(self) -> "CreditTransferService":
         if self._credit_transfer_service is None:
             from features.accounting.transfers.credit_transfer_service import CreditTransferService
@@ -503,6 +605,7 @@ class DI:
         return self._credit_transfer_service
 
     @property
+    @dependency(cache = "_authorization_service")
     def authorization_service(self) -> "AuthorizationService":
         if self._authorization_service is None:
             from api.authorization_service import AuthorizationService
@@ -510,6 +613,7 @@ class DI:
         return self._authorization_service
 
     @property
+    @dependency(cache = "_usage_tracking_service")
     def usage_tracking_service(self) -> "UsageTrackingService":
         if self._usage_tracking_service is None:
             from features.accounting.usage.usage_tracking_service import UsageTrackingService
@@ -517,6 +621,7 @@ class DI:
         return self._usage_tracking_service
 
     @property
+    @dependency(cache = "_profile_connect_service")
     def profile_connect_service(self) -> "ProfileConnectService":
         if self._profile_connect_service is None:
             from features.connect.profile_connect_service import ProfileConnectService
@@ -524,6 +629,7 @@ class DI:
         return self._profile_connect_service
 
     @property
+    @dependency(cache = "_purchase_service")
     def purchase_service(self) -> "PurchaseService":
         if self._purchase_service is None:
             from features.accounting.purchases.purchase_service import PurchaseService
@@ -531,6 +637,7 @@ class DI:
         return self._purchase_service
 
     @property
+    @dependency(cache = "_spending_service")
     def spending_service(self) -> "SpendingService":
         if self._spending_service is None:
             from features.accounting.spending.spending_service import SpendingService
@@ -540,6 +647,7 @@ class DI:
     # === Controllers ===
 
     @property
+    @dependency(cache = "_settings_controller")
     def settings_controller(self) -> "SettingsController":
         if self._settings_controller is None:
             from api.settings_controller import SettingsController
@@ -547,6 +655,7 @@ class DI:
         return self._settings_controller
 
     @property
+    @dependency(cache = "_sponsorships_controller")
     def sponsorships_controller(self) -> "SponsorshipsController":
         if self._sponsorships_controller is None:
             from api.sponsorships_controller import SponsorshipsController
@@ -554,6 +663,7 @@ class DI:
         return self._sponsorships_controller
 
     @property
+    @dependency(cache = "_transfers_controller")
     def transfers_controller(self) -> "TransfersController":
         if self._transfers_controller is None:
             from api.transfers_controller import TransfersController
@@ -561,6 +671,7 @@ class DI:
         return self._transfers_controller
 
     @property
+    @dependency(cache = "_usage_controller")
     def usage_controller(self) -> "UsageController":
         if self._usage_controller is None:
             from api.usage_controller import UsageController
@@ -568,6 +679,7 @@ class DI:
         return self._usage_controller
 
     @property
+    @dependency(cache = "_profile_connect_controller")
     def profile_connect_controller(self) -> "ProfileConnectController":
         if self._profile_connect_controller is None:
             from api.profile_connect_controller import ProfileConnectController
@@ -575,6 +687,7 @@ class DI:
         return self._profile_connect_controller
 
     @property
+    @dependency(cache = "_gumroad_controller")
     def gumroad_controller(self) -> "GumroadController":
         if self._gumroad_controller is None:
             from api.gumroad_controller import GumroadController
@@ -582,6 +695,7 @@ class DI:
         return self._gumroad_controller
 
     @property
+    @dependency(cache = "_purchases_controller")
     def purchases_controller(self) -> "PurchasesController":
         if self._purchases_controller is None:
             from api.purchases_controller import PurchasesController
@@ -591,6 +705,7 @@ class DI:
     # === Internal tools ===
 
     @property
+    @dependency(cache = "_access_token_resolver")
     def access_token_resolver(self) -> "AccessTokenResolver":
         if self._access_token_resolver is None:
             from features.external_tools.access_token_resolver import AccessTokenResolver
@@ -598,6 +713,7 @@ class DI:
         return self._access_token_resolver
 
     @property
+    @dependency(cache = "_tool_choice_resolver")
     def tool_choice_resolver(self) -> "ToolChoiceResolver":
         if self._tool_choice_resolver is None:
             from features.external_tools.tool_choice_resolver import ToolChoiceResolver
@@ -606,11 +722,13 @@ class DI:
 
     # noinspection PyMethodMayBeStatic
     @property
+    @dependency(cache = "_translations_cache")
     def translations_cache(self) -> "TranslationsCache":
         from util.translations_cache import TranslationsCache
         return TranslationsCache()
 
     @property
+    @dependency(cache = "_domain_langchain_mapper")
     def domain_langchain_mapper(self) -> "DomainLangchainMapper":
         if self._domain_langchain_mapper is None:
             from features.chat.domain_langchain_mapper import DomainLangchainMapper
@@ -618,6 +736,7 @@ class DI:
         return self._domain_langchain_mapper
 
     @property
+    @dependency(cache = "_telegram_domain_mapper")
     def telegram_domain_mapper(self) -> "TelegramDomainMapper":
         if self._telegram_domain_mapper is None:
             from features.chat.telegram.telegram_domain_mapper import TelegramDomainMapper
@@ -625,6 +744,7 @@ class DI:
         return self._telegram_domain_mapper
 
     @property
+    @dependency(cache = "_whatsapp_domain_mapper")
     def whatsapp_domain_mapper(self) -> "WhatsAppDomainMapper":
         if self._whatsapp_domain_mapper is None:
             from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
@@ -632,6 +752,7 @@ class DI:
         return self._whatsapp_domain_mapper
 
     @property
+    @dependency(cache = "_telegram_chat_inbound_service")
     def telegram_chat_inbound_service(self) -> "TelegramChatInboundService":
         if self._telegram_chat_inbound_service is None:
             from features.chat.telegram.telegram_chat_inbound_service import TelegramChatInboundService
@@ -639,6 +760,7 @@ class DI:
         return self._telegram_chat_inbound_service
 
     @property
+    @dependency(cache = "_whatsapp_chat_inbound_service")
     def whatsapp_chat_inbound_service(self) -> "WhatsAppChatInboundService":
         if self._whatsapp_chat_inbound_service is None:
             from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
@@ -647,15 +769,22 @@ class DI:
 
     # === Features & Dynamic Instances ===
 
+    # noinspection PyMethodMayBeStatic
+    @dependency()
+    def base_chat_langchain_model(self, configured_tool: ConfiguredTool, max_tokens: int) -> "BaseChatModel":
+        from features.llm import langchain_factory
+
+        return langchain_factory.create(configured_tool, max_tokens)
+
+    @dependency()
     def chat_langchain_model(
         self,
         configured_tool: ConfiguredTool,
     ) -> "ChatModelUsageTrackingDecorator":
         from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
-        from features.llm import langchain_factory
 
         resolved_max_tokens = self.__resolve_max_output_tokens(configured_tool)
-        base_model = langchain_factory.create(configured_tool, resolved_max_tokens)
+        base_model = self.base_chat_langchain_model(configured_tool, resolved_max_tokens)
         return ChatModelUsageTrackingDecorator(
             base_model,
             self.usage_tracking_service,
@@ -666,6 +795,7 @@ class DI:
         )
 
     # noinspection PyMethodMayBeStatic
+    @dependency()
     def base_replicate_client(self, api_token: str, timeout_s: float | None = None) -> "ReplicateSDKClient":
         from httpx import Timeout
         from replicate.client import Client as ReplicateSDKClient
@@ -675,6 +805,7 @@ class DI:
             timeout = Timeout(timeout_s) if timeout_s is not None else None,
         )
 
+    @dependency()
     def replicate_client(
         self,
         configured_tool: ConfiguredTool,
@@ -700,6 +831,7 @@ class DI:
         )
 
     # noinspection PyMethodMayBeStatic
+    @dependency()
     def base_google_ai_client(
         self,
         api_key: str,
@@ -713,6 +845,7 @@ class DI:
             http_options = HttpOptions(timeout = int(timeout_s * 1000))
         return GoogleSDKClient(api_key = api_key, http_options = http_options)
 
+    @dependency()
     def google_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -733,6 +866,7 @@ class DI:
             input_image_sizes,
         )
 
+    @dependency()
     def google_search_client(
         self,
         configured_tool: ConfiguredTool,
@@ -748,6 +882,7 @@ class DI:
         )
 
     # noinspection PyMethodMayBeStatic
+    @dependency()
     def base_x_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -757,6 +892,7 @@ class DI:
 
         return XAISDKClient(api_key = configured_tool.token.get_secret_value(), timeout = timeout_s)
 
+    @dependency()
     def x_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -778,6 +914,7 @@ class DI:
         )
 
     # noinspection PyMethodMayBeStatic
+    @dependency()
     def base_open_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -787,6 +924,7 @@ class DI:
 
         return OpenAI(api_key = configured_tool.token.get_secret_value(), timeout = timeout_s)
 
+    @dependency()
     def open_ai_client(
         self,
         configured_tool: ConfiguredTool,
@@ -802,12 +940,14 @@ class DI:
             configured_tool,
         )
 
+    @dependency()
     def openai_embeddings(self, configured_tool: ConfiguredTool) -> "LangChainEmbeddingsAdapter":
         from features.documents.langchain_embeddings_adapter import LangChainEmbeddingsAdapter
 
         client = self.open_ai_client(configured_tool)
         return LangChainEmbeddingsAdapter(client, configured_tool.definition.id)
 
+    @dependency()
     def tracked_http_get(self, configured_tool: ConfiguredTool) -> "HTTPUsageTrackingDecorator":
         from features.accounting.usage.decorators.http_usage_tracking_decorator import HTTPUsageTrackingDecorator
 
@@ -818,16 +958,19 @@ class DI:
         )
 
     @property
+    @dependency(cache = "_llm_tool_library")
     def llm_tool_library(self) -> "LLMToolLibrary":
         if self._llm_tool_library is None:
             from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
             self._llm_tool_library = LLMToolLibrary(self)
         return self._llm_tool_library
 
+    @dependency()
     def platform_bot_sdk(self) -> "PlatformBotSDK":
         from features.integrations.platform_bot_sdk import PlatformBotSDK
         return PlatformBotSDK(di = self)
 
+    @dependency()
     def chat_progress_notifier(
         self,
         message_id: str,
@@ -837,12 +980,14 @@ class DI:
         return ChatProgressNotifier(message_id, self, auto_start)
 
     @property
+    @dependency(cache = "_command_processor")
     def command_processor(self) -> "CommandProcessor":
         if self._command_processor is None:
             from features.chat.command_processor import CommandProcessor
             self._command_processor = CommandProcessor(self)
         return self._command_processor
 
+    @dependency()
     def chat_agent(
         self,
         trigger_message_text: str,
@@ -863,6 +1008,7 @@ class DI:
             explicitly_addressed = explicitly_addressed,
         )
 
+    @dependency()
     def web_fetcher(
         self,
         url: str,
@@ -883,6 +1029,7 @@ class DI:
             force,
         )
 
+    @dependency()
     def tracked_web_fetcher(
         self,
         configured_tool: ConfiguredTool,
@@ -910,10 +1057,12 @@ class DI:
             configured_tool,
         )
 
+    @dependency()
     def html_content_cleaner(self, raw_html: str) -> "HTMLContentCleaner":
         from features.web_browsing.html_content_cleaner import HTMLContentCleaner
         return HTMLContentCleaner(raw_html, self)
 
+    @dependency()
     def twitter_status_fetcher(
         self,
         tweet_id: str,
@@ -924,6 +1073,7 @@ class DI:
         return TwitterStatusFetcher(tweet_id, x_api_tool, vision_tool, self)
 
     # noinspection PyMethodMayBeStatic
+    @dependency()
     def photo_downloader(self, bearer_token: str | None = None) -> "PhotoDownloader":
         from features.web_browsing.photo_downloader import PhotoDownloader
         return PhotoDownloader(bearer_token = bearer_token)
@@ -933,10 +1083,12 @@ class DI:
         from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
         return [TwitterSocialPostProvider]
 
+    @dependency()
     def twitter_social_post_provider(self, api_tool: ConfiguredTool, vision_tool: ConfiguredTool) -> "TwitterSocialPostProvider":
         from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
         return TwitterSocialPostProvider(self, api_tool, vision_tool)
 
+    @dependency()
     def social_post_provider(self,
         provider_class: type["SocialPostProvider"],
         api_tool: ConfiguredTool,
@@ -947,11 +1099,13 @@ class DI:
             return self.twitter_social_post_provider(api_tool, vision_tool)
         raise InternalError(f"Unsupported social post provider class: {provider_class}", DI_DEPENDENCY_NOT_MET)
 
+    @dependency()
     def social_card_orchestrator(self, api_tools: list[ConfiguredTool], vision_tool: ConfiguredTool) -> "SocialCardOrchestrator":
         from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
         return SocialCardOrchestrator(api_tools, vision_tool, self)
 
     # noinspection PyMethodMayBeStatic
+    @dependency()
     def url_shortener(
         self,
         long_url: str,
@@ -963,6 +1117,7 @@ class DI:
         return UrlShortener(long_url, custom_slug, valid_until, max_visits)
 
     @property
+    @dependency(cache = "_asset_price_service")
     def asset_price_service(self) -> "AssetPriceService":
         if self._asset_price_service is None:
             from features.currencies.asset_price_service import AssetPriceService
@@ -970,6 +1125,7 @@ class DI:
         return self._asset_price_service
 
     @property
+    @dependency(cache = "_exchange_rate_fetcher")
     def exchange_rate_fetcher(self) -> "ExchangeRateFetcher":
         if self._exchange_rate_fetcher is None:
             from features.currencies.exchange_rate_fetcher import ExchangeRateFetcher
@@ -977,20 +1133,24 @@ class DI:
         return self._exchange_rate_fetcher
 
     @property
+    @dependency(cache = "_stock_quote_fetcher")
     def stock_quote_fetcher(self) -> "StockQuoteFetcher":
         if self._stock_quote_fetcher is None:
             from features.currencies.stock_quote_fetcher import StockQuoteFetcher
             self._stock_quote_fetcher = StockQuoteFetcher(self)
         return self._stock_quote_fetcher
 
+    @dependency()
     def ai_web_search(self, search_query: str, configured_tool: ConfiguredTool) -> "AIWebSearch":
         from features.web_browsing.ai_web_search import AIWebSearch
         return AIWebSearch(search_query, configured_tool, self)
 
+    @dependency()
     def asset_alert_service(self, target_chat_id: str | None) -> "AssetAlertService":
         from features.currencies.asset_alert_service import AssetAlertService
         return AssetAlertService(target_chat_id, self)
 
+    @dependency()
     def smart_image_generator(
         self,
         raw_prompt: str,
@@ -1013,6 +1173,7 @@ class DI:
             output_size = output_size,
         )
 
+    @dependency()
     def simple_image_generator(
         self,
         configured_tool: ConfiguredTool,
@@ -1033,6 +1194,7 @@ class DI:
             di = self,
         )
 
+    @dependency()
     def simple_video_generator(
         self,
         configured_tool: ConfiguredTool,
@@ -1041,6 +1203,7 @@ class DI:
         from features.videos.simple_video_generator import SimpleVideoGenerator
         return SimpleVideoGenerator(configured_tool, parameters, self)
 
+    @dependency()
     def smart_video_generator(
         self,
         raw_prompt: str,
@@ -1065,6 +1228,7 @@ class DI:
             output_size = output_size,
         )
 
+    @dependency()
     def computer_vision_analyzer(
         self,
         job_id: str,
@@ -1077,21 +1241,23 @@ class DI:
         from features.images.computer_vision_analyzer import ComputerVisionAnalyzer
         return ComputerVisionAnalyzer(job_id, image_mime_types, configured_tool, self, image_urls, image_b64s, additional_context)
 
-    # noinspection PyMethodMayBeStatic
-    def plain_text_loader(self, job_id: str, document_url: str):
+    @dependency()
+    def plain_text_loader(self, job_id: str, document_url: str) -> "PlainTextLoader":
         from features.documents.plain_text_loader import PlainTextLoader
-        return PlainTextLoader(job_id, document_url)
+        return PlainTextLoader(job_id, document_url, http_client = self.http_client())
 
-    # noinspection PyMethodMayBeStatic
-    def docx_loader(self, job_id: str, document_url: str):
+    @dependency()
+    def docx_loader(self, job_id: str, document_url: str) -> "DocxLoader":
         from features.documents.docx_loader import DocxLoader
-        return DocxLoader(job_id, document_url)
+        return DocxLoader(job_id, document_url, http_client = self.http_client())
 
     # noinspection PyMethodMayBeStatic
-    def pdf_loader(self, job_id: str, document_url: str):
+    @dependency()
+    def pdf_loader(self, job_id: str, document_url: str) -> "PdfLoader":
         from features.documents.pdf_loader import PdfLoader
         return PdfLoader(job_id, document_url)
 
+    @dependency()
     def document_search(
         self,
         job_id: str,
@@ -1103,6 +1269,7 @@ class DI:
         from features.documents.document_search import DocumentSearch
         return DocumentSearch(job_id, documents, embedding_tool, copywriter_tool, self, additional_context)
 
+    @dependency()
     def audio_transcriber(
         self,
         job_id: str,
@@ -1117,6 +1284,7 @@ class DI:
             transcriber_tool, copywriter_tool, self,
         )
 
+    @dependency()
     def chat_attachment_processor(
         self,
         additional_context: str | None,
@@ -1126,6 +1294,7 @@ class DI:
         from features.chat.chat_attachment_processor import ChatAttachmentProcessor
         return ChatAttachmentProcessor(additional_context, attachment_ids, urls, self)
 
+    @dependency()
     def dev_announcements_service(
         self,
         raw_message: str,
@@ -1135,6 +1304,7 @@ class DI:
         from features.chat.dev_announcements_service import DevAnnouncementsService
         return DevAnnouncementsService(raw_message, target_handle, configured_tool, self)
 
+    @dependency()
     def sys_announcements_service(
         self,
         raw_information: str,
@@ -1144,6 +1314,7 @@ class DI:
         from features.announcements.sys_announcements_service import SysAnnouncementsService
         return SysAnnouncementsService(raw_information, target_chat, configured_tool, self)
 
+    @dependency()
     def release_summary_service(
         self,
         raw_notes: str,
@@ -1153,6 +1324,7 @@ class DI:
         from features.announcements.release_summary_service import ReleaseSummaryService
         return ReleaseSummaryService(raw_notes, target_chat, configured_tool, self)
 
+    @dependency()
     def user_support_service(
         self,
         user_input: str,

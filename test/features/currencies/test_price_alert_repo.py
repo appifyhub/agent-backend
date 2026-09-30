@@ -4,28 +4,26 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di_utils import di_for_tests
 
+from di.di import DI
 from features.currencies.asset_price import AssetType
 from features.currencies.price_alert_repo import PriceAlertRepository
 
 
 class PriceAlertRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: PriceAlertRepository
     owner_id: UUID
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.price_alert_repo()
-        self.owner_id = self.sql.user_repo().save(stubs.domain.user()).id
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.price_alert_repo
+        self.owner_id = self.di.user_repo.save(stubs.domain.user()).id
 
     def test_save_creates_price_alert(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
         price_alert = stubs.domain.price_alert(
             chat_id = chat.chat_id,
             owner_id = self.owner_id,
@@ -41,7 +39,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual(result, price_alert)
 
     def test_get_returns_saved_price_alert(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
         created = self.repo.save(
             stubs.domain.price_alert(
                 chat_id = chat.chat_id,
@@ -57,14 +55,14 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual(result, created)
 
     def test_get_returns_none_when_missing(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
 
         result = self.repo.get(chat.chat_id, AssetType.fiat, "USD", "EUR")
 
         self.assertIsNone(result)
 
     def test_composite_identity_keeps_assets_and_currencies_distinct(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
         euro_alert = self.repo.save(
             stubs.domain.price_alert(
                 chat_id = chat.chat_id,
@@ -102,10 +100,10 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual(stock_result, stock_alert)
 
     def test_get_all_returns_price_alerts(self):
-        first_chat = self.sql.chat_config_repo().save(
+        first_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(external_id = "chat1"),
         )
-        second_chat = self.sql.chat_config_repo().save(
+        second_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(chat_id = UUID("33333333-3333-4333-8333-c33333333333"), external_id = "chat2"),
         )
         first = self.repo.save(
@@ -132,10 +130,10 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual({result.chat_id for result in results}, {first.chat_id, second.chat_id})
 
     def test_get_all_applies_pagination(self):
-        first_chat = self.sql.chat_config_repo().save(
+        first_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(external_id = "chat1"),
         )
-        second_chat = self.sql.chat_config_repo().save(
+        second_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(chat_id = UUID("33333333-3333-4333-8333-c33333333333"), external_id = "chat2"),
         )
         self.repo.save(
@@ -162,10 +160,10 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual(len(results), 1)
 
     def test_get_all_by_chat_excludes_other_chats(self):
-        first_chat = self.sql.chat_config_repo().save(
+        first_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(external_id = "chat1"),
         )
-        second_chat = self.sql.chat_config_repo().save(
+        second_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(chat_id = UUID("33333333-3333-4333-8333-c33333333333"), external_id = "chat2"),
         )
         self.repo.save(
@@ -202,7 +200,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual({result.chat_id for result in results}, {first_chat.chat_id})
 
     def test_save_replaces_all_mutable_state(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
         created = self.repo.save(
             stubs.domain.price_alert(
                 chat_id = chat.chat_id,
@@ -214,7 +212,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
                 last_price_time = datetime(2026, 1, 1, 12, 0, 0),
             ),
         )
-        replacement_owner = self.sql.user_repo().save(
+        replacement_owner = self.di.user_repo.save(
             stubs.domain.user(
                 id = UUID("33333333-3333-4333-8333-c33333333333"),
                 telegram_user_id = None,
@@ -235,7 +233,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertEqual(result, replacement)
 
     def test_delete_returns_deleted_price_alert(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
         created = self.repo.save(
             stubs.domain.price_alert(
                 chat_id = chat.chat_id,
@@ -252,14 +250,14 @@ class PriceAlertRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repo.get(chat.chat_id, AssetType.fiat, "USD", "EUR"))
 
     def test_delete_returns_none_when_missing(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
 
         result = self.repo.delete(chat.chat_id, AssetType.fiat, "USD", "EUR")
 
         self.assertIsNone(result)
 
     def test_delete_stale_uses_strict_cutoff(self):
-        chat = self.sql.chat_config_repo().save(stubs.domain.chat_config())
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
         cutoff = datetime(2026, 1, 2, 12, 0, 0)
         self.repo.save(
             stubs.domain.price_alert(

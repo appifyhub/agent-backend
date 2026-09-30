@@ -1,92 +1,69 @@
-import unittest
-from unittest.mock import Mock
-from uuid import UUID
+from unittest import IsolatedAsyncioTestCase
 
 import stubs
-from starlette.responses import StreamingResponse
+from util.di_utils import di_for_tests
 
 from api.attachments_controller import AttachmentsController
+from di.di import DI
+from features.chat.attachment.chat_attachment import ChatAttachment
 from util.error_codes import ATTACHMENT_NOT_FOUND, NOT_CHAT_MEMBER
 from util.errors import AuthorizationError, NotFoundError
 
 
-class AttachmentsControllerTest(unittest.TestCase):
+class AttachmentsControllerTest(IsolatedAsyncioTestCase):
+
+    di: DI
+    controller: AttachmentsController
+    attachment: ChatAttachment
 
     def setUp(self):
-        self.di = Mock()
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user()))
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config()))
+        self.attachment = self.di.chat_attachment_service.save(stubs.domain.chat_attachment(), content = b"image data")
         self.controller = AttachmentsController(self.di)
 
-    def test_stream_private_attachment_returns_streaming_response(self):
-        self.di.chat_attachment_service.stream_attachment.return_value = stubs.domain.resolved_attachment_stream(
-            media_type = "image/png",
-        )
+    async def test_stream_private_attachment_returns_streaming_response(self):
+        self.di.chat_membership_service.save(stubs.domain.chat_membership())
 
-        response = self.controller.stream_private_attachment("attachment-id")
+        response = self.controller.stream_private_attachment(self.attachment.id)
 
-        self.assertIsInstance(response, StreamingResponse)
-        self.assertEqual(response.media_type, "image/png")
-        self.di.chat_attachment_service.stream_attachment.assert_called_once_with("attachment-id")
+        self.assertEqual(response.media_type, self.attachment.mime_type)
+        self.assertEqual(b"".join([chunk async for chunk in response.body_iterator]), b"image data")
 
     def test_stream_private_attachment_propagates_not_found(self):
-        self.di.chat_attachment_service.stream_attachment.side_effect = NotFoundError(
-            "Attachment 'missing' not found", ATTACHMENT_NOT_FOUND,
-        )
-
-        with self.assertRaises(NotFoundError):
+        with self.assertRaises(NotFoundError) as context:
             self.controller.stream_private_attachment("missing")
 
+        self.assertEqual(context.exception.error_code, ATTACHMENT_NOT_FOUND)
+
     def test_stream_private_attachment_propagates_non_member_error(self):
-        self.di.chat_attachment_service.stream_attachment.side_effect = AuthorizationError(
-            "Not a member", NOT_CHAT_MEMBER,
-        )
+        with self.assertRaises(AuthorizationError) as context:
+            self.controller.stream_private_attachment(self.attachment.id)
 
-        with self.assertRaises(AuthorizationError):
-            self.controller.stream_private_attachment("attachment-id")
+        self.assertEqual(context.exception.error_code, NOT_CHAT_MEMBER)
 
-    def test_stream_public_attachment_returns_streaming_response(self):
-        self.di.chat_attachment_service.stream_attachment.return_value = stubs.domain.resolved_attachment_stream(
-            media_type = "image/png",
-        )
-        user = stubs.domain.user(id = UUID(int = 1))
-        attachment = stubs.domain.chat_attachment(chat_id = UUID(int = 2))
-        claims = stubs.api.public_attachment_token_claims(
-            attachment_id = "attachment-id",
-            chat_id = attachment.chat_id.hex,
-            issuer_user_id = user.id.hex,
-        )
+    async def test_stream_public_attachment_returns_streaming_response(self):
+        self.di.chat_membership_service.save(stubs.domain.chat_membership())
+        claims = stubs.api.public_attachment_token_claims(attachment_id = self.attachment.id)
 
         response = self.controller.stream_public_attachment(claims)
 
-        self.assertIsInstance(response, StreamingResponse)
-        self.assertEqual(response.media_type, "image/png")
-        self.di.chat_attachment_service.stream_attachment.assert_called_once_with("attachment-id")
+        self.assertEqual(response.media_type, self.attachment.mime_type)
+        self.assertEqual(b"".join([chunk async for chunk in response.body_iterator]), b"image data")
 
     def test_stream_public_attachment_propagates_not_found(self):
-        self.di.chat_attachment_service.stream_attachment.side_effect = NotFoundError(
-            "Attachment 'missing' not found", ATTACHMENT_NOT_FOUND,
-        )
-        user = stubs.domain.user(id = UUID(int = 1))
-        attachment = stubs.domain.chat_attachment(chat_id = UUID(int = 2))
-        claims = stubs.api.public_attachment_token_claims(
-            attachment_id = "missing",
-            chat_id = attachment.chat_id.hex,
-            issuer_user_id = user.id.hex,
-        )
+        claims = stubs.api.public_attachment_token_claims(attachment_id = "missing")
 
-        with self.assertRaises(NotFoundError):
+        with self.assertRaises(NotFoundError) as context:
             self.controller.stream_public_attachment(claims)
+
+        self.assertEqual(context.exception.error_code, ATTACHMENT_NOT_FOUND)
 
     def test_stream_public_attachment_propagates_non_member_error(self):
-        self.di.chat_attachment_service.stream_attachment.side_effect = AuthorizationError(
-            "Not a member", NOT_CHAT_MEMBER,
-        )
-        user = stubs.domain.user(id = UUID(int = 1))
-        attachment = stubs.domain.chat_attachment(chat_id = UUID(int = 2))
-        claims = stubs.api.public_attachment_token_claims(
-            attachment_id = "attachment-id",
-            chat_id = attachment.chat_id.hex,
-            issuer_user_id = user.id.hex,
-        )
+        claims = stubs.api.public_attachment_token_claims(attachment_id = self.attachment.id)
 
-        with self.assertRaises(AuthorizationError):
+        with self.assertRaises(AuthorizationError) as context:
             self.controller.stream_public_attachment(claims)
+
+        self.assertEqual(context.exception.error_code, NOT_CHAT_MEMBER)

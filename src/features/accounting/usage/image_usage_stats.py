@@ -19,7 +19,7 @@ class ImageUsageStats:
         remote_runtime_seconds = None
         metrics = getattr(prediction, "metrics", None)
         if metrics:
-            gpu_time = getattr(metrics, "predict_time", None)
+            gpu_time = metrics.get("predict_time")
             if isinstance(gpu_time, (int, float)):
                 remote_runtime_seconds = gpu_time
 

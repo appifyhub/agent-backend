@@ -1,129 +1,151 @@
-import unittest
-from unittest.mock import MagicMock, Mock, mock_open, patch
+from pathlib import Path
+from typing import cast
+from unittest import TestCase
 
-import requests
 import stubs
-from langchain_core.messages import AIMessage
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_url_shortener import FakeUrlShortener
+from requests import HTTPError
+from util.di_utils import di_for_tests
 
-from db.model.chat_config import ChatConfigDB
 from di.di import DI
+from features.external_tools.configured_tool import ConfiguredTool
+from features.external_tools.external_tool import ToolType
+from features.external_tools.intelligence_presets import default_tool_for
 from features.support.user_support_service import UserSupportService
+from util.config import config
 
 
-class UserSupportServiceTest(unittest.TestCase):
+class UserSupportServiceTest(TestCase):
 
-    mock_di: DI
+    di: DI
     service: UserSupportService
+    tool: ConfiguredTool
+    model: FakeChatModel
+    shortener: FakeUrlShortener
+    http: FakeHTTPClient
+    github_url: str
 
     def setUp(self):
-        self.mock_di = Mock(spec = DI)
-        self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
-        self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
-        self.mock_di.chat_langchain_model = Mock()
-
-        # Mock URL shortener to return same URL
-        def mock_url_shortener(long_url, **kwargs):
-            mock_shortener = MagicMock()
-            mock_shortener.execute.return_value = long_url
-            return mock_shortener
-        self.mock_di.url_shortener = MagicMock(side_effect = mock_url_shortener)
-        configured_tool = stubs.domain.configured_tool()
-        self.service = UserSupportService(
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user()))
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config()))
+        self.tool = self.di.tool_choice_resolver.require_tool(ToolType.copywriting, default_tool_for(ToolType.copywriting))
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool))
+        self.service = self.di.user_support_service(
             user_input = "Test input",
             github_author = "test_github",
             include_platform_handle = True,
             include_full_name = True,
             request_type_str = "bug",
-            configured_tool = configured_tool,
-            di = self.mock_di,
+            configured_tool = self.tool,
         )
+        issue = stubs.external.github_issue_response()
+        self.shortener = cast(FakeUrlShortener, self.di.url_shortener(issue["html_url"]))
+        self.shortener.short_url = "https://example.com/short-issue"
+        self.github_url = f"https://api.github.com/repos/{config.github_issues_repo}/issues"
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.http.post_responses[self.github_url].append(stubs.external.http_json_response(issue, status_code = 201))
 
     def test_resolve_request_type(self):
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.service._UserSupportService__request_type, UserSupportService.RequestType.bug)
+        self.http.post_responses[self.github_url].append(stubs.external.http_json_response(
+            stubs.external.github_issue_response(), status_code = 201,
+        ))
+        for request_type, label in (("bug", "Bug"), ("invalid_type", "Request")):
+            with self.subTest(request_type = request_type):
+                self.model.responses.extend([
+                    stubs.external.ai_message(content = "Test description"),
+                    stubs.external.ai_message(content = "Test title"),
+                ])
+                service = self.di.user_support_service(
+                    user_input = "Test input",
+                    github_author = "test_github",
+                    include_platform_handle = True,
+                    include_full_name = True,
+                    request_type_str = request_type,
+                    configured_tool = self.tool,
+                )
 
-        configured_tool = stubs.domain.configured_tool()
-        service = UserSupportService(
-            user_input = "Test input",
-            github_author = "test_github",
-            include_platform_handle = True,
-            include_full_name = True,
-            request_type_str = "invalid_type",
-            configured_tool = configured_tool,
-            di = self.mock_di,
-        )
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(service._UserSupportService__request_type, UserSupportService.RequestType.request)
+                service.execute()
 
-    @patch("builtins.open", new_callable = mock_open, read_data = "test template")
-    def test_load_template(self, mock_open_template):
-        # noinspection PyUnresolvedReferences
-        template = self.service._UserSupportService__load_template()
-        self.assertEqual(template, "test template")
-        mock_open_template.assert_called_once()
+                self.assertEqual(self.http.post_requests[-1][1]["json"]["labels"], [label])
 
-    @patch("features.support.user_support_service.UserSupportService._UserSupportService__load_template")
-    @patch("features.integrations.prompt_resolvers.copywriting_support_request_description")
-    def test_generate_issue_description(self, mock_prompt_generator, mock_load_template):
-        mock_load_template.return_value = "test template"
-        mock_prompt_generator.return_value = "test prompt"
-        self.mock_di.invoker = stubs.domain.user()
+    def test_load_template(self):
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "Test description"),
+            stubs.external.ai_message(content = "Test title"),
+        ])
+        template = Path(config.issue_templates_abs_path, "bug_report.yaml").read_text()
 
-        with patch.object(self.service, "_UserSupportService__copywriter") as mock_llm:
-            mock_llm.invoke.return_value = AIMessage(content = [
+        self.service.execute()
+
+        self.assertIn(template, self.model.prompts[0][0].content)
+
+    def test_generate_issue_description(self):
+        self.model.responses.extend([
+            stubs.external.ai_message(content = [
                 {"type": "thinking", "thinking": "Hidden reasoning"},
                 {"type": "text", "text": "Generated description"},
-            ])
-            # noinspection PyUnresolvedReferences
-            description = self.service._UserSupportService__generate_issue_description()
+            ]),
+            stubs.external.ai_message(content = "Test title"),
+        ])
 
-        self.assertEqual(description, "Generated description")
-        mock_load_template.assert_called_once()
-        mock_prompt_generator.assert_called_once()
-        mock_llm.invoke.assert_called_once()
+        self.service.execute()
 
-    @patch("features.integrations.prompt_resolvers")
-    def test_generate_issue_title(self, mock_prompt_resolvers):
-        mock_prompt_resolvers.copywriting_support_request_title.return_value = "test prompt"
+        self.assertEqual(self.http.post_requests[-1][1]["json"]["body"], "Generated description")
+        reporter = self.model.prompts[0][-1].content
+        self.assertIn("Test input", reporter)
+        self.assertIn("GitHub author: @test_github", reporter)
+        self.assertIn("Full name: Mark Johnson", reporter)
+        self.assertIn("Platform user: telegram/", reporter)
+        self.assertIn("mark_johnson", reporter)
+        self.assertIn("Generated description", self.model.prompts[1][-1].content)
+        self.assertNotIn("Hidden reasoning", self.model.prompts[1][-1].content)
 
-        with patch.object(self.service, "_UserSupportService__copywriter") as mock_llm:
-            mock_llm.invoke.return_value = AIMessage(content = [
+    def test_generate_issue_title(self):
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "Test description"),
+            stubs.external.ai_message(content = [
                 {"type": "thinking", "thinking": "Hidden reasoning"},
                 {"type": "text", "text": "Generated title"},
-            ])
-            # noinspection PyUnresolvedReferences
-            title = self.service._UserSupportService__generate_issue_title("Test description")
+            ]),
+        ])
 
-        self.assertEqual(title, "Generated title")
-        mock_llm.invoke.assert_called_once()
+        self.service.execute()
 
-    @patch("features.support.user_support_service.UserSupportService._UserSupportService__generate_issue_description")
-    @patch("features.support.user_support_service.UserSupportService._UserSupportService__generate_issue_title")
-    @patch("requests.post")
-    def test_execute_success(self, mock_post, mock_generate_title, mock_generate_description):
-        mock_generate_description.return_value = "Test description"
-        mock_generate_title.return_value = "Test title"
-        mock_post.return_value.json.return_value = {"html_url": "https://example.com/issue/1"}
-        mock_post.return_value.raise_for_status = Mock(spec = requests.Response)
+        self.assertEqual(self.http.post_requests[-1][1]["json"]["title"], "Generated title")
+        self.assertIn("Test description", self.model.prompts[1][-1].content)
+        self.assertIn("Issue type: 'bug'", self.model.prompts[1][-1].content)
+
+    def test_execute_success(self):
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "Test description"),
+            stubs.external.ai_message(content = "Test title"),
+        ])
 
         result = self.service.execute()
 
-        self.assertEqual(result, "https://example.com/issue/1")
-        mock_generate_description.assert_called_once()
-        mock_generate_title.assert_called_once()
-        mock_post.assert_called_once()
+        self.assertEqual(result, "https://example.com/short-issue")
+        self.assertEqual(self.http.post_requests[-1][1]["json"], {
+            "title": "Test title",
+            "body": "Test description",
+            "labels": ["Bug"],
+        })
+        self.assertEqual(len(self.http.post_requests), 1)
+        self.assertEqual(self.http.post_requests[0][0], self.github_url)
+        self.assertEqual(self.shortener.executions, 1)
 
-    @patch("features.support.user_support_service.UserSupportService._UserSupportService__generate_issue_description")
-    @patch("features.support.user_support_service.UserSupportService._UserSupportService__generate_issue_title")
-    @patch("requests.post")
-    def test_execute_failure(self, mock_post, mock_generate_title, mock_generate_description):
-        mock_generate_description.return_value = "Test description"
-        mock_generate_title.return_value = "Test title"
-        mock_post.return_value.raise_for_status.side_effect = Exception("API Error")
+    def test_execute_failure(self):
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "Test description"),
+            stubs.external.ai_message(content = "Test title"),
+        ])
+        self.http.post_responses[self.github_url].clear()
+        self.http.post_responses[self.github_url].append(stubs.external.http_response(status_code = 503))
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(HTTPError) as raised:
             self.service.execute()
 
-        mock_generate_description.assert_called_once()
-        mock_generate_title.assert_called_once()
-        mock_post.assert_called_once()
+        self.assertEqual(raised.exception.response.status_code, 503)
+        self.assertEqual(self.shortener.executions, 0)

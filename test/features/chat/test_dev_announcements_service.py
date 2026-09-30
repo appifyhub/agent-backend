@@ -1,318 +1,155 @@
-import unittest
-from unittest.mock import MagicMock, patch
-from uuid import UUID
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from uuid import uuid4
 
-import stubs
-from langchain_core.messages import AIMessage
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
-from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
-from features.chat.dev_announcements_service import DevAnnouncementsService
-from features.external_tools.tool_choice_resolver import ConfiguredTool
-from util.errors import AuthorizationError, NotFoundError
+from di.di import DI
+from features.chat.config.chat_config_repo import ChatConfigRepository
+from features.external_tools.configured_tool import ConfiguredTool
+from features.external_tools.external_tool_library import GPT_5_6_SOL
+from features.integrations.integrations import resolve_agent_user, resolve_external_id
+from features.users.user_repo import UserRepository
+from util.error_codes import UNEXPECTED_ERROR
+from util.errors import AuthorizationError, ExternalServiceError, NotFoundError
 
 
-class DevAnnouncementsServiceTest(unittest.TestCase):
+class DevAnnouncementsServiceTest(TestCase):
 
-    mock_di: MagicMock
-    mock_configured_tool: ConfiguredTool
+    di: DI
+    tool: ConfiguredTool
+    chats: ChatConfigRepository
+    users: UserRepository
+    model: FakeChatModel
+    api: FakeTelegramBotAPI
 
     def setUp(self):
-        self.raw_announcement = "Test announcement"
-        user = stubs.domain.user(
-            telegram_user_id = 100,
-            group = UserDB.Group.developer,
-        )
-
-        # Mock DI
-        self.mock_di = MagicMock()
-        self.mock_di.invoker = user
-        self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
-        self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
-        mock_platform_sdk = MagicMock()
-        self.mock_di.platform_bot_sdk = MagicMock(return_value = mock_platform_sdk)
-        self.mock_di.chat_langchain_model.return_value = MagicMock()
-        self.mock_di.user_repo.get_by_telegram_username.return_value = None
-        self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
-        self.mock_di.chat_config_repo.get_all.return_value = []
-        mock_platform_sdk.send_text_message.return_value = {"result": {"message_id": 123}}
-        self.mock_di.translations_cache.get.return_value = "Translated announcement"
-        self.mock_di.translations_cache.save.return_value = "Translated announcement"
-        self.mock_di.clone.return_value = self.mock_di
-
-        # Mock configured tool
-        # noinspection PyTypeChecker
-        self.mock_configured_tool = MagicMock(spec = ConfiguredTool)
+        self.tool = domain.configured_tool(definition = GPT_5_6_SOL)
+        self.di = self.enterContext(di_for_tests())
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool, max_tokens = 500))
+        self.api = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.chats = self.di.chat_config_repo
+        self.users = self.di.user_repo
+        self.di.inject_invoker(domain.user(telegram_user_id = 100, telegram_chat_id = "100", group = UserDB.Group.developer))
+        self.di.inject_invoker_chat(domain.chat_config())
 
     def test_init_success(self):
-        service = DevAnnouncementsService(
-            self.raw_announcement,
-            None,
-            self.mock_configured_tool,
-            self.mock_di,
-        )
-        self.assertIsInstance(service, DevAnnouncementsService)
+        service = self.di.dev_announcements_service("Test announcement", None, self.tool)
+
+        self.assertEqual(service.execute(), {"chats_selected": 0, "chats_notified": 0, "summaries_created": 0})
 
     def test_init_user_not_found(self):
-        self.mock_di.invoker.group = UserDB.Group.standard
-        with self.assertRaises(AuthorizationError):
-            DevAnnouncementsService(
-                self.raw_announcement,
-                None,
-                self.mock_configured_tool,
-                self.mock_di,
-            )
+        with self.assertRaises(NotFoundError):
+            self.di.dev_announcements_service("Test announcement", "missing", self.tool)
 
     def test_init_user_not_developer(self):
-        self.mock_di.invoker.group = UserDB.Group.standard
+        self.di.inject_invoker(replace(self.di.invoker, group = UserDB.Group.standard))
+
         with self.assertRaises(AuthorizationError):
-            DevAnnouncementsService(
-                self.raw_announcement,
-                None,
-                self.mock_configured_tool,
-                self.mock_di,
-            )
+            self.di.dev_announcements_service("Test announcement", None, self.tool)
 
     def test_execute_success(self):
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
-        self.mock_di.chat_langchain_model.return_value = mock_llm
+        english = domain.chat_config(external_id = "1")
+        spanish = domain.chat_config(chat_id = uuid4(), external_id = "2", language_iso_code = "es", language_name = "Spanish")
+        self.chats.save(english)
+        self.chats.save(spanish)
+        self.chats.save(domain.chat_config(chat_id = uuid4(), external_id = "3"))
+        self.model.responses.extend([
+            external.ai_message(content = "English announcement"),
+            external.ai_message(content = "Spanish announcement"),
+        ])
+        service = self.di.dev_announcements_service("Test announcement", None, self.tool)
 
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(
-                external_id = "1",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-            stubs.domain.chat_config(
-                external_id = "2",
-                language_iso_code = "es",
-                language_name = "Spanish",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-        ]
+        result = service.execute()
 
-        # Mock external ID resolution
-        with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
-
-            def mock_resolve_side_effect(user, chat_type):
-                if hasattr(user, "telegram_user_id") and user.telegram_user_id:
-                    return str(user.telegram_user_id)
-                # For agent user, return a different ID so chats don't get filtered out
-                return "999999999"
-
-            mock_resolve.side_effect = mock_resolve_side_effect
-
-            service = DevAnnouncementsService(
-                self.raw_announcement,
-                None,
-                self.mock_configured_tool,
-                self.mock_di,
-            )
-            result = service.execute()
-
-            self.assertIsInstance(result, dict)
-            self.assertEqual(result["chats_selected"], 2)
-            self.assertEqual(result["chats_notified"], 2)
-            self.assertEqual(result["summaries_created"], 0)  # No new summaries because translations are cached
+        self.assertEqual(result, {"chats_selected": 3, "chats_notified": 3, "summaries_created": 2})
+        self.assertEqual([message["text"] for message in self.api.get_sent_messages("1")], ["English announcement"])
+        self.assertEqual([message["text"] for message in self.api.get_sent_messages("2")], ["Spanish announcement"])
+        self.assertEqual([message["text"] for message in self.api.get_sent_messages("3")], ["English announcement"])
+        self.assertEqual(len(self.model.prompts), 2)
 
     def test_execute_translation_failure(self):
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
-        self.mock_di.chat_langchain_model.return_value = mock_llm
+        self.chats.save(domain.chat_config(external_id = "1"))
+        self.model.responses.append(ExternalServiceError("Translation failed", UNEXPECTED_ERROR))
+        service = self.di.dev_announcements_service("Test announcement", None, self.tool)
 
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(external_id = "1", release_notifications = ChatConfigDB.ReleaseNotifications.all),
-        ]
-        self.mock_di.translations_cache.get.return_value = None  # Force translation attempt
-        self.mock_di.translations_cache.save.side_effect = Exception("Translation failed")
+        result = service.execute()
 
-        # Mock external ID resolution
-        with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
-
-            def mock_resolve_side_effect(user, chat_type):
-                if hasattr(user, "telegram_user_id") and user.telegram_user_id:
-                    return str(user.telegram_user_id)
-                # For agent user, return a different ID so chats don't get filtered out
-                return "999999999"
-
-            mock_resolve.side_effect = mock_resolve_side_effect
-
-            service = DevAnnouncementsService(
-                self.raw_announcement,
-                None,
-                self.mock_configured_tool,
-                self.mock_di,
-            )
-            result = service.execute()
-
-            self.assertIsInstance(result, dict)
-            self.assertEqual(result["chats_selected"], 1)
-            self.assertEqual(result["chats_notified"], 0)
-            self.assertEqual(result["summaries_created"], 0)
+        self.assertEqual(result, {"chats_selected": 1, "chats_notified": 0, "summaries_created": 0})
+        self.assertEqual(self.api.get_sent_messages("1"), [])
 
     def test_execute_notification_failure(self):
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
-        self.mock_di.chat_langchain_model.return_value = mock_llm
+        chat = domain.chat_config(external_id = "1")
+        self.chats.save(chat)
+        self.model.responses.append(external.ai_message(content = "Translated announcement"))
+        self.api.delivery_errors["1"] = ExternalServiceError("Notification failed", UNEXPECTED_ERROR)
+        service = self.di.dev_announcements_service("Test announcement", None, self.tool)
 
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(external_id = "1", release_notifications = ChatConfigDB.ReleaseNotifications.all),
-        ]
-        self.mock_di.platform_bot_sdk.return_value.send_text_message.side_effect = Exception("Notification failed")
+        result = service.execute()
 
-        # Mock external ID resolution
-        with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
-
-            def mock_resolve_side_effect(user, chat_type):
-                if hasattr(user, "telegram_user_id") and user.telegram_user_id:
-                    return str(user.telegram_user_id)
-                # For agent user, return a different ID so chats don't get filtered out
-                return "999999999"
-
-            mock_resolve.side_effect = mock_resolve_side_effect
-
-            service = DevAnnouncementsService(
-                self.raw_announcement,
-                None,
-                self.mock_configured_tool,
-                self.mock_di,
-            )
-            result = service.execute()
-
-            self.assertIsInstance(result, dict)
-            self.assertEqual(result["chats_selected"], 1)
-            self.assertEqual(result["chats_notified"], 0)
-            self.assertEqual(result["summaries_created"], 0)
+        self.assertEqual(result, {"chats_selected": 1, "chats_notified": 0, "summaries_created": 1})
+        self.assertEqual(self.api.get_sent_messages("1"), [])
 
     def test_execute_no_chats(self):
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content = "Refined announcement")
-        self.mock_di.chat_langchain_model.return_value = mock_llm
+        service = self.di.dev_announcements_service("Test announcement", None, self.tool)
 
-        self.mock_di.chat_config_repo.get_all.return_value = []
+        result = service.execute()
 
-        # Mock external ID resolution
-        with patch("features.integrations.integrations.resolve_external_id") as mock_resolve:
-
-            def mock_resolve_side_effect(user, chat_type):
-                if hasattr(user, "telegram_user_id") and user.telegram_user_id:
-                    return str(user.telegram_user_id)
-                # For agent user, return a different ID so chats don't get filtered out
-                return "999999999"
-
-            mock_resolve.side_effect = mock_resolve_side_effect
-
-            service = DevAnnouncementsService(
-                self.raw_announcement,
-                None,
-                self.mock_configured_tool,
-                self.mock_di,
-            )
-            result = service.execute()
-
-            self.assertIsInstance(result, dict)
-            self.assertEqual(result["chats_selected"], 0)
-            self.assertEqual(result["chats_notified"], 0)
-            self.assertEqual(result["summaries_created"], 0)
+        self.assertEqual(result, {"chats_selected": 0, "chats_notified": 0, "summaries_created": 0})
+        self.assertEqual(self.model.prompts, [])
 
     def test_targeted_announcement_success(self):
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(
-            content = [
-                {"type": "thinking", "thinking": "Hidden reasoning"},
-                {"type": "text", "text": "Refined announcement"},
-            ],
-        )
-        self.mock_di.chat_langchain_model.return_value = mock_llm
-        self.mock_di.translations_cache.get.return_value = None
-        self.mock_di.translations_cache.save.return_value = "Refined announcement"
+        self.model.responses.append(external.ai_message(content = [
+            {"type": "thinking", "thinking": "Hidden reasoning"},
+            {"type": "text", "text": "Refined announcement"},
+        ]))
+        self.users.save(domain.user(id = uuid4(), telegram_username = "target_user", telegram_user_id = 12345))
+        self.chats.save(domain.chat_config(external_id = "12345"))
+        self.chats.save(domain.chat_config(chat_id = uuid4(), external_id = "67890"))
+        service = self.di.dev_announcements_service("Test announcement", "target_user", self.tool)
 
-        target_user = stubs.domain.user(
-            id = UUID("223e4567-e89b-12d3-a456-426614174000"),
-            telegram_chat_id = "12345",
-            telegram_user_id = 2,
-        )
+        result = service.execute()
 
-        # Mock the platform-agnostic lookup
-        with patch("features.chat.dev_announcements_service.lookup_user_by_handle") as mock_lookup:
-            mock_lookup.return_value = target_user
-            self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = stubs.domain.chat_config(
-                external_id = "12345",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            )
-
-            service = DevAnnouncementsService(
-                self.raw_announcement,
-                "target_user",
-                self.mock_configured_tool,
-                self.mock_di,
-            )
-            result = service.execute()
-
-            self.assertIsInstance(result, dict)
-            self.assertEqual(result["chats_selected"], 1)
-            self.assertEqual(result["chats_notified"], 1)
-            self.assertEqual(result["summaries_created"], 1)
-            self.mock_di.translations_cache.save.assert_called_once_with(
-                "Refined announcement",
-                "English",
-                "en",
-            )
+        self.assertEqual(result, {"chats_selected": 1, "chats_notified": 1, "summaries_created": 1})
+        self.assertEqual([message["text"] for message in self.api.get_sent_messages("12345")], ["Refined announcement"])
+        self.assertEqual(self.api.get_sent_messages("67890"), [])
+        self.assertEqual(self.model.prompts[0][-1].content, "Test announcement")
 
     def test_targeted_announcement_invalid_username(self):
-        # Mock the platform-agnostic lookup to return None
-        with patch("features.integrations.integrations.lookup_user_by_handle") as mock_lookup:
-            mock_lookup.return_value = None
+        with self.assertRaises(NotFoundError) as context:
+            self.di.dev_announcements_service("Test announcement", "nonexistent_user", self.tool)
 
-            with self.assertRaises(NotFoundError) as context:
-                DevAnnouncementsService(
-                    self.raw_announcement,
-                    "nonexistent_user",
-                    self.mock_configured_tool,
-                    self.mock_di,
-                )
+        self.assertIn("Target user 'nonexistent_user' not found", str(context.exception))
 
-            self.assertIn("Target user 'nonexistent_user' not found", str(context.exception))
+    def test_targeted_announcement_no_external_id(self):
+        self.users.save(domain.user(telegram_username = "target_user", telegram_user_id = None))
 
-    def test_targeted_announcement_no_chat_id(self):
-        target_user = stubs.domain.user(
-            id = UUID("223e4567-e89b-12d3-a456-426614174000"),
-            telegram_chat_id = None,
-            telegram_user_id = 2,
-        )
+        with self.assertRaises(AuthorizationError) as context:
+            self.di.dev_announcements_service("Test announcement", "target_user", self.tool)
 
-        # Mock the platform-agnostic lookup
-        with patch("features.integrations.integrations.lookup_user_by_handle") as mock_lookup:
-            mock_lookup.return_value = target_user
-
-            with self.assertRaises(NotFoundError) as context:
-                DevAnnouncementsService(
-                    self.raw_announcement,
-                    "target_user",
-                    self.mock_configured_tool,
-                    self.mock_di,
-                )
-
-            self.assertIn("not found", str(context.exception))
+        self.assertIn("has no external ID", str(context.exception))
 
     def test_targeted_announcement_chat_not_found(self):
-        target_user = stubs.domain.user(
-            id = UUID("223e4567-e89b-12d3-a456-426614174000"),
-            telegram_chat_id = "target_chat_id",
-            telegram_user_id = 2,
-        )
+        self.users.save(domain.user(telegram_username = "target_user", telegram_user_id = 12345))
 
-        # Mock the platform-agnostic lookup
-        with patch("features.integrations.integrations.lookup_user_by_handle") as mock_lookup:
-            mock_lookup.return_value = target_user
-            self.mock_di.chat_config_repo.get_by_external_identifiers.return_value = None
+        with self.assertRaises(NotFoundError) as context:
+            self.di.dev_announcements_service("Test announcement", "target_user", self.tool)
 
-            with self.assertRaises(NotFoundError) as context:
-                DevAnnouncementsService(
-                    self.raw_announcement,
-                    "target_user",
-                    self.mock_configured_tool,
-                    self.mock_di,
-                )
+        self.assertIn("Target chat '12345' not found", str(context.exception))
 
-            self.assertIn("not found", str(context.exception))
+    def test_execute_excludes_invoker_and_agent_chats(self):
+        chat_type = self.di.require_invoker_chat_type()
+        agent_id = resolve_external_id(resolve_agent_user(chat_type), chat_type)
+        self.chats.save(domain.chat_config(chat_id = uuid4(), external_id = "100"))
+        self.chats.save(domain.chat_config(chat_id = uuid4(), external_id = agent_id))
+        service = self.di.dev_announcements_service("Test announcement", None, self.tool)
+
+        result = service.execute()
+
+        self.assertEqual(result, {"chats_selected": 0, "chats_notified": 0, "summaries_created": 0})
+        self.assertEqual(self.model.prompts, [])

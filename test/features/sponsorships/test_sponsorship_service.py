@@ -1,87 +1,68 @@
-import unittest
-import unittest.mock
 from dataclasses import replace
-from datetime import datetime, timedelta
-from unittest.mock import Mock
+from unittest import TestCase
 from uuid import UUID
 
 import stubs
 from pydantic import SecretStr
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
-from features.sponsorships.sponsorship_repo import SponsorshipRepository
 from features.sponsorships.sponsorship_service import SponsorshipService
-from features.users.user_repo import UserRepository
+from features.users.user import User
 from util.config import config
 
 
-class SponsorshipServiceTest(unittest.TestCase):
+class SponsorshipServiceTest(TestCase):
 
-    mock_user_repo: UserRepository
-    mock_sponsorship_repo: SponsorshipRepository
+    di: DI
     service: SponsorshipService
+    sponsor: User
+    receiver: User
 
     def setUp(self):
-        self.mock_user_repo = Mock(spec = UserRepository)
-        self.mock_sponsorship_repo = Mock(spec = SponsorshipRepository)
-        mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        mock_di.user_repo = self.mock_user_repo
-        # noinspection PyPropertyAccess
-        mock_di.sponsorship_repo = self.mock_sponsorship_repo
-        self.service = SponsorshipService(mock_di)
-
-    def test_accept_sponsorship_success(self):
-        user = stubs.domain.user()
-
-        # Create user without API keys for this test
-        user_without_keys = replace(
-            user,
+        self.di = self.enterContext(di_for_tests())
+        self.service = self.di.sponsorship_service
+        self.sponsor = stubs.domain.user(telegram_username = "sponsor_username")
+        self.receiver = stubs.domain.user(
+            id = UUID("22222222-2222-4222-8222-b22222222222"),
+            telegram_username = "receiver_username",
+            telegram_user_id = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = None,
+            connect_key = "RECEIVER-KEY",
             open_ai_key = None,
             anthropic_key = None,
+            google_ai_key = None,
             perplexity_key = None,
             replicate_key = None,
             rapid_api_key = None,
             coinmarketcap_key = None,
             twelve_data_api_key = None,
-            google_ai_key = None,
             x_key = None,
             x_ai_key = None,
             credit_balance = 0.0,
         )
 
-        mock_sponsorship = stubs.domain.sponsorship(
+    def test_accept_sponsorship_success(self):
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
+        pending = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id,
+            receiver_id = self.receiver.id,
             accepted_at = None,
-            sponsor_id = user.id,
-            receiver_id = user_without_keys.id,
-            sponsored_at = datetime.now() - timedelta(days = 1),
-        )
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [mock_sponsorship]
-        self.mock_sponsorship_repo.save.return_value = stubs.domain.sponsorship(
-            sponsor_id = mock_sponsorship.sponsor_id,
-            receiver_id = mock_sponsorship.receiver_id,
-            sponsored_at = mock_sponsorship.sponsored_at,
-            accepted_at = datetime.now(),
-        )
+        ))
 
-        result = self.service.accept_sponsorship(user_without_keys)
+        result = self.service.accept_sponsorship(self.receiver)
 
         self.assertTrue(result)
-        # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_repo.save.assert_called()
-        saved_sponsorship = self.mock_sponsorship_repo.save.call_args.args[0]
-        self.assertEqual(saved_sponsorship.sponsored_at, mock_sponsorship.sponsored_at)
-        self.assertIsNotNone(saved_sponsorship.accepted_at)
+        saved = self.di.sponsorship_repo.get(self.sponsor.id, self.receiver.id)
+        self.assertEqual(saved.sponsored_at, pending.sponsored_at)
+        self.assertIsNotNone(saved.accepted_at)
 
     def test_sponsor_user_success_with_twelve_data_key(self):
-        user = stubs.domain.user()
-
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-        sponsor_user = replace(
-            user,
+        sponsor = self.di.user_repo.save(stubs.domain.user(
             open_ai_key = None,
             anthropic_key = None,
             google_ai_key = None,
@@ -93,487 +74,270 @@ class SponsorshipServiceTest(unittest.TestCase):
             x_key = None,
             x_ai_key = None,
             credit_balance = 0.0,
-        )
+        ))
 
-        receiver_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
+        result, message = self.service.sponsor_user(
+            sponsor.id.hex, self.receiver.telegram_username, ChatConfigDB.ChatType.telegram,
         )
-        self.mock_user_repo.get.return_value = sponsor_user
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []  # Ensure sponsor has no received sponsorships
-        self.mock_user_repo.get_by_telegram_username.return_value = None
-        self.mock_user_repo.count.return_value = 0
-        self.mock_user_repo.save.return_value = receiver_user
-        self.mock_sponsorship_repo.save.return_value = stubs.domain.sponsorship(
-            sponsor_id = user.id,
-            receiver_id = receiver_user.id,
-            accepted_at = None,
-        )
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
         self.assertEqual(result, SponsorshipService.Result.success)
-        self.assertIn("Sponsorship sent", msg)
-        # noinspection PyUnresolvedReferences
-        self.mock_user_repo.get.assert_called_once_with(UUID(hex = sponsor_user_id_hex))
-        # noinspection PyUnresolvedReferences
-        self.mock_user_repo.save.assert_called()
+        self.assertIn("Sponsorship sent", message)
+        receiver = self.di.user_repo.get_by_telegram_username(self.receiver.telegram_username)
+        self.assertIsNotNone(receiver)
+        self.assertFalse(receiver.is_invited_to_start)
+        self.assertFalse(receiver.are_policies_accepted)
+        saved = self.di.sponsorship_repo.get(sponsor.id, receiver.id)
+        self.assertIsNotNone(saved)
+        self.assertIsNone(saved.accepted_at)
 
     def test_sponsor_user_failure_sponsor_not_found(self):
-        user = stubs.domain.user()
-
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        self.mock_user_repo.get.return_value = None
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, self.receiver.telegram_username, ChatConfigDB.ChatType.telegram,
+        )
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("Sponsor '", msg)
+        self.assertIn("Sponsor '", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [])
 
     def test_sponsor_user_failure_sponsoring_self(self):
-        user = stubs.domain.user(
-            telegram_username = "test_username",
+        self.di.user_repo.save(self.sponsor)
+
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, self.sponsor.telegram_username, ChatConfigDB.ChatType.telegram,
         )
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "test_username"
-
-        self.mock_user_repo.get.return_value = user
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
-
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("cannot sponsor themselves", msg)
+        self.assertIn("cannot sponsor themselves", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [])
 
     def test_sponsor_user_failure_max_sponsorships_exceeded(self):
-        user = stubs.domain.user()
+        self.addCleanup(setattr, config, "max_sponsorships_per_user", config.max_sponsorships_per_user)
+        config.max_sponsorships_per_user = 1
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
+        existing = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = self.receiver.id,
+        ))
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = [
-            stubs.domain.sponsorship()
-            for _ in range(config.max_sponsorships_per_user + 1)
-        ]
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, "another_receiver", ChatConfigDB.ChatType.telegram,
+        )
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("exceeded the maximum number of sponsorships", msg)
+        self.assertIn("exceeded the maximum number of sponsorships", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all_by_sponsor(self.sponsor.id), [existing])
+        self.assertIsNone(self.di.user_repo.get_by_telegram_username("another_receiver"))
 
     def test_sponsor_user_success_developer_no_limit(self):
-        user = stubs.domain.user()
+        self.addCleanup(setattr, config, "max_sponsorships_per_user", config.max_sponsorships_per_user)
+        config.max_sponsorships_per_user = 1
+        self.di.user_repo.save(replace(self.sponsor, group = UserDB.Group.developer))
+        self.di.user_repo.save(self.receiver)
+        existing = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = self.receiver.id,
+        ))
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        developer_user = replace(user, group = UserDB.Group.developer)
-        self.mock_user_repo.get.return_value = developer_user
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = [
-            stubs.domain.sponsorship()
-            for _ in range(config.max_sponsorships_per_user + 1)
-        ]
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
-        self.mock_user_repo.get_by_telegram_username.return_value = None
-        self.mock_user_repo.count.return_value = 0
-
-        # create a user for the new user
-        new_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
-            connect_key = "NEW-USER-KEY1",
-            open_ai_key = developer_user.open_ai_key,
-            credit_balance = 0.0,
-            is_invited_to_start = False,
-            are_policies_accepted = False,
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, "another_receiver", ChatConfigDB.ChatType.telegram,
         )
-
-        self.mock_user_repo.save.return_value = new_user
-
-        self.mock_sponsorship_repo.save.return_value = stubs.domain.sponsorship(
-            sponsor_id = developer_user.id,
-            receiver_id = new_user.id,
-            accepted_at = None,
-        )
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
         self.assertEqual(result, SponsorshipService.Result.success)
-        self.assertIn("Sponsorship sent", msg)
+        self.assertIn("Sponsorship sent", message)
+        receiver = self.di.user_repo.get_by_telegram_username("another_receiver")
+        self.assertIsNotNone(receiver)
+        self.assertIsNotNone(self.di.sponsorship_repo.get(self.sponsor.id, receiver.id))
+        self.assertEqual(self.di.sponsorship_repo.get(self.sponsor.id, self.receiver.id), existing)
 
     def test_sponsor_user_at_capacity_creates_waitlisted_user(self):
-        user = stubs.domain.user()
-
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-        receiver_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
-            connect_key = "NEW-USER-KEY2",
-            credit_balance = 0.0,
-            is_on_waitlist = True,
-            is_invited_to_start = False,
-            are_policies_accepted = False,
-        )
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
-        self.mock_user_repo.get_by_telegram_username.return_value = None
-        self.mock_user_repo.count.return_value = config.max_users
-        self.mock_user_repo.save.return_value = receiver_user
-        self.mock_sponsorship_repo.save.return_value = stubs.domain.sponsorship(
-            sponsor_id = user.id,
-            receiver_id = receiver_user.id,
-            accepted_at = None,
-        )
+        self.addCleanup(setattr, config, "max_users", config.max_users)
+        config.max_users = 1
+        self.di.user_repo.save(self.sponsor)
 
         result, _ = self.service.sponsor_user(
-            sponsor_user_id_hex,
-            receiver_telegram_username,
-            ChatConfigDB.ChatType.telegram,
+            self.sponsor.id.hex, self.receiver.telegram_username, ChatConfigDB.ChatType.telegram,
         )
 
         self.assertEqual(result, SponsorshipService.Result.success)
-        saved_user_payload = self.mock_user_repo.save.call_args.args[0]
-        self.assertTrue(saved_user_payload.is_on_waitlist)
-        self.assertFalse(saved_user_payload.is_invited_to_start)
-        self.assertFalse(saved_user_payload.are_policies_accepted)
+        receiver = self.di.user_repo.get_by_telegram_username(self.receiver.telegram_username)
+        self.assertIsNotNone(receiver)
+        self.assertTrue(receiver.is_on_waitlist)
+        self.assertFalse(receiver.is_invited_to_start)
+        self.assertFalse(receiver.are_policies_accepted)
+        self.assertIsNotNone(self.di.sponsorship_repo.get(self.sponsor.id, receiver.id))
 
     def test_sponsor_user_failure_no_api_key(self):
-        user = stubs.domain.user()
+        sponsor = self.di.user_repo.save(self.receiver)
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        # Create sponsor without any API keys
-        sponsor_without_keys = replace(
-            user,
-            open_ai_key = None,
-            anthropic_key = None,
-            perplexity_key = None,
-            replicate_key = None,
-            rapid_api_key = None,
-            coinmarketcap_key = None,
-            twelve_data_api_key = None,
-            google_ai_key = None,
-            x_key = None,
-            x_ai_key = None,
-            credit_balance = 0.0,
+        result, message = self.service.sponsor_user(
+            sponsor.id.hex, "another_receiver", ChatConfigDB.ChatType.telegram,
         )
 
-        self.mock_user_repo.get.return_value = sponsor_without_keys
-        # Mock the sponsorship checks that come before API key validation
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
-
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("has no API keys or credits configured", msg)
+        self.assertIn("has no API keys or credits configured", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [])
+        self.assertIsNone(self.di.user_repo.get_by_telegram_username("another_receiver"))
 
     def test_sponsor_user_failure_transitive_sponsorship(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
+        existing = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.receiver.id, receiver_id = self.sponsor.id,
+        ))
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [stubs.domain.sponsorship()]
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, "another_receiver", ChatConfigDB.ChatType.telegram,
+        )
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("can't sponsor others while being sponsored themselves", msg)
+        self.assertIn("can't sponsor others while being sponsored themselves", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [existing])
 
     def test_sponsor_user_failure_receiver_has_sponsorship(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
+        existing = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = self.receiver.id,
+        ))
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        receiver_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, self.receiver.telegram_username, ChatConfigDB.ChatType.telegram,
         )
-        self.mock_user_repo.get.return_value = user
-        self.mock_user_repo.get_by_telegram_username.return_value = receiver_user
-        self.mock_sponsorship_repo.get_all_by_receiver.side_effect = [[], [stubs.domain.sponsorship()]]
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("Receiver '@receiver_username' already has a sponsorship", msg)
+        self.assertIn("Receiver '@receiver_username' already has a sponsorship", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [existing])
 
     def test_sponsor_user_failure_receiver_has_api_key(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        receiver = self.di.user_repo.save(replace(self.receiver, anthropic_key = SecretStr("receiver-anthropic-key")))
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        receiver_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
+        result, message = self.service.sponsor_user(
+            self.sponsor.id.hex, receiver.telegram_username, ChatConfigDB.ChatType.telegram,
         )
 
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_sponsor.return_value = []
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []  # No transitive sponsoring
-        self.mock_user_repo.get_by_telegram_username.return_value = receiver_user
-
-        result, msg = self.service.sponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
-
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("already has API keys configured", msg)
+        self.assertIn("already has API keys configured", message)
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [])
+        self.assertEqual(self.di.user_repo.get(receiver.id), receiver)
 
     def test_unsponsor_user_success(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        receiver = self.di.user_repo.save(replace(self.receiver, anthropic_key = SecretStr("receiver-anthropic-key")))
+        self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = receiver.id,
+        ))
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        receiver_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
+        result, message = self.service.unsponsor_user(
+            self.sponsor.id.hex, receiver.telegram_username, ChatConfigDB.ChatType.telegram,
         )
-        # create a sponsorship
-        sponsorship = stubs.domain.sponsorship(
-            sponsor_id = user.id,
-            receiver_id = receiver_user.id,
-            sponsored_at = datetime.now(),
-            accepted_at = None,
-        )
-
-        self.mock_user_repo.get.return_value = user
-        self.mock_user_repo.get_by_telegram_username.return_value = receiver_user
-        self.mock_sponsorship_repo.get.return_value = sponsorship
-
-        result, msg = self.service.unsponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
         self.assertEqual(result, SponsorshipService.Result.success)
-        self.assertIn("Sponsorship revoked", msg)
-        # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_repo.delete.assert_called_once_with(user.id, receiver_user.id)
-        # Token removal is no longer handled by SponsorshipService
-        # noinspection PyUnresolvedReferences
-        self.mock_user_repo.save.assert_not_called()
+        self.assertIn("Sponsorship revoked", message)
+        self.assertIsNone(self.di.sponsorship_repo.get(self.sponsor.id, receiver.id))
+        # revoking sponsorship preserves the receiver's own credentials and profile
+        self.assertEqual(self.di.user_repo.get(receiver.id), receiver)
 
     def test_unsponsor_user_failure_sponsor_not_found(self):
-        user = stubs.domain.user()
-
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        self.mock_user_repo.get.side_effect = [None, None]
-
-        result, msg = self.service.unsponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
+        result, message = self.service.unsponsor_user(
+            self.sponsor.id.hex, self.receiver.telegram_username, ChatConfigDB.ChatType.telegram,
+        )
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("Sponsor '", msg)
+        self.assertIn("Sponsor '", message)
 
     def test_unsponsor_user_failure_no_sponsorship(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
 
-        sponsor_user_id_hex = user.id.hex
-        receiver_telegram_username = "receiver_username"
-
-        receiver_user = stubs.domain.user(
-            id = UUID(int = 2),
-            telegram_username = receiver_telegram_username,
+        result, message = self.service.unsponsor_user(
+            self.sponsor.id.hex, self.receiver.telegram_username, ChatConfigDB.ChatType.telegram,
         )
-        self.mock_user_repo.get.return_value = user
-        self.mock_user_repo.get_by_telegram_username.return_value = receiver_user
-        self.mock_sponsorship_repo.get.return_value = None
-
-        result, msg = self.service.unsponsor_user(sponsor_user_id_hex, receiver_telegram_username, ChatConfigDB.ChatType.telegram)
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("No sponsorship", msg)
+        self.assertIn("No sponsorship", message)
 
     def test_accept_sponsorship_failure_no_sponsorship(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.receiver)
 
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
-
-        result = self.service.accept_sponsorship(user)
+        result = self.service.accept_sponsorship(self.receiver)
 
         self.assertFalse(result)
+        self.assertEqual(self.di.sponsorship_repo.get_all_by_receiver(self.receiver.id), [])
 
     def test_accept_sponsorship_failure_has_api_key(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        receiver = self.di.user_repo.save(replace(self.receiver, anthropic_key = SecretStr("receiver-anthropic-key")))
+        pending = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = receiver.id, accepted_at = None,
+        ))
 
-        # canonical user has API keys and cannot accept sponsorship
-        result = self.service.accept_sponsorship(user)
+        result = self.service.accept_sponsorship(receiver)
 
         self.assertFalse(result)
-
-    def test_accept_sponsorship_success_no_api_key(self):
-        user = stubs.domain.user()
-
-        # User without API keys can accept sponsorship
-        user_without_keys = replace(
-            user,
-            open_ai_key = None,
-            anthropic_key = None,
-            perplexity_key = None,
-            replicate_key = None,
-            rapid_api_key = None,
-            coinmarketcap_key = None,
-            twelve_data_api_key = None,
-            google_ai_key = None,
-            x_key = None,
-            x_ai_key = None,
-            credit_balance = 0.0,
-        )
-
-        # create a pending sponsorship
-        pending_sponsorship = stubs.domain.sponsorship(
-            sponsor_id = UUID(int = 999),
-            receiver_id = user_without_keys.id,
-            sponsored_at = datetime.now(),
-            accepted_at = None,
-        )
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [pending_sponsorship]
-        self.mock_sponsorship_repo.save.return_value = stubs.domain.sponsorship(
-            sponsor_id = pending_sponsorship.sponsor_id,
-            receiver_id = pending_sponsorship.receiver_id,
-            sponsored_at = pending_sponsorship.sponsored_at,
-            accepted_at = datetime.now(),
-        )
-
-        result = self.service.accept_sponsorship(user_without_keys)
-
-        self.assertTrue(result)
-        saved_sponsorship = self.mock_sponsorship_repo.save.call_args.args[0]
-        self.assertEqual(saved_sponsorship.sponsored_at, pending_sponsorship.sponsored_at)
-        self.assertIsNotNone(saved_sponsorship.accepted_at)
+        self.assertEqual(self.di.sponsorship_repo.get(self.sponsor.id, receiver.id), pending)
 
     # === unsponsor_by_user_id ===
 
     def test_unsponsor_by_user_id_success(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
+        self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = self.receiver.id,
+        ))
 
-        sponsor_id = UUID(int = 2)
-        sponsorship = stubs.domain.sponsorship(
-            sponsor_id = sponsor_id,
-            receiver_id = user.id,
-            sponsored_at = datetime.now(),
-            accepted_at = datetime.now(),
-        )
-        self.mock_sponsorship_repo.get.return_value = sponsorship
-
-        result, msg = self.service.unsponsor_by_user_id(sponsor_id.hex, user.id.hex)
+        result, message = self.service.unsponsor_by_user_id(self.sponsor.id.hex, self.receiver.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.success)
-        self.assertIn("Sponsorship revoked", msg)
-        # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_repo.delete.assert_called_once_with(sponsor_id, user.id)
+        self.assertIn("Sponsorship revoked", message)
+        self.assertIsNone(self.di.sponsorship_repo.get(self.sponsor.id, self.receiver.id))
 
     def test_unsponsor_by_user_id_failure_no_sponsorship(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
 
-        self.mock_sponsorship_repo.get.return_value = None
-
-        result, msg = self.service.unsponsor_by_user_id(UUID(int = 2).hex, user.id.hex)
+        result, message = self.service.unsponsor_by_user_id(self.sponsor.id.hex, self.receiver.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("No sponsorship", msg)
-        # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_repo.delete.assert_not_called()
+        self.assertIn("No sponsorship", message)
 
     # === unsponsor_self ===
 
     def test_unsponsor_self_success(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.sponsor)
+        self.di.user_repo.save(self.receiver)
+        self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = self.sponsor.id, receiver_id = self.receiver.id,
+        ))
 
-        user_id_hex = user.id.hex
-        sponsor_id = UUID(int = 2)
-        sponsorship = stubs.domain.sponsorship(
-            sponsor_id = sponsor_id,
-            receiver_id = user.id,
-            sponsored_at = datetime.now(),
-            accepted_at = datetime.now(),
-        )
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship]
-        self.mock_sponsorship_repo.get.return_value = sponsorship
-
-        result, msg = self.service.unsponsor_self(user_id_hex)
+        result, message = self.service.unsponsor_self(self.receiver.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.success)
-        self.assertIn("Sponsorship revoked", msg)
-        # noinspection PyUnresolvedReferences
-        self.mock_sponsorship_repo.delete.assert_called_once_with(sponsor_id, user.id)
+        self.assertIn("Sponsorship revoked", message)
+        self.assertIsNone(self.di.sponsorship_repo.get(self.sponsor.id, self.receiver.id))
 
     def test_unsponsor_self_failure_user_not_found(self):
-        user = stubs.domain.user()
-
-        self.mock_user_repo.get.return_value = None
-
-        result, msg = self.service.unsponsor_self(user.id.hex)
+        result, message = self.service.unsponsor_self(self.receiver.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("not found", msg)
+        self.assertIn("not found", message)
 
     def test_unsponsor_self_failure_no_sponsorships(self):
-        user = stubs.domain.user()
+        self.di.user_repo.save(self.receiver)
 
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = []
-
-        result, msg = self.service.unsponsor_self(user.id.hex)
+        result, message = self.service.unsponsor_self(self.receiver.id.hex)
 
         self.assertEqual(result, SponsorshipService.Result.failure)
-        self.assertIn("has no sponsorships to remove", msg)
+        self.assertIn("has no sponsorships to remove", message)
 
-    def test_unsponsor_self_delegates_to_unsponsor_by_user_id(self):
-        user = stubs.domain.user()
+    def test_sponsor_user_success_with_anthropic_key(self):
+        sponsor = self.di.user_repo.save(replace(self.receiver, anthropic_key = SecretStr("test_anthropic_key")))
 
-        sponsor_id = UUID(int = 2)
-        sponsorship = stubs.domain.sponsorship(
-            sponsor_id = sponsor_id,
-            receiver_id = user.id,
-            sponsored_at = datetime.now(),
-            accepted_at = datetime.now(),
+        result, message = self.service.sponsor_user(
+            sponsor.id.hex, "another_receiver", ChatConfigDB.ChatType.telegram,
         )
-        self.mock_user_repo.get.return_value = user
-        self.mock_sponsorship_repo.get_all_by_receiver.return_value = [sponsorship]
 
-        with unittest.mock.patch.object(self.service, "unsponsor_by_user_id") as mock_method:
-            mock_method.return_value = (SponsorshipService.Result.success, "Revoked")
-            result, _ = self.service.unsponsor_self(user.id.hex)
-            mock_method.assert_called_once_with(sponsor_id.hex, user.id.hex)
-            self.assertEqual(result, SponsorshipService.Result.success)
-
-    def test_user_has_any_api_key(self):
-        user = stubs.domain.user()
-
-        # canonical user has an API key
-        self.assertTrue(user.has_any_api_key())
-
-        # Test user without any API keys
-        user_without_keys = replace(
-            user,
-            open_ai_key = None,
-            anthropic_key = None,
-            perplexity_key = None,
-            replicate_key = None,
-            rapid_api_key = None,
-            coinmarketcap_key = None,
-            twelve_data_api_key = None,
-            google_ai_key = None,
-            x_key = None,
-            x_ai_key = None,
-            credit_balance = 0.0,
-        )
-        self.assertFalse(user_without_keys.has_any_api_key())
-
-        # Test user with only anthropic key
-        user_with_anthropic = replace(user_without_keys, anthropic_key = SecretStr("test_anthropic_key"))
-        self.assertTrue(user_with_anthropic.has_any_api_key())
+        self.assertEqual(result, SponsorshipService.Result.success)
+        self.assertIn("Sponsorship sent", message)
+        receiver = self.di.user_repo.get_by_telegram_username("another_receiver")
+        self.assertIsNotNone(receiver)
+        self.assertIsNotNone(self.di.sponsorship_repo.get(sponsor.id, receiver.id))

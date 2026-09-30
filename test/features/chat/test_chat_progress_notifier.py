@@ -1,224 +1,138 @@
-import unittest
-from unittest.mock import MagicMock, Mock, patch
+from threading import Event
+from typing import cast
+from unittest import TestCase
+from unittest.mock import Mock, patch
 
-import stubs
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
+from stubs import domain
+from util.di_utils import di_for_tests
 
-from features.chat.chat_progress_notifier import ChatProgressNotifier
-from features.integrations.platform_bot_sdk import PlatformBotSDK
+from db.model.chat_config import ChatConfigDB
+from di.di import DI
+from features.chat.chat_progress_notifier import MAX_CYCLES, ChatProgressNotifier
 
 
-class ChatProgressNotifierTest(unittest.TestCase):
+class ChatProgressNotifierTest(TestCase):
 
-    mock_di: Mock
+    di: DI
     notifier: ChatProgressNotifier
+    api: FakeTelegramBotAPI
+    signal: Event
+    thread: Mock
+    now: float
+    cycles: int
+    cycle_limit: int
 
     def setUp(self):
-        chat_config = stubs.domain.chat_config()
-        # Create mock DI with all necessary dependencies
-        self.mock_di = Mock()
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat = chat_config
-        self.mock_di.require_invoker_chat = MagicMock(return_value = chat_config)
-        # noinspection PyPropertyAccess
-        self.mock_di.platform_bot_sdk = Mock(return_value = Mock(spec = PlatformBotSDK))
-        self.mock_di.require_invoker_chat_type = MagicMock(return_value = chat_config.chat_type)
+        self.di = self.enterContext(di_for_tests())
+        self.api = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.di.inject_invoker_chat(domain.chat_config(external_id = "chat"))
+        self.signal = Event()
+        self.now = 0.0
+        self.cycles = 0
+        self.cycle_limit = 1
+        # control only system scheduling; run the real target supplied to Thread
+        self.thread = self.enterContext(patch("features.chat.chat_progress_notifier.Thread"))
+        self.thread.return_value.is_alive.return_value = True
+        self.enterContext(patch("features.chat.chat_progress_notifier.Event", return_value = self.signal))
+        self.enterContext(patch.object(self.signal, "wait", side_effect = self.__advance_time))
+        self.enterContext(patch("time.time", side_effect = lambda: self.now))
+        self.notifier = self.di.chat_progress_notifier("message")
+        self.addCleanup(self.notifier.stop)
 
-        self.notifier = ChatProgressNotifier(
-            message_id = stubs.domain.chat_message().message_id,
-            di = self.mock_di,
-            auto_start = False,
-        )
+    def __advance_time(self, timeout: float) -> bool:
+        self.now += timeout
+        self.cycles += 1
+        if self.cycles >= self.cycle_limit:
+            self.signal.set()
+        return self.signal.is_set()
 
-    # noinspection PyUnresolvedReferences
-    def test_init(self):
-        self.assertEqual(
-            self.notifier._ChatProgressNotifier__message_id,
-            stubs.domain.chat_message().message_id,
-        )
-        self.assertEqual(self.notifier._ChatProgressNotifier__di, self.mock_di)
+    def test_init_does_not_start_notifications(self):
+        self.assertEqual(self.api.statuses, {})
+        self.assertEqual(self.api.reactions, {})
+        self.thread.assert_not_called()
 
-    @patch("features.chat.chat_progress_notifier.Thread")
-    def test_start(self, mock_thread):
+    def test_start_is_idempotent_while_thread_is_running(self):
         self.notifier.start()
-        mock_thread.assert_called_once()
-        mock_thread.return_value.start.assert_called_once()
-
-    @patch("features.chat.chat_progress_notifier.Thread")
-    def test_stop(self, mock_thread):
         self.notifier.start()
+        self.thread.call_args.kwargs["target"]()
+
+        self.thread.assert_called_once()
+        self.thread.return_value.start.assert_called_once()
+        self.assertEqual(self.api.statuses, {"chat": "typing"})
+
+    def test_stop_clears_reaction_and_signals_thread(self):
+        self.notifier.start()
+        self.api.reactions[("chat", "message")] = "👀"
+
         self.notifier.stop()
-        mock_thread.return_value.join.assert_called_once_with(timeout = 1)
 
-    @patch("features.chat.chat_progress_notifier.time.time")
-    def test_send_reaction(self, mock_time):
-        mock_time.return_value = 100
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
-        # noinspection PyUnresolvedReferences
-        self.notifier._ChatProgressNotifier__send_reaction()
-        mock_platform_sdk.set_reaction.assert_called_once()
+        self.assertTrue(self.signal.is_set())
+        self.thread.return_value.join.assert_called_once_with(timeout = 1)
+        self.assertIsNone(self.api.reactions[("chat", "message")])
 
-    @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
-    @patch("features.chat.chat_progress_notifier.time.time")
-    def test_no_reactions_when_intervals_not_set(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = None
-        mock_time.return_value = 0.0
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
+    def test_no_reactions_when_intervals_not_set(self):
+        self.di.inject_invoker_chat(domain.chat_config(external_id = "chat", chat_type = ChatConfigDB.ChatType.background))
+        notifier = self.di.chat_progress_notifier("message")
+        self.addCleanup(notifier.stop)
+        self.cycle_limit = 3
 
-        notifier = ChatProgressNotifier(
-            message_id = stubs.domain.chat_message().message_id,
-            di = self.mock_di,
-            auto_start = False,
-        )
+        notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-        # Simulate a few cycles
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal = Mock()
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.is_set.side_effect = [False, False, False, True]
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.wait = Mock()
+        self.assertEqual(self.api.statuses, {})
+        self.assertEqual(self.api.reactions, {})
 
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__run()
+    def test_whatsapp_fires_immediately(self):
+        self.di.inject_invoker_chat(domain.chat_config(external_id = "chat", chat_type = ChatConfigDB.ChatType.whatsapp))
+        notifier = self.di.chat_progress_notifier("message")
+        self.addCleanup(notifier.stop)
 
-        # Should only set typing action, never send reactions
-        mock_platform_sdk.set_chat_action.assert_called()
-        mock_platform_sdk.set_reaction.assert_not_called()
+        notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-    @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
-    @patch("features.chat.chat_progress_notifier.time.time")
-    def test_fires_immediately_when_initial_delay_zero(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = (0, 15)  # WhatsApp-like: 0s initial, 15s interval
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
+        api = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+        self.assertEqual(api.reactions, {("chat", "message"): "👀"})
 
-        # Time progression: start at 0, then advance by small increments
-        mock_time.side_effect = [0.0, 0.0, 0.1, 0.2]
+    def test_telegram_waits_for_initial_delay(self):
+        self.cycle_limit = 3
 
-        notifier = ChatProgressNotifier(
-            message_id = stubs.domain.chat_message().message_id,
-            di = self.mock_di,
-            auto_start = False,
-        )
+        self.notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-        # Simulate one cycle
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal = Mock()
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.is_set.side_effect = [False, True]
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.wait = Mock()
+        self.assertEqual(self.api.statuses, {"chat": "typing"})
+        self.assertEqual(self.api.reactions, {})
 
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__run()
+    def test_telegram_fires_after_initial_delay(self):
+        self.cycle_limit = 4
 
-        # Should fire reaction immediately (elapsed = 7 at start due to offset)
-        mock_platform_sdk.set_reaction.assert_called()
+        self.notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-    @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
-    @patch("features.chat.chat_progress_notifier.time.time")
-    def test_fires_after_initial_delay(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = (15, 30)  # Telegram-like: 15s initial, 30s interval
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
+        self.assertEqual(self.api.reactions, {("chat", "message"): "👀"})
 
-        # Time progression: loop iterations
-        # 5.0: first cycle, initializes to 5, elapsed=0, should NOT fire
-        # 11.0: second cycle, elapsed=6, should NOT fire (need 15s)
-        # 16.0: third cycle, elapsed=11, should NOT fire (need 15s)
-        # 21.0: fourth cycle, elapsed=16, should fire
-        mock_time.side_effect = [5.0, 11.0, 16.0, 21.0]
+    def test_telegram_waits_full_interval_before_escalating(self):
+        self.cycle_limit = 9
 
-        notifier = ChatProgressNotifier(
-            message_id = stubs.domain.chat_message().message_id,
-            di = self.mock_di,
-            auto_start = False,
-        )
+        self.notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-        # Simulate four cycles
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal = Mock()
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.is_set.side_effect = [False, False, False, False, True]
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.wait = Mock()
+        self.assertEqual(self.api.reactions, {("chat", "message"): "👀"})
 
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__run()
+    def test_telegram_escalates_after_interval(self):
+        self.cycle_limit = 10
 
-        # First cycle at t=5: init to 5, elapsed=0, should NOT fire
-        # Second cycle at t=11: elapsed=6, should NOT fire (need 15s)
-        # Third cycle at t=16: elapsed=11, should NOT fire (need 15s)
-        # Fourth cycle at t=21: elapsed=16, should fire
-        self.assertEqual(mock_platform_sdk.set_reaction.call_count, 1)
+        self.notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-    @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
-    @patch("features.chat.chat_progress_notifier.time.time")
-    def test_fires_when_initial_delay_greater_than_interval(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = (15, 7)  # delay = 15s, interval = 7s
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
+        self.assertEqual(self.api.reactions, {("chat", "message"): "🫡"})
 
-        # Time progression:
-        # 0: start, elapsed=0, should NOT fire (need 15s)
-        # 10: elapsed=10, should NOT fire (need 15s)
-        # 15: elapsed=15, should fire (first reaction)
-        # 20: elapsed=5 from last, should NOT fire (need 7s)
-        # 22: elapsed=7 from last, should fire (second reaction)
-        mock_time.side_effect = [0.0, 10.0, 15.0, 20.0, 22.0]
+    def test_stops_after_maximum_cycles(self):
+        self.cycle_limit = MAX_CYCLES + 1
 
-        notifier = ChatProgressNotifier(
-            message_id = stubs.domain.chat_message().message_id,
-            di = self.mock_di,
-            auto_start = False,
-        )
+        self.notifier.start()
+        self.thread.call_args.kwargs["target"]()
 
-        # Simulate five cycles
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal = Mock()
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.is_set.side_effect = [False, False, False, False, False, True]
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.wait = Mock()
-
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__run()
-
-        # Should fire twice: once at t=15 (initial), once at t=22 (interval)
-        self.assertEqual(mock_platform_sdk.set_reaction.call_count, 2)
-
-    @patch("features.chat.chat_progress_notifier.resolve_reaction_timing")
-    @patch("features.chat.chat_progress_notifier.time.time")
-    def test_fires_when_initial_delay_less_than_interval(self, mock_time, mock_resolve_timing):
-        mock_resolve_timing.return_value = (3, 7)  # delay = 3s, interval = 7s
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk.return_value = mock_platform_sdk
-
-        # Time progression:
-        # 0: start, elapsed=0, should NOT fire (need 3s)
-        # 3: elapsed=3, should fire (first reaction)
-        # 8: elapsed=5 from last, should NOT fire (need 7s)
-        # 10: elapsed=7 from last, should fire (second reaction)
-        mock_time.side_effect = [0.0, 3.0, 8.0, 10.0]
-
-        notifier = ChatProgressNotifier(
-            message_id = stubs.domain.chat_message().message_id,
-            di = self.mock_di,
-            auto_start = False,
-        )
-
-        # Simulate four cycles
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal = Mock()
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.is_set.side_effect = [False, False, False, False, True]
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__signal.wait = Mock()
-
-        # noinspection PyUnresolvedReferences
-        notifier._ChatProgressNotifier__run()
-
-        # Should fire twice: once at t=3 (initial), once at t=10 (interval)
-        self.assertEqual(mock_platform_sdk.set_reaction.call_count, 2)
+        self.assertEqual(self.cycles, MAX_CYCLES)
+        self.assertFalse(self.signal.is_set())

@@ -1,10 +1,11 @@
 import unittest
 from io import BytesIO
 
-from langchain_core.messages import AIMessage, HumanMessage
+import stubs
 from PIL import Image
 
-from util.errors import ExternalServiceError
+from util.error_codes import UNEXPECTED_ERROR
+from util.errors import ExternalServiceError, InternalError
 from util.functions import (
     detect_image_format,
     extract_url_from_replicate_result,
@@ -20,21 +21,6 @@ from util.functions import (
 )
 
 
-class MockPrediction:
-
-    def __init__(
-        self,
-        output = None,
-        status = "succeeded",
-        error = None,
-        logs = None,
-    ):
-        self.output = output
-        self.status = status
-        self.error = error
-        self.logs = logs
-
-
 class FunctionsTest(unittest.TestCase):
 
     def test_silent_function_no_exception(self):
@@ -48,7 +34,7 @@ class FunctionsTest(unittest.TestCase):
     def test_silent_function_with_exception(self):
         @silent
         def raise_exception() -> None:
-            raise ValueError("This is an error")
+            raise InternalError("This is an error", UNEXPECTED_ERROR)
 
         result = raise_exception()
         self.assertIsNone(result)
@@ -220,66 +206,58 @@ class FunctionsTest(unittest.TestCase):
         self.assertRegex(result1, r"^[0-9a-f]{8}$")
 
     def test_extract_url_from_replicate_result_list_with_file_output(self):
-        class MockFileOutput:
-
-            url = "https://example.com/image.png"
-
-        prediction = MockPrediction(output = [MockFileOutput()])
+        prediction = stubs.external.replicate_prediction(output = [stubs.external.replicate_file_output()])
         result = extract_url_from_replicate_result(prediction)
         self.assertEqual(result, "https://example.com/image.png")
 
     def test_extract_url_from_replicate_result_list_with_string(self):
-        prediction = MockPrediction(output = ["https://example.com/image.png"])
+        prediction = stubs.external.replicate_prediction(output = ["https://example.com/image.png"])
         result = extract_url_from_replicate_result(prediction)
         self.assertEqual(result, "https://example.com/image.png")
 
     def test_extract_url_from_replicate_result_single_file_output(self):
-        class MockFileOutput:
-
-            url = "https://example.com/image.png"
-
-        prediction = MockPrediction(output = MockFileOutput())
+        prediction = stubs.external.replicate_prediction(output = stubs.external.replicate_file_output())
         result = extract_url_from_replicate_result(prediction)
         self.assertEqual(result, "https://example.com/image.png")
 
     def test_extract_url_from_replicate_result_single_string(self):
-        prediction = MockPrediction(output = "https://example.com/image.png")
+        prediction = stubs.external.replicate_prediction(output = "https://example.com/image.png")
         result = extract_url_from_replicate_result(prediction)
         self.assertEqual(result, "https://example.com/image.png")
 
     def test_extract_url_from_replicate_result_empty_list(self):
-        prediction = MockPrediction(output = [])
+        prediction = stubs.external.replicate_prediction(output = [])
         with self.assertRaises(ExternalServiceError) as context:
             extract_url_from_replicate_result(prediction)
         self.assertIn("empty result", str(context.exception).lower())
 
     def test_extract_url_from_replicate_result_unexpected_type_in_list(self):
-        prediction = MockPrediction(output = [12345])
+        prediction = stubs.external.replicate_prediction(output = [12345])
         with self.assertRaises(ExternalServiceError) as context:
             extract_url_from_replicate_result(prediction)
         self.assertIn("Unexpected result type in list", str(context.exception))
 
     def test_extract_url_from_replicate_result_unexpected_type(self):
-        prediction = MockPrediction(output = 12345)
+        prediction = stubs.external.replicate_prediction(output = 12345)
         with self.assertRaises(ExternalServiceError) as context:
             extract_url_from_replicate_result(prediction)
         self.assertIn("Unexpected result type from Replicate", str(context.exception))
 
     def test_extract_url_from_replicate_result_none_output_with_error(self):
-        prediction = MockPrediction(output = None, status = "failed", error = "NSFW content detected")
+        prediction = stubs.external.replicate_prediction(output = None, status = "failed", error = "NSFW content detected")
         with self.assertRaises(ExternalServiceError) as context:
             extract_url_from_replicate_result(prediction)
         self.assertIn("NSFW content detected", str(context.exception))
         self.assertIn("failed", str(context.exception))
 
     def test_extract_url_from_replicate_result_none_output_falls_back_to_logs(self):
-        prediction = MockPrediction(output = None, status = "failed", error = None, logs = "OOM killed")
+        prediction = stubs.external.replicate_prediction(output = None, status = "failed", error = None, logs = "OOM killed")
         with self.assertRaises(ExternalServiceError) as context:
             extract_url_from_replicate_result(prediction)
         self.assertIn("OOM killed", str(context.exception))
 
     def test_extract_url_from_replicate_result_none_output_no_diagnostics(self):
-        prediction = MockPrediction(output = None)
+        prediction = stubs.external.replicate_prediction(output = None)
         with self.assertRaises(ExternalServiceError) as context:
             extract_url_from_replicate_result(prediction)
         self.assertIn("unknown", str(context.exception))
@@ -321,11 +299,11 @@ class FunctionsTest(unittest.TestCase):
         self.assertEqual(normalize_username("@ +user name+"), "username")
 
     def test_parse_ai_message_content_string(self):
-        result = parse_ai_message_content(AIMessage("Hello world"))
+        result = parse_ai_message_content(stubs.external.ai_message())
         self.assertEqual(result, "Hello world")
 
     def test_parse_ai_message_content_strips_outer_whitespace(self):
-        result = parse_ai_message_content(AIMessage("  Hello world \n"))
+        result = parse_ai_message_content(stubs.external.ai_message(content = "  Hello world \n"))
         self.assertEqual(result, "Hello world")
 
     def test_parse_ai_message_content_list_with_text_blocks(self):
@@ -334,12 +312,12 @@ class FunctionsTest(unittest.TestCase):
             {"type": "text", "text": "Part 2."},
             {"type": "image_url", "image_url": "http://example.com"},
         ]
-        result = parse_ai_message_content(AIMessage(content = content))
+        result = parse_ai_message_content(stubs.external.ai_message(content = content))
         self.assertEqual(result, "Part 1.\nPart 2.")
 
     def test_parse_ai_message_content_list_with_strings(self):
         content = ["Part 1.", "Part 2."]
-        result = parse_ai_message_content(AIMessage(content = content))
+        result = parse_ai_message_content(stubs.external.ai_message(content = content))
         self.assertEqual(result, "Part 1.\nPart 2.")
 
     def test_parse_ai_message_content_list_mixed(self):
@@ -347,17 +325,17 @@ class FunctionsTest(unittest.TestCase):
             "Part 1.",
             {"type": "text", "text": "Part 2."},
         ]
-        result = parse_ai_message_content(AIMessage(content = content))
+        result = parse_ai_message_content(stubs.external.ai_message(content = content))
         self.assertEqual(result, "Part 1.\nPart 2.")
 
     def test_parse_ai_message_content_empty_result(self):
         with self.assertRaises(ExternalServiceError) as context:
-            parse_ai_message_content(AIMessage(content = []))
+            parse_ai_message_content(stubs.external.ai_message(content = []))
         self.assertIn("Received empty content", str(context.exception))
 
     def test_parse_ai_message_content_non_ai_message(self):
         with self.assertRaises(ExternalServiceError) as context:
-            parse_ai_message_content(HumanMessage("Hello world"))
+            parse_ai_message_content(stubs.external.human_message())
         self.assertIn("Received a non-AI message", str(context.exception))
 
     def test_parse_gumroad_form_no_params(self):

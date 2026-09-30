@@ -2,26 +2,18 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from PIL import Image
+from stubs import external
 
 from features.social_cards.brand import BRAND_GRADIENT_END, BRAND_GRADIENT_START
 from features.social_cards.theme import ThemeColors, _contrast_text, _derive_gradient_end, _dominant_from_path, pick_theme
 
 
-def _make_solid_png(path: Path, r: int, g: int, b: int, size: int = 16) -> Path:
-    img = Image.new("RGB", (size, size), color = (r, g, b))
-    img.save(path, format = "PNG")
-    return path
-
-
 class ThemePickerTest(unittest.TestCase):
 
-    def setUp(self):
-        self.temporary_directory = TemporaryDirectory()
-        self.root = Path(self.temporary_directory.name)
+    root: Path
 
-    def tearDown(self):
-        self.temporary_directory.cleanup()
+    def setUp(self):
+        self.root = Path(self.enterContext(TemporaryDirectory()))
 
     def test_falls_back_to_brand_when_no_images(self):
         theme = pick_theme(None, [])
@@ -30,13 +22,16 @@ class ThemePickerTest(unittest.TestCase):
         self.assertEqual(theme.text_color, "#ffffff")
 
     def test_falls_back_to_media_when_no_profile(self):
-        red_png = _make_solid_png(self.root / "red.png", 200, 10, 10)
+        red_png = self.root / "red.png"
+        red_png.write_bytes(external.image_bytes(color = (200, 10, 10)))
         theme = pick_theme(None, [red_png])
         self.assertNotEqual(theme.gradient_start, BRAND_GRADIENT_START)
 
     def test_media_takes_priority_over_profile(self):
-        blue_png = _make_solid_png(self.root / "blue.png", 10, 10, 200)
-        red_png = _make_solid_png(self.root / "red.png", 200, 10, 10)
+        blue_png = self.root / "blue.png"
+        red_png = self.root / "red.png"
+        blue_png.write_bytes(external.image_bytes(color = (10, 10, 200)))
+        red_png.write_bytes(external.image_bytes(color = (200, 10, 10)))
         theme_with_media = pick_theme(blue_png, [red_png])
         theme_profile_only = pick_theme(blue_png, [])
         self.assertNotEqual(theme_with_media.gradient_start, theme_profile_only.gradient_start)
@@ -46,7 +41,8 @@ class ThemePickerTest(unittest.TestCase):
         self.assertIsInstance(theme, ThemeColors)
 
     def test_all_grayscale_image_falls_back_gracefully(self):
-        gray_png = _make_solid_png(self.root / "gray.png", 128, 128, 128)
+        gray_png = self.root / "gray.png"
+        gray_png.write_bytes(external.image_bytes(color = (128, 128, 128)))
         theme = pick_theme(gray_png, [])
         self.assertIsNotNone(theme.gradient_start)
         self.assertIsNotNone(theme.gradient_end)
@@ -86,19 +82,18 @@ class GradientDerivationTest(unittest.TestCase):
 
 class DominantColorTest(unittest.TestCase):
 
-    def setUp(self):
-        self.temporary_directory = TemporaryDirectory()
-        self.root = Path(self.temporary_directory.name)
+    root: Path
 
-    def tearDown(self):
-        self.temporary_directory.cleanup()
+    def setUp(self):
+        self.root = Path(self.enterContext(TemporaryDirectory()))
 
     def test_returns_none_for_missing_path(self):
         self.assertIsNone(_dominant_from_path(None))
         self.assertIsNone(_dominant_from_path(self.root / "missing.png"))
 
     def test_returns_tuple_for_valid_image(self):
-        png = _make_solid_png(self.root / "red.png", 200, 50, 50)
+        png = self.root / "red.png"
+        png.write_bytes(external.image_bytes(color = (200, 50, 50)))
         result = _dominant_from_path(png)
         self.assertIsNotNone(result)
         self.assertIsInstance(result, tuple)

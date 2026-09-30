@@ -1,430 +1,320 @@
-import json
-import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
+from json import dumps
+from typing import cast
+from unittest import TestCase
 
-import requests_mock
-import stubs
+from fakes.fake_http_client import FakeHTTPClient
+from requests.exceptions import Timeout
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
-from di.di import DI
-from features.tools_cache.tools_cache_repo import ToolsCacheRepository
+from features.tools_cache.tools_cache import ToolsCache
+from features.web_browsing.twitter_status_fetcher import CACHE_PREFIX as TWEET_CACHE_PREFIX
+from features.web_browsing.uri_cleanup import simplify_url
 from features.web_browsing.web_fetcher import (
+    CACHE_PREFIX,
+    DEFAULT_CACHE_TTL_HTML,
+    DEFAULT_CACHE_TTL_JSON,
     DEFAULT_HEADERS,
-    WebFetcher,
 )
 from util.config import config
 
 DEFAULT_URL = "https://example.com"
+TWEET_URL = "https://twitter.com/user/status/123456"
 
 
-class WebFetcherTest(unittest.TestCase):
-
-    mock_di: DI
+class WebFetcherTest(TestCase):
 
     def setUp(self):
-        config.web_retries = 1
-        config.web_retry_delay_s = 0
-        config.web_timeout_s = 1
-
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.tools_cache_repo = MagicMock(spec = ToolsCacheRepository)
-        # noinspection PyPropertyAccess
-        self.mock_di.tool_choice_resolver = MagicMock()
-        self.mock_di.twitter_status_fetcher = MagicMock()
-
-    @requests_mock.Mocker()
-    def test_auto_fetch_html_disabled(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
+        for name, value in {"web_retries": 1, "web_retry_delay_s": 0, "web_timeout_s": 1}.items():
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+        user = domain.user()
+        self.di = self.enterContext(di_for_tests(invoker_id = user.id.hex))
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.di.user_repo.save(user)
+        self.cache_key = ToolsCache.create_key(
+            CACHE_PREFIX,
+            f"{simplify_url(DEFAULT_URL)}|{dumps(DEFAULT_HEADERS, sort_keys = True)}|{{}}",
         )
+
+    def test_auto_fetch_html_disabled(self):
+        fetcher = self.di.web_fetcher(DEFAULT_URL)
+
         self.assertIsNone(fetcher.html)
+        self.assertFalse(fetcher.made_request)
+        self.assertEqual(self.http.requests, [])
 
-    @requests_mock.Mocker()
-    def test_auto_fetch_html_enabled(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            auto_fetch_html = True,
-        )
+    def test_auto_fetch_html_enabled(self):
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"data"))
+
+        fetcher = self.di.web_fetcher(DEFAULT_URL, auto_fetch_html = True)
+
         self.assertEqual(fetcher.html, "data")
+        self.assertEqual(len(self.http.requests), 1)
 
     def test_fetch_html_ok_cache_hit(self):
-        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(value = "Cached HTML content")
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_html()
-        self.assertEqual(result, "Cached HTML content")
+        self.__seed_cache("Cached HTML content")
+        fetcher = self.di.web_fetcher(DEFAULT_URL)
+
+        self.assertEqual(fetcher.fetch_html(), "Cached HTML content")
         self.assertFalse(fetcher.made_request)
+        self.assertEqual(self.http.requests, [])
 
-    @requests_mock.Mocker()
-    def test_fetch_html_force_bypasses_cache_and_replaces_it(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, text = "Fresh HTML content", status_code = 200)
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            force = True,
-        )
+    def test_fetch_html_force_bypasses_cache_and_replaces_it(self):
+        self.__seed_cache("Old content")
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"Fresh HTML content"))
+        fetcher = self.di.web_fetcher(DEFAULT_URL, force = True)
 
-        result = fetcher.fetch_html()
-
-        self.assertEqual(result, "Fresh HTML content")
+        self.assertEqual(fetcher.fetch_html(), "Fresh HTML content")
         self.assertTrue(fetcher.made_request)
-        self.mock_di.tools_cache_repo.get.assert_not_called()
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+        self.assertEqual(self.di.tools_cache_repo.get(self.cache_key).value, "Fresh HTML content")
+        self.assertEqual(len(self.di.tools_cache_repo.get_all()), 1)
+        self.assertEqual(len(self.http.requests), 1)
 
-    @requests_mock.Mocker()
-    def test_fetch_html_expired_cache_refreshes(self, m: requests_mock.Mocker):
-        expired = stubs.domain.tools_cache(
-            expires_at = datetime.now() - timedelta(seconds = 1),
-        )
-        self.mock_di.tools_cache_repo.get.return_value = expired
-        m.get(DEFAULT_URL, text = "Fresh HTML content", status_code = 200)
+    def test_fetch_html_expired_cache_refreshes(self):
+        self.__seed_cache("Expired content", expires_at = datetime.now() - timedelta(seconds = 1))
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"Fresh HTML content"))
 
-        fetcher = WebFetcher(DEFAULT_URL, self.mock_di)
-        result = fetcher.fetch_html()
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_html(), "Fresh HTML content")
+        cached = self.di.tools_cache_repo.get(self.cache_key)
+        self.assertEqual(cached.value, "Fresh HTML content")
+        self.assertFalse(cached.is_expired())
 
-        self.assertEqual(result, "Fresh HTML content")
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+    def test_fetch_html_ok_cache_miss(self):
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"data"))
 
-    @requests_mock.Mocker()
-    def test_fetch_html_ok_cache_miss(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_html()
-        self.assertEqual(result, "data")
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_html(), "data")
+        self.assertEqual(self.di.tools_cache_repo.get(self.cache_key).value, "data")
 
-    @requests_mock.Mocker()
-    def test_fetch_html_error(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, status_code = 404)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            auto_fetch_html = True,
-        )
+    def test_fetch_html_error(self):
+        self.http.responses[DEFAULT_URL].append(external.http_response(status_code = 404))
+
+        fetcher = self.di.web_fetcher(DEFAULT_URL, auto_fetch_html = True)
+
         self.assertIsNone(fetcher.html)
+        self.assertEqual(fetcher.status_code, 404)
+        self.assertIsNone(self.di.tools_cache_repo.get(self.cache_key))
 
-    @requests_mock.Mocker()
-    def test_fetch_html_binary_content(self, m: requests_mock.Mocker):
-        # Simulate binary PDF response with NUL bytes
-        binary_content = b"%PDF-1.4\x00binarydata"
-        m.get(DEFAULT_URL, content = binary_content, status_code = 200, headers = {"Content-Type": "application/pdf"})
-        self.mock_di.tools_cache_repo.get.return_value = None
+    def test_fetch_html_binary_content(self):
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"%PDF-1.4\x00binarydata"))
 
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_html()
-        self.assertIsNone(result)
+        fetcher = self.di.web_fetcher(DEFAULT_URL)
+
+        self.assertIsNone(fetcher.fetch_html())
         self.assertIsNone(fetcher.html)
+        self.assertIsNone(self.di.tools_cache_repo.get(self.cache_key))
 
-    @requests_mock.Mocker()
-    def test_auto_fetch_json_disabled(self, m: requests_mock.Mocker):
-        stub = {"value": "data"}
-        m.get(DEFAULT_URL, json = stub, status_code = 200)
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
+    def test_auto_fetch_json_disabled(self):
+        fetcher = self.di.web_fetcher(DEFAULT_URL)
+
         self.assertIsNone(fetcher.json)
+        self.assertEqual(self.http.requests, [])
 
-    @requests_mock.Mocker()
-    def test_auto_fetch_json_enabled(self, m: requests_mock.Mocker):
-        stub = {"value": "data"}
-        m.get(DEFAULT_URL, json = stub, status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            auto_fetch_json = True,
-        )
-        self.assertEqual(fetcher.json, stub)
+    def test_auto_fetch_json_enabled(self):
+        self.http.responses[DEFAULT_URL].append(external.http_json_response({"value": "data"}))
 
-    @requests_mock.Mocker()
-    def test_fetch_json_ok_cache_miss(self, m: requests_mock.Mocker):
-        stub = {"value": "data"}
-        m.get(DEFAULT_URL, json = stub, status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_json()
-        self.assertEqual(result, stub)
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL, auto_fetch_json = True).json, {"value": "data"})
+
+    def test_fetch_json_ok_cache_miss(self):
+        self.http.responses[DEFAULT_URL].append(external.http_json_response({"value": "data"}))
+
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_json(), {"value": "data"})
+        self.assertEqual(self.di.tools_cache_repo.get(self.cache_key).value, dumps({"value": "data"}))
 
     def test_fetch_json_ok_cache_hit(self):
-        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(
-            value = json.dumps({"key": "Cached value"}),
-        )
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_json()
-        self.assertEqual(result, {"key": "Cached value"})
+        self.__seed_cache(dumps({"key": "Cached value"}))
+        fetcher = self.di.web_fetcher(DEFAULT_URL)
+
+        self.assertEqual(fetcher.fetch_json(), {"key": "Cached value"})
         self.assertFalse(fetcher.made_request)
+        self.assertEqual(self.http.requests, [])
 
-    @requests_mock.Mocker()
-    def test_fetch_json_force_bypasses_cache_and_replaces_it(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, json = {"key": "Fresh value"}, status_code = 200)
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            force = True,
-        )
+    def test_fetch_json_force_bypasses_cache_and_replaces_it(self):
+        self.__seed_cache(dumps({"key": "Old value"}))
+        self.http.responses[DEFAULT_URL].append(external.http_json_response({"key": "Fresh value"}))
+        fetcher = self.di.web_fetcher(DEFAULT_URL, force = True)
 
-        result = fetcher.fetch_json()
-
-        self.assertEqual(result, {"key": "Fresh value"})
+        self.assertEqual(fetcher.fetch_json(), {"key": "Fresh value"})
         self.assertTrue(fetcher.made_request)
-        self.mock_di.tools_cache_repo.get.assert_not_called()
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+        self.assertEqual(self.di.tools_cache_repo.get(self.cache_key).value, dumps({"key": "Fresh value"}))
+        self.assertEqual(len(self.di.tools_cache_repo.get_all()), 1)
+        self.assertEqual(len(self.http.requests), 1)
 
-    @requests_mock.Mocker()
-    def test_fetch_json_expired_cache_refreshes(self, m: requests_mock.Mocker):
-        expired = stubs.domain.tools_cache(
-            expires_at = datetime.now() - timedelta(seconds = 1),
-        )
-        self.mock_di.tools_cache_repo.get.return_value = expired
-        m.get(DEFAULT_URL, json = {"key": "Fresh value"}, status_code = 200)
+    def test_fetch_json_expired_cache_refreshes(self):
+        self.__seed_cache(dumps({"key": "Expired"}), expires_at = datetime.now() - timedelta(seconds = 1))
+        self.http.responses[DEFAULT_URL].append(external.http_json_response({"key": "Fresh value"}))
 
-        fetcher = WebFetcher(DEFAULT_URL, self.mock_di)
-        result = fetcher.fetch_json()
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_json(), {"key": "Fresh value"})
+        cached = self.di.tools_cache_repo.get(self.cache_key)
+        self.assertEqual(cached.value, dumps({"key": "Fresh value"}))
+        self.assertFalse(cached.is_expired())
 
-        self.assertEqual(result, {"key": "Fresh value"})
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+    def test_custom_cache_ttl_html(self):
+        self.__assert_cache_ttl(timedelta(minutes = 10), as_json = False, custom = True)
 
-    @requests_mock.Mocker()
-    def test_custom_cache_ttl_html(self, m: requests_mock.Mocker):
-        custom_ttl = timedelta(minutes = 10)
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            cache_ttl_html = custom_ttl,
-        )
-        fetcher.fetch_html()
-        # Verify that save was called with the custom TTL
-        # noinspection PyUnresolvedReferences
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+    def test_custom_cache_ttl_json(self):
+        self.__assert_cache_ttl(timedelta(minutes = 2), as_json = True, custom = True)
 
-    @requests_mock.Mocker()
-    def test_custom_cache_ttl_json(self, m: requests_mock.Mocker):
-        custom_ttl = timedelta(minutes = 2)
-        m.get(DEFAULT_URL, json = {"value": "data"}, status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            cache_ttl_json = custom_ttl,
-        )
-        fetcher.fetch_json()
-        # Verify that save was called with the custom TTL
-        # noinspection PyUnresolvedReferences
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+    def test_default_cache_ttl_html(self):
+        self.__assert_cache_ttl(DEFAULT_CACHE_TTL_HTML, as_json = False, custom = False)
 
-    @requests_mock.Mocker()
-    def test_default_cache_ttl_html(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        fetcher.fetch_html()
-        # Verify that save was called
-        # noinspection PyUnresolvedReferences
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+    def test_default_cache_ttl_json(self):
+        self.__assert_cache_ttl(DEFAULT_CACHE_TTL_JSON, as_json = True, custom = False)
 
-    @requests_mock.Mocker()
-    def test_default_cache_ttl_json(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, json = {"value": "data"}, status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        fetcher.fetch_json()
-        # Verify that save was called
-        # noinspection PyUnresolvedReferences
-        self.mock_di.tools_cache_repo.save.assert_called_once()
+    def test_fetch_json_error(self):
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"", status_code = 404))
 
-    @requests_mock.Mocker()
-    def test_fetch_json_error(self, m: requests_mock.Mocker):
-        m.get(DEFAULT_URL, status_code = 404)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            auto_fetch_json = True,
-        )
+        fetcher = self.di.web_fetcher(DEFAULT_URL, auto_fetch_json = True)
+
         self.assertIsNone(fetcher.json)
+        self.assertEqual(fetcher.status_code, 404)
+        self.assertIsNone(self.di.tools_cache_repo.get(self.cache_key))
 
-    @requests_mock.Mocker()
-    def test_fetch_json_retains_structured_http_error(self, m: requests_mock.Mocker):
+    def test_fetch_json_retains_structured_http_error(self):
         error = {"status": "error", "code": 429, "message": "API credits exhausted"}
-        m.get(DEFAULT_URL, json = error, status_code = 429)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(DEFAULT_URL, self.mock_di)
+        self.http.responses[DEFAULT_URL].append(external.http_json_response(error, status_code = 429))
+        fetcher = self.di.web_fetcher(DEFAULT_URL)
 
-        result = fetcher.fetch_json()
-
-        self.assertIsNone(result)
+        self.assertIsNone(fetcher.fetch_json())
         self.assertEqual(fetcher.status_code, 429)
         self.assertEqual(fetcher.error_json, error)
+        self.assertIsNone(self.di.tools_cache_repo.get(self.cache_key))
 
-    @requests_mock.Mocker()
-    def test_custom_headers(self, m: requests_mock.Mocker):
+    def test_custom_headers(self):
         custom_headers = {"X-Custom-Header": "test_value"}
-        expected_headers = {**DEFAULT_HEADERS, **custom_headers}
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            headers = custom_headers,
-            auto_fetch_html = True,
-        )
-        # Access the html property to use the fetcher variable
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"data"))
+
+        fetcher = self.di.web_fetcher(DEFAULT_URL, headers = custom_headers, auto_fetch_html = True)
+
         self.assertEqual(fetcher.html, "data")
-        # Verify the request was made with the expected headers
-        self.assertEqual(len(m.request_history), 1)
-        for key, value in expected_headers.items():
-            self.assertEqual(m.request_history[0].headers[key], value)
+        self.assertEqual(self.http.requests, [(
+            DEFAULT_URL, {"headers": DEFAULT_HEADERS | custom_headers, "params": {}, "timeout": 1},
+        )])
 
-    @requests_mock.Mocker()
-    def test_custom_params(self, m: requests_mock.Mocker):
-        custom_params = {"param1": "value1", "param2": "value2"}
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            params = custom_params,
-            auto_fetch_html = True,
-        )
-        # Access the html property to use the fetcher variable
+    def test_custom_params(self):
+        params = {"param1": "value1", "param2": "value2"}
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"data"))
+
+        fetcher = self.di.web_fetcher(DEFAULT_URL, params = params, auto_fetch_html = True)
+
         self.assertEqual(fetcher.html, "data")
-        # Verify the request was made with the expected parameters
-        self.assertEqual(len(m.request_history), 1)
-        self.assertIn("param1=value1", m.request_history[0].url)
-        self.assertIn("param2=value2", m.request_history[0].url)
+        self.assertEqual(self.http.requests, [(DEFAULT_URL, {"headers": DEFAULT_HEADERS, "params": params, "timeout": 1})])
 
-    @requests_mock.Mocker()
-    def test_fetch_html_with_headers_and_params(self, m: requests_mock.Mocker):
-        custom_headers = {"X-Custom-Header": "test_value"}
-        custom_params = {"param1": "value1", "param2": "value2"}
-        m.get(DEFAULT_URL, text = "data", status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
+    def test_fetch_html_with_headers_and_params(self):
+        headers = {"X-Custom-Header": "test_value"}
+        params = {"param1": "value1", "param2": "value2"}
+        self.http.responses[DEFAULT_URL].append(external.http_response(content = b"data"))
+
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL, headers = headers, params = params).fetch_html(), "data")
+        self.assertEqual(self.http.requests, [(
+            DEFAULT_URL, {"headers": DEFAULT_HEADERS | headers, "params": params, "timeout": 1},
+        )])
+
+    def test_fetch_json_with_headers_and_params(self):
+        headers = {"X-Custom-Header": "test_value"}
+        params = {"param1": "value1", "param2": "value2"}
+        self.http.responses[DEFAULT_URL].append(external.http_json_response({"value": "data"}))
+
+        self.assertEqual(
+            self.di.web_fetcher(DEFAULT_URL, headers = headers, params = params).fetch_json(),
+            {"value": "data"},
+        )
+        self.assertEqual(self.http.requests, [(
+            DEFAULT_URL, {"headers": DEFAULT_HEADERS | headers, "params": params, "timeout": 1},
+        )])
+
+    def test_fetch_html_twitter(self):
+        self.__seed_tweet()
+
+        result = self.di.web_fetcher(TWEET_URL).fetch_html()
+
+        self.assertEqual(result, "<html><body>\n<p>\nTweet content\n</p>\n</body></html>")
+        self.assertEqual(self.http.requests, [])
+
+    def test_fetch_json_twitter(self):
+        self.__seed_tweet()
+
+        self.assertEqual(self.di.web_fetcher(TWEET_URL).fetch_json(), {"content": "Tweet content"})
+        self.assertEqual(self.http.requests, [])
+
+    def test_fetch_html_non_twitter(self):
+        self.__seed_cache("Cached HTML content")
+
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_html(), "Cached HTML content")
+        self.assertEqual(self.http.requests, [])
+
+    def test_fetch_json_non_twitter(self):
+        self.__seed_cache(dumps({"key": "Cached value"}))
+
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_json(), {"key": "Cached value"})
+        self.assertEqual(self.http.requests, [])
+
+    def test_shortened_tweet_url_uses_injected_http_client(self):
+        self.__seed_tweet()
+        short_url = "https://t.co/example"
+        self.http.responses[short_url].append(external.http_response(url = TWEET_URL))
+
+        self.assertEqual(self.di.web_fetcher(short_url).fetch_json(), {"content": "Tweet content"})
+        self.assertEqual(self.http.requests, [(short_url, {"timeout": 1})])
+
+    def test_fetch_html_retries_transport_failure_and_caches_success(self):
+        config.web_retries = 2
+        self.http.responses[DEFAULT_URL].extend([
+            Timeout("first attempt failed"), external.http_response(content = b"recovered"),
+        ])
+
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL).fetch_html(), "recovered")
+        self.assertEqual(len(self.http.requests), 2)
+        cached_fetcher = self.di.web_fetcher(DEFAULT_URL)
+        self.assertEqual(cached_fetcher.fetch_html(), "recovered")
+        self.assertFalse(cached_fetcher.made_request)
+        self.assertEqual(len(self.http.requests), 2)
+
+    def test_fetch_json_stops_after_configured_retries(self):
+        config.web_retries = 2
+        self.http.responses[DEFAULT_URL].extend([Timeout("first attempt"), Timeout("second attempt")])
+
+        self.assertIsNone(self.di.web_fetcher(DEFAULT_URL).fetch_json())
+        self.assertEqual(len(self.http.requests), 2)
+        self.assertIsNone(self.di.tools_cache_repo.get(self.cache_key))
+
+    def test_request_parameters_distinguish_cached_results(self):
+        self.http.responses[DEFAULT_URL].extend([
+            external.http_response(content = b"first page"),
+            external.http_response(content = b"second page"),
+        ])
+
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL, params = {"page": 1}).fetch_html(), "first page")
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL, params = {"page": 2}).fetch_html(), "second page")
+        self.assertEqual(self.di.web_fetcher(DEFAULT_URL, params = {"page": 1}).fetch_html(), "first page")
+        self.assertEqual(len(self.http.requests), 2)
+        self.assertEqual(len(self.di.tools_cache_repo.get_all()), 2)
+
+    def __seed_cache(self, value: str, expires_at: datetime | None = None) -> None:
+        self.di.tools_cache_repo.save(domain.tools_cache(key = self.cache_key, value = value, expires_at = expires_at))
+
+    def __seed_tweet(self) -> None:
+        self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(TWEET_CACHE_PREFIX, "123456"),
+            value = "Tweet content",
+        ))
+
+    def __assert_cache_ttl(self, ttl: timedelta, as_json: bool, custom: bool) -> None:
+        self.http.responses[DEFAULT_URL].append(
+            external.http_json_response({"value": "data"}) if as_json else external.http_response(content = b"data"),
+        )
+        fetcher = self.di.web_fetcher(
             DEFAULT_URL,
-            self.mock_di,
-            headers = custom_headers,
-            params = custom_params,
+            cache_ttl_json = ttl if custom and as_json else None,
+            cache_ttl_html = ttl if custom and not as_json else None,
         )
-        result = fetcher.fetch_html()
-        self.assertEqual(result, "data")
+        before = datetime.now()
+        fetcher.fetch_json() if as_json else fetcher.fetch_html()
+        after = datetime.now()
 
-    @requests_mock.Mocker()
-    def test_fetch_json_with_headers_and_params(self, m: requests_mock.Mocker):
-        custom_headers = {"X-Custom-Header": "test_value"}
-        custom_params = {"param1": "value1", "param2": "value2"}
-        stub = {"value": "data"}
-        m.get(DEFAULT_URL, json = stub, status_code = 200)
-        self.mock_di.tools_cache_repo.get.return_value = None
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-            headers = custom_headers,
-            params = custom_params,
-        )
-        result = fetcher.fetch_json()
-        self.assertEqual(result, stub)
-
-    @patch("features.web_browsing.web_fetcher.resolve_tweet_id")
-    def test_fetch_html_twitter(self, mock_resolve_tweet_id):
-        mock_resolve_tweet_id.return_value = "123456"
-
-        # Mock the twitter_status_fetcher method and its return value
-        mock_twitter_fetcher = Mock()
-        mock_twitter_fetcher.execute.return_value = "Tweet content"
-        self.mock_di.twitter_status_fetcher.return_value = mock_twitter_fetcher
-
-        # Test cache miss scenario
-        self.mock_di.tools_cache_repo.get.return_value = None
-
-        fetcher = WebFetcher(
-            "https://twitter.com/user/status/123456",
-            self.mock_di,
-        )
-        result = fetcher.fetch_html()
-
-        # Verify twitter_status_fetcher was called with correct parameters
-        # noinspection PyUnresolvedReferences
-        self.mock_di.twitter_status_fetcher.assert_called_once()
-        self.assertIsNotNone(result)
-        self.assertIn("Tweet content", str(result))
-
-    @patch("features.web_browsing.web_fetcher.resolve_tweet_id")
-    def test_fetch_json_twitter(self, mock_resolve_tweet_id):
-        mock_resolve_tweet_id.return_value = "123456"
-
-        # Mock the twitter_status_fetcher method and its return value
-        mock_twitter_fetcher = Mock()
-        mock_twitter_fetcher.execute.return_value = "Tweet content"
-        self.mock_di.twitter_status_fetcher.return_value = mock_twitter_fetcher
-
-        # Test cache miss scenario
-        self.mock_di.tools_cache_repo.get.return_value = None
-
-        fetcher = WebFetcher(
-            "https://twitter.com/user/status/123456",
-            self.mock_di,
-        )
-        result = fetcher.fetch_json()
-
-        # Verify twitter_status_fetcher was called with correct parameters
-        # noinspection PyUnresolvedReferences
-        self.mock_di.twitter_status_fetcher.assert_called_once()
-        self.assertEqual(result, {"content": "Tweet content"})
-
-    @patch("features.web_browsing.web_fetcher.resolve_tweet_id")
-    def test_fetch_html_non_twitter(self, mock_resolve_tweet_id):
-        mock_resolve_tweet_id.return_value = None
-
-        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(value = "Cached HTML content")
-
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_html()
-        self.assertEqual(result, "Cached HTML content")
-
-    @patch("features.web_browsing.web_fetcher.resolve_tweet_id")
-    def test_fetch_json_non_twitter(self, mock_resolve_tweet_id):
-        mock_resolve_tweet_id.return_value = None
-
-        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(
-            value = json.dumps({"key": "Cached value"}),
-        )
-
-        fetcher = WebFetcher(
-            DEFAULT_URL,
-            self.mock_di,
-        )
-        result = fetcher.fetch_json()
-        self.assertEqual(result, {"key": "Cached value"})
+        cached = self.di.tools_cache_repo.get(self.cache_key)
+        self.assertIsNotNone(cached)
+        self.assertIsNotNone(cached.expires_at)
+        self.assertGreaterEqual(cached.expires_at, before + ttl)
+        self.assertLessEqual(cached.expires_at, after + ttl)

@@ -9,18 +9,12 @@ LOGOS_FIXTURE_PATH = "test/fixtures/logos.yaml"
 
 class ConfigTest(unittest.TestCase):
 
-    # noinspection PyTypeHints
-    original_env: dict
-
     def setUp(self):
-        self.original_env = os.environ.copy()
+        self.addCleanup(os.environ.update, os.environ.copy())
+        self.addCleanup(os.environ.clear)
         os.environ.clear()
-        Config._instances = {}
-
-    def tearDown(self):
-        os.environ.clear()
-        os.environ.update(self.original_env)
-        Config._instances = {}
+        original_config = Config._instances.pop(Config)
+        self.addCleanup(Config._instances.update, {Config: original_config})
 
     def test_default_config(self):
         config = Config()

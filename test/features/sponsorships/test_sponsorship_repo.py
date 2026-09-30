@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di_utils import di_for_tests
 
+from di.di import DI
 from features.sponsorships.sponsorship_repo import SponsorshipRepository
 
 USER_1_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-000000000001")
@@ -16,21 +17,18 @@ USER_4_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-000000000004")
 
 class SponsorshipRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: SponsorshipRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.sponsorship_repo()
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.sponsorship_repo
 
     def test_save_creates_pending_sponsorship(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         sponsorship = stubs.domain.sponsorship(
@@ -47,10 +45,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertIsNone(result.accepted_at)
 
     def test_save_creates_accepted_sponsorship(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         accepted_at = datetime.now()
@@ -68,10 +66,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertEqual(result.accepted_at, accepted_at)
 
     def test_get_returns_saved_sponsorship(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         created = self.repo.save(
@@ -91,10 +89,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertEqual(result.accepted_at, created.accepted_at)
 
     def test_get_returns_none_when_missing(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
 
@@ -103,13 +101,13 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_all_by_sponsor(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver1 = self.sql.user_repo().save(
+        receiver1 = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
-        receiver2 = self.sql.user_repo().save(
+        receiver2 = self.di.user_repo.save(
             stubs.domain.user(id = USER_3_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_3_ID)),
         )
         self.repo.save(
@@ -135,13 +133,13 @@ class SponsorshipRepositoryTest(unittest.TestCase):
             self.assertEqual(result.sponsor_id, sponsor.id)
 
     def test_get_all_by_receiver(self):
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_3_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_3_ID)),
         )
-        sponsor1 = self.sql.user_repo().save(
+        sponsor1 = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        sponsor2 = self.sql.user_repo().save(
+        sponsor2 = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         self.repo.save(
@@ -167,16 +165,16 @@ class SponsorshipRepositoryTest(unittest.TestCase):
             self.assertEqual(result.receiver_id, receiver.id)
 
     def test_get_all_sponsorships(self):
-        sponsor1 = self.sql.user_repo().save(
+        sponsor1 = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver1 = self.sql.user_repo().save(
+        receiver1 = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
-        sponsor2 = self.sql.user_repo().save(
+        sponsor2 = self.di.user_repo.save(
             stubs.domain.user(id = USER_3_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_3_ID)),
         )
-        receiver2 = self.sql.user_repo().save(
+        receiver2 = self.di.user_repo.save(
             stubs.domain.user(id = USER_4_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_4_ID)),
         )
         first = self.repo.save(
@@ -200,10 +198,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertEqual({result.receiver_id for result in results}, {first.receiver_id, second.receiver_id})
 
     def test_save_updates_accepted_at_and_preserves_sponsored_at_when_replacing_existing(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         created = self.repo.save(
@@ -223,10 +221,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertEqual(result.accepted_at, accepted_at)
 
     def test_save_can_clear_accepted_at(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         created = self.repo.save(
@@ -243,10 +241,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertIsNone(result.accepted_at)
 
     def test_save_can_update_explicit_sponsored_at(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         created = self.repo.save(
@@ -264,10 +262,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertIsNone(result.accepted_at)
 
     def test_delete_sponsorship(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         created = self.repo.save(
@@ -286,10 +284,10 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repo.get(sponsor.id, receiver.id))
 
     def test_delete_returns_none_when_missing(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
 
@@ -298,13 +296,13 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_delete_all_by_receiver(self):
-        receiver = self.sql.user_repo().save(
+        receiver = self.di.user_repo.save(
             stubs.domain.user(id = USER_3_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_3_ID)),
         )
-        sponsor1 = self.sql.user_repo().save(
+        sponsor1 = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        sponsor2 = self.sql.user_repo().save(
+        sponsor2 = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
         self.repo.save(
@@ -328,16 +326,16 @@ class SponsorshipRepositoryTest(unittest.TestCase):
         self.assertEqual(len(self.repo.get_all_by_receiver(receiver.id)), 0)
 
     def test_delete_unaccepted_older_than(self):
-        sponsor = self.sql.user_repo().save(
+        sponsor = self.di.user_repo.save(
             stubs.domain.user(id = USER_1_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_1_ID)),
         )
-        receiver1 = self.sql.user_repo().save(
+        receiver1 = self.di.user_repo.save(
             stubs.domain.user(id = USER_2_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_2_ID)),
         )
-        receiver2 = self.sql.user_repo().save(
+        receiver2 = self.di.user_repo.save(
             stubs.domain.user(id = USER_3_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_3_ID)),
         )
-        receiver3 = self.sql.user_repo().save(
+        receiver3 = self.di.user_repo.save(
             stubs.domain.user(id = USER_4_ID, telegram_user_id = None, whatsapp_user_id = None, connect_key = str(USER_4_ID)),
         )
         old_sponsored_at = datetime.now() - timedelta(days = 31)

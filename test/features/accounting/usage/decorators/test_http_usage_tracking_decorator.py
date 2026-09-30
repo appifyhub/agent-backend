@@ -1,112 +1,102 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
-import requests
 import stubs
+from fakes.fake_http_client import FakeHTTPClient
+from requests.exceptions import HTTPError
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
+from di.di import DI
 from features.accounting.usage.decorators.http_usage_tracking_decorator import HTTPUsageTrackingDecorator
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
+from features.external_tools.external_tool_library import X_READ_POST
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS
+from util.errors import ValidationError
 
 
-class HTTPUsageTrackingDecoratorTest(unittest.TestCase):
+class HTTPUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    http: FakeHTTPClient
+    decorator: HTTPUsageTrackingDecorator
 
     def setUp(self):
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_api_call = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
-        )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        configured_tool = stubs.domain.configured_tool(
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = X_READ_POST.id),
             purpose = ToolType.api_twitter,
+            uses_credits = True,
         )
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.decorator = self.di.tracked_http_get(self.tool)
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
 
-        self.decorator = HTTPUsageTrackingDecorator(
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
+    def test_get_tracks_api_call_and_deducts_credits(self):
+        response = stubs.external.http_json_response({"data": "test"})
+        self.http.responses["https://example.com"].append(response)
+
+        result = self.decorator.get("https://example.com", headers = {"X-API-Key": "test"})
+
+        self.assertEqual(result.json(), {"data": "test"})
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.tool.id, self.tool.definition.id)
+        self.assertEqual(record.tool_purpose, self.tool.purpose)
+        self.assertEqual(record.payer_id, self.user.id)
+        self.assertTrue(record.uses_credits)
+        self.assertFalse(record.is_failed)
+        self.assertGreaterEqual(record.runtime_seconds, 0)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
         )
-
-    def test_get_tracks_api_call(self):
-        mock_response = Mock(spec = requests.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"data": "test"}
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_twitter)
-        decorator = HTTPUsageTrackingDecorator(
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
-
-        with unittest.mock.patch("requests.get", return_value = mock_response) as mock_get:
-            result = decorator.get(
-                "https://api.example.com/test",
-                headers = {"X-API-Key": "test"},
-            )
-
-        self.assertEqual(result, mock_response)
-        mock_get.assert_called_once_with("https://api.example.com/test", headers = {"X-API-Key": "test"})
-        self.mock_tracking_service.track_api_call.assert_called_once()
-        call_args = self.mock_tracking_service.track_api_call.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.api_twitter)
-        self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
-        self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
 
     def test_get_measures_runtime(self):
-        mock_response = Mock(spec = requests.Response)
+        self.http.responses["https://example.com"].append(stubs.external.http_response())
+        # the system clock is controlled to measure elapsed time without sleeping
+        with patch("features.accounting.usage.decorators.http_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            self.decorator.get("https://example.com")
 
-        def slow_get(*args, **kwargs):
-            sleep(0.01)
-            return mock_response
-
-        with unittest.mock.patch("requests.get", side_effect = slow_get):
-            self.decorator.get("https://api.example.com/test")
-
-        call_args = self.mock_tracking_service.track_api_call.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
     def test_get_passes_kwargs_correctly(self):
-        mock_response = Mock(spec = requests.Response)
+        self.http.responses["https://example.com"].append(stubs.external.http_response())
 
-        with unittest.mock.patch("requests.get", return_value = mock_response) as mock_get:
-            self.decorator.get(
-                "https://api.example.com/test",
-                headers = {"X-API-Key": "test"},
-                params = {"id": "123"},
-                timeout = 30,
-            )
+        self.decorator.get("https://example.com", headers = {"X-API-Key": "test"}, params = {"id": "123"}, timeout = 30)
 
-        mock_get.assert_called_once_with(
-            "https://api.example.com/test",
-            headers = {"X-API-Key": "test"},
-            params = {"id": "123"},
-            timeout = 30,
-        )
+        self.assertEqual(self.http.requests, [("https://example.com", {
+            "headers": {"X-API-Key": "test"}, "params": {"id": "123"}, "timeout": 30,
+        })])
 
     def test_get_failure_tracks_without_deduction(self):
-        with unittest.mock.patch("requests.get", side_effect = requests.exceptions.HTTPError("404")):
-            with self.assertRaises(requests.exceptions.HTTPError):
-                self.decorator.get("https://api.example.com/test")
+        error = HTTPError("404")
+        self.http.responses["https://example.com"].append(error)
 
-        self.mock_tracking_service.track_api_call.assert_called_once()
-        call_args = self.mock_tracking_service.track_api_call.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+        with self.assertRaises(HTTPError) as raised:
+            self.decorator.get("https://example.com")
 
-    def test_get_calls_validate_pre_flight(self):
-        mock_response = Mock(spec = requests.Response)
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.api_twitter)
-        decorator = HTTPUsageTrackingDecorator(
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
+        self.assertIs(raised.exception, error)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
-        with unittest.mock.patch("requests.get", return_value = mock_response):
-            decorator.get("https://api.example.com/test")
+    def test_get_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
+        with self.assertRaises(ValidationError) as raised:
+            self.decorator.get("https://example.com")
+
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.http.requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
