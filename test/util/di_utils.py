@@ -183,7 +183,8 @@ def di_for_tests(
         defaults.register(GoogleSDKClient, FakeGoogleAIClient())
         defaults.register(ReplicateSDKClient, FakeReplicateClient())
         defaults.register(XAISDKClient, FakeXAIClient())
-        defaults.register(UrlShortener, FakeUrlShortener("https://example.com/short"))
+        shortener = FakeUrlShortener("https://example.com/short")
+        defaults.register_factory(UrlShortener, lambda request: shortener.for_url(request.arguments["long_url"]))
         defaults.register(AttachmentStorage, storage)
         defaults.register_factory(
             LocalAttachmentStorage,

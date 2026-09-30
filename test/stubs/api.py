@@ -238,3 +238,11 @@ def gumroad_ping_payload(**overrides: Any) -> GumroadPingPayload:
         "refunded": False,
     }
     return GumroadPingPayload(**(defaults | overrides))
+
+
+def jwt_claims(**overrides: Any) -> dict[str, Any]:
+    defaults = {
+        "sub": "11111111111141118111a11111111111",
+        "platform": "telegram",
+    }
+    return defaults | overrides
