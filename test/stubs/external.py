@@ -750,3 +750,7 @@ def stock_quote_response(**overrides: Any) -> dict[str, Any]:
 
 def stock_quote_error_response(code: int = 500, message: str = "Price unavailable") -> dict[str, Any]:
     return {"status": "error", "code": code, "message": message}
+
+
+def github_issue_response(**overrides: Any) -> dict[str, Any]:
+    return {"html_url": "https://github.com/appifyhub/agent-backend/issues/123"} | overrides

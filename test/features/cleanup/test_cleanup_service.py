@@ -1,97 +1,127 @@
-import unittest
-from unittest.mock import MagicMock, patch
+from dataclasses import asdict
+from datetime import datetime, timedelta
+from unittest import TestCase
+from uuid import uuid4
 
-from features.cleanup.cleanup_service import CleanupResult, CleanupService
+import stubs
+from util.di_utils import di_for_tests
+
+from di.di import DI
+from features.cleanup.cleanup_service import CleanupService
+from util.config import config
 
 
-class CleanupServiceTest(unittest.TestCase):
+class CleanupServiceTest(TestCase):
 
-    def _make_service(
-        self,
-        attachments_deleted = 0,
-        orphaned_attachments_deleted = 0,
-        messages_deleted = 0,
-        message_bursts_deleted = 0,
-        cache_cleared = 0,
-        usage_deleted = 0,
-        alerts_deleted = 0,
-        sponsorships_deleted = 0,
-    ) -> CleanupService:
-        di = MagicMock()
-        di.chat_attachment_service.cleanup_old_attachments.return_value = attachments_deleted
-        di.chat_attachment_service.cleanup_orphaned_attachments.return_value = orphaned_attachments_deleted
-        di.chat_message_repo.delete_older_than.return_value = messages_deleted
-        di.chat_message_burst_repo.delete_older_than.return_value = message_bursts_deleted
-        di.tools_cache_repo.delete_expired.return_value = cache_cleared
-        di.usage_record_repo.delete_older_than.return_value = usage_deleted
-        di.price_alert_repo.delete_stale.return_value = alerts_deleted
-        di.sponsorship_repo.delete_unaccepted_older_than.return_value = sponsorships_deleted
-        return CleanupService(di)
+    di: DI
+    service: CleanupService
 
-    @patch("features.cleanup.cleanup_service.log")
-    def test_run_returns_all_phase_counts(self, _):
-        service = self._make_service(
-            attachments_deleted = 5,
-            orphaned_attachments_deleted = 2,
-            messages_deleted = 10,
-            message_bursts_deleted = 4,
-            cache_cleared = 3,
-            usage_deleted = 7,
-            alerts_deleted = 2,
-            sponsorships_deleted = 1,
+    def setUp(self):
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user()))
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config()))
+        self.di.user_repo.save(stubs.domain.user(
+            id = stubs.domain.sponsorship().receiver_id,
+            telegram_user_id = None,
+            whatsapp_user_id = None,
+            connect_key = "SPONSORSHIP-RECEIVER",
+        ))
+        self.service = self.di.cleanup_service
+
+    def test_run_returns_all_phase_counts(self):
+        now = datetime.now()
+        retention = timedelta(days = config.cleanup_message_retention_days + 1)
+        old = now - retention
+        chats = [self.di.require_invoker_chat()] + [
+            self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = f"chat-{index}"))
+            for index in range(3)
+        ]
+        messages = [
+            self.di.chat_message_repo.save(stubs.domain.chat_message(
+                chat_id = chats[index % len(chats)].chat_id,
+                message_id = f"message-{index}",
+                ingestion_order = index + 1,
+                sent_at = old,
+            ))
+            for index in range(10)
+        ]
+        for message in messages[:4]:
+            self.di.chat_message_burst_repo.record_message(
+                message, is_addressed = True, quiet_period_s = -retention.total_seconds(),
+            )
+        for index, message in enumerate(messages[:5]):
+            self.di.chat_attachment_service.save(
+                stubs.domain.chat_attachment(
+                    id = f"attachment-{index}", external_id = None,
+                    chat_id = message.chat_id, message_id = message.message_id,
+                ),
+                content = b"attachment content",
+            )
+        for index in range(2):
+            self.di.chat_attachment_service.save(
+                stubs.domain.chat_attachment(
+                    id = f"orphan-{index}", external_id = None, message_id = None, created_at = old,
+                ),
+                content = b"orphan content",
+            )
+        for index in range(3):
+            self.di.tools_cache_repo.save(stubs.domain.tools_cache(key = f"cache-{index}", expires_at = old))
+        for _ in range(7):
+            self.di.usage_record_repo.create(stubs.domain.usage_record(timestamp = old))
+        for asset in ("BTC", "ETH"):
+            self.di.price_alert_repo.save(stubs.domain.price_alert(
+                asset_id = asset,
+                last_price_time = now - timedelta(days = config.cleanup_price_alert_staleness_days + 1),
+            ))
+        self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            accepted_at = None,
+            sponsored_at = now - timedelta(days = config.cleanup_sponsorship_staleness_days + 1),
+        ))
+
+        result = self.service.run()
+
+        self.assertEqual(asdict(result), {
+            "attachments_deleted": 5,
+            "orphaned_attachments_deleted": 2,
+            "messages_deleted": 10,
+            "message_bursts_deleted": 4,
+            "cache_entries_cleared": 3,
+            "usage_records_deleted": 7,
+            "price_alerts_deleted": 2,
+            "sponsorships_deleted": 1,
+        })
+        self.assertEqual(self.di.chat_message_repo.get_all(), [])
+        self.assertEqual(self.di.tools_cache_repo.get_all(), [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.di.invoker.id), [])
+        self.assertEqual(self.di.price_alert_repo.get_all(), [])
+        self.assertEqual(self.di.sponsorship_repo.get_all(), [])
+
+    def test_run_with_zero_deletions(self):
+        now = datetime.now()
+        message = self.di.chat_message_repo.save(stubs.domain.chat_message(sent_at = now))
+        self.di.chat_message_burst_repo.record_message(message, is_addressed = True, quiet_period_s = 60)
+        attachment = self.di.chat_attachment_service.save(
+            stubs.domain.chat_attachment(created_at = now),
+            content = b"attachment content",
         )
-
-        result = service.run()
-
-        self.assertIsInstance(result, CleanupResult)
-        self.assertEqual(result.attachments_deleted, 5)
-        self.assertEqual(result.orphaned_attachments_deleted, 2)
-        self.assertEqual(result.messages_deleted, 10)
-        self.assertEqual(result.message_bursts_deleted, 4)
-        self.assertEqual(result.cache_entries_cleared, 3)
-        self.assertEqual(result.usage_records_deleted, 7)
-        self.assertEqual(result.price_alerts_deleted, 2)
-        self.assertEqual(result.sponsorships_deleted, 1)
-
-        calls = service._CleanupService__di.mock_calls
-        attachment_delete = "chat_attachment_service.cleanup_old_attachments"
-        message_delete = "chat_message_repo.delete_older_than"
-        self.assertLess(
-            next(i for i, call in enumerate(calls) if call[0] == attachment_delete),
-            next(i for i, call in enumerate(calls) if call[0] == message_delete),
+        orphan = self.di.chat_attachment_service.save(
+            stubs.domain.chat_attachment(
+                id = "recent-orphan", external_id = None, message_id = None, created_at = now,
+            ),
+            content = b"orphan content",
         )
+        cache = self.di.tools_cache_repo.save(stubs.domain.tools_cache(expires_at = now + timedelta(days = 1)))
+        usage = self.di.usage_record_repo.create(stubs.domain.usage_record(timestamp = now))
+        alert = self.di.price_alert_repo.save(stubs.domain.price_alert(last_price_time = now))
+        sponsorship = self.di.sponsorship_repo.save(stubs.domain.sponsorship(sponsored_at = now, accepted_at = None))
 
-    @patch("features.cleanup.cleanup_service.log")
-    def test_attachment_failure_skips_message_deletion(self, _):
-        service = self._make_service()
-        service._CleanupService__di.chat_attachment_service.cleanup_old_attachments.side_effect = RuntimeError("DB error")
+        result = self.service.run()
 
-        result = service.run()
-
-        service._CleanupService__di.chat_message_repo.delete_older_than.assert_not_called()
-        self.assertEqual(result.attachments_deleted, 0)
-        self.assertEqual(result.messages_deleted, 0)
-
-    @patch("features.cleanup.cleanup_service.log")
-    def test_phase_failure_does_not_block_subsequent_phases(self, _):
-        service = self._make_service(
-            cache_cleared = 3,
-            alerts_deleted = 2,
-            sponsorships_deleted = 1,
-        )
-        service._CleanupService__di.usage_record_repo.delete_older_than.side_effect = RuntimeError("DB error")
-
-        result = service.run()
-
-        self.assertEqual(result.cache_entries_cleared, 3)
-        self.assertEqual(result.usage_records_deleted, 0)
-        self.assertEqual(result.price_alerts_deleted, 2)
-        self.assertEqual(result.sponsorships_deleted, 1)
-
-    @patch("features.cleanup.cleanup_service.log")
-    def test_run_with_zero_deletions(self, _):
-        service = self._make_service()
-
-        result = service.run()
-
-        self.assertEqual(result, CleanupResult())
+        self.assertTrue(all(count == 0 for count in asdict(result).values()))
+        self.assertEqual(self.di.chat_message_repo.get(message.chat_id, message.message_id), message)
+        self.assertEqual(self.di.chat_attachment_service.get(attachment.id), attachment)
+        self.assertEqual(self.di.chat_attachment_service.get(orphan.id), orphan)
+        self.assertEqual(self.di.tools_cache_repo.get(cache.key), cache)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.di.invoker.id), [usage])
+        self.assertEqual(self.di.price_alert_repo.get(alert.chat_id, alert.asset_type, alert.asset_id, alert.currency), alert)
+        self.assertEqual(self.di.sponsorship_repo.get(sponsorship.sponsor_id, sponsorship.receiver_id), sponsorship)
