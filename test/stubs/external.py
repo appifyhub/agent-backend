@@ -721,3 +721,32 @@ def video_bytes() -> bytes:
 
 def iso_media_box(box_type: bytes, payload: bytes = b"") -> bytes:
     return (8 + len(payload)).to_bytes(4, byteorder = "big") + box_type + payload
+
+
+def fiat_exchange_response(currency: str = "EUR", rate: float = 0.85) -> dict[str, Any]:
+    return {"rates": {currency: {"rate_for_amount": str(rate)}}}
+
+
+def crypto_exchange_response(symbol: str = "BTC", price: float = 40_000) -> dict[str, Any]:
+    return {"data": {symbol: {"quote": {"USD": {"price": price}}}}}
+
+
+def stock_quote_response(**overrides: Any) -> dict[str, Any]:
+    defaults = {
+        "symbol": "AAPL",
+        "currency": "USD",
+        "close": "210.5",
+        "timestamp": 1_753_352_400,
+        "is_market_open": True,
+        "name": "Apple Inc.",
+        "exchange": "NASDAQ",
+        "mic_code": "XNAS",
+        "previous_close": "208.5",
+        "change": "2.0",
+        "percent_change": "0.96",
+    }
+    return defaults | overrides
+
+
+def stock_quote_error_response(code: int = 500, message: str = "Price unavailable") -> dict[str, Any]:
+    return {"status": "error", "code": code, "message": message}
