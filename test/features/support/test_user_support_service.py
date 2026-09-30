@@ -4,9 +4,9 @@ from unittest import TestCase
 
 import stubs
 from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_http_client import FakeHTTPClient
 from fakes.fake_url_shortener import FakeUrlShortener
 from requests import HTTPError
-from requests_mock import Mocker
 from util.di_utils import di_for_tests
 
 from di.di import DI
@@ -24,7 +24,7 @@ class UserSupportServiceTest(TestCase):
     tool: ConfiguredTool
     model: FakeChatModel
     shortener: FakeUrlShortener
-    http: Mocker
+    http: FakeHTTPClient
     github_url: str
 
     def setUp(self):
@@ -45,11 +45,13 @@ class UserSupportServiceTest(TestCase):
         self.shortener = cast(FakeUrlShortener, self.di.url_shortener(issue["html_url"]))
         self.shortener.short_url = "https://example.com/short-issue"
         self.github_url = f"https://api.github.com/repos/{config.github_issues_repo}/issues"
-        # GitHub submission calls requests.post directly; intercept only that external transport
-        self.http = self.enterContext(Mocker())
-        self.http.post(self.github_url, json = issue, status_code = 201)
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.http.post_responses[self.github_url].append(stubs.external.http_json_response(issue, status_code = 201))
 
     def test_resolve_request_type(self):
+        self.http.post_responses[self.github_url].append(stubs.external.http_json_response(
+            stubs.external.github_issue_response(), status_code = 201,
+        ))
         for request_type, label in (("bug", "Bug"), ("invalid_type", "Request")):
             with self.subTest(request_type = request_type):
                 self.model.responses.extend([
@@ -67,7 +69,7 @@ class UserSupportServiceTest(TestCase):
 
                 service.execute()
 
-                self.assertEqual(self.http.last_request.json()["labels"], [label])
+                self.assertEqual(self.http.post_requests[-1][1]["json"]["labels"], [label])
 
     def test_load_template(self):
         self.model.responses.extend([
@@ -91,7 +93,7 @@ class UserSupportServiceTest(TestCase):
 
         self.service.execute()
 
-        self.assertEqual(self.http.last_request.json()["body"], "Generated description")
+        self.assertEqual(self.http.post_requests[-1][1]["json"]["body"], "Generated description")
         reporter = self.model.prompts[0][-1].content
         self.assertIn("Test input", reporter)
         self.assertIn("GitHub author: @test_github", reporter)
@@ -112,7 +114,7 @@ class UserSupportServiceTest(TestCase):
 
         self.service.execute()
 
-        self.assertEqual(self.http.last_request.json()["title"], "Generated title")
+        self.assertEqual(self.http.post_requests[-1][1]["json"]["title"], "Generated title")
         self.assertIn("Test description", self.model.prompts[1][-1].content)
         self.assertIn("Issue type: 'bug'", self.model.prompts[1][-1].content)
 
@@ -125,13 +127,13 @@ class UserSupportServiceTest(TestCase):
         result = self.service.execute()
 
         self.assertEqual(result, "https://example.com/short-issue")
-        self.assertEqual(self.http.last_request.json(), {
+        self.assertEqual(self.http.post_requests[-1][1]["json"], {
             "title": "Test title",
             "body": "Test description",
             "labels": ["Bug"],
         })
-        self.assertEqual(len(self.http.request_history), 1)
-        self.assertEqual(self.http.last_request.method, "POST")
+        self.assertEqual(len(self.http.post_requests), 1)
+        self.assertEqual(self.http.post_requests[0][0], self.github_url)
         self.assertEqual(self.shortener.executions, 1)
 
     def test_execute_failure(self):
@@ -139,7 +141,8 @@ class UserSupportServiceTest(TestCase):
             stubs.external.ai_message(content = "Test description"),
             stubs.external.ai_message(content = "Test title"),
         ])
-        self.http.post(self.github_url, status_code = 503)
+        self.http.post_responses[self.github_url].clear()
+        self.http.post_responses[self.github_url].append(stubs.external.http_response(status_code = 503))
 
         with self.assertRaises(HTTPError) as raised:
             self.service.execute()

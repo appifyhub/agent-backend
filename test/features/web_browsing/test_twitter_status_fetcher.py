@@ -49,8 +49,6 @@ class TwitterStatusFetcherTest(TestCase):
         self.http = cast(FakeHTTPClient, self.di.http_client())
         self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(vision_tool, max_tokens = 500))
         self.fetcher = self.di.twitter_status_fetcher(self.tweet_id, self.x_api_tool, vision_tool)
-        # the legacy HTTP accounting adapter calls this third-party transport directly
-        self.enterContext(patch("requests.get", new = self.http.get))
         # skip the system sleep used to space real API requests
         self.enterContext(patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None))
 

@@ -58,8 +58,6 @@ class SmartImageGeneratorTest(TestCase):
         self.http.responses[compile(escape(config.public_api_base_url) + r"/attachments/public/[^/]+")].append(
             stubs.external.http_response(content = stubs.external.image_bytes()),
         )
-        # the legacy downloaders call requests directly; share the environment's HTTP fake
-        self.enterContext(patch("requests.get", new = self.http.get))
         self.workers = BackgroundThreads()
         # plain threads need the test context; their real worker bodies still execute
         self.enterContext(patch.object(smart_image_generator, "Thread", new = self.workers.create))

@@ -79,8 +79,6 @@ class VideoFileUtilsTest(unittest.TestCase):
         self.root = Path(self.enterContext(TemporaryDirectory()))
         di = self.enterContext(di_for_tests())
         self.http = cast(FakeHTTPClient, di.http_client())
-        # the downloader still uses requests directly
-        self.enterContext(patch("requests.get", new = self.http.get))
         # keep system-created temporary files in a directory whose cleanup we can observe
         self.enterContext(patch.object(tempfile, "NamedTemporaryFile", new = partial(NamedTemporaryFile, dir = self.root)))
 

@@ -68,8 +68,6 @@ class SocialCardOrchestratorTest(TestCase):
             "features.social_cards.asset_workspace.TemporaryDirectory",
             new = partial(TemporaryDirectory, dir = self.workspaces),
         ))
-        # the existing HTTP adapters call requests directly; use the shared fake transport
-        self.enterContext(patch("requests.get", new = self.http.get))
         self.enterContext(patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None))
         logo = self.root / "logo.svg"
         logo.write_bytes(stubs.external.svg_bytes())
@@ -158,7 +156,7 @@ class SocialCardOrchestratorTest(TestCase):
         self.http.responses["https://api.x.com/2/tweets/987654321"].append(
             stubs.external.http_json_response(stubs.external.x_tweet_response(embedded)),
         )
-        urls = [self.tweet.user.profile_image_url, self.tweet.media[0].url, embedded.user.profile_image_url, embedded.media[0].url]
+        urls = [self.tweet.user.profile_image_url, self.tweet.media[0].url, embedded.user.profile_image_url, embedded.media[0].url]  # ruff: ignore[line-too-long]
         for url in urls:
             self.http.responses[url].append(stubs.external.http_response(content = stubs.external.image_bytes()))
 
@@ -514,8 +512,6 @@ class PhotoDownloaderPathTest(TestCase):
         self.root = Path(self.enterContext(TemporaryDirectory()))
         self.http = cast(FakeHTTPClient, di.http_client())
         self.downloader = di.photo_downloader()
-        # route the legacy requests transport to the shared HTTP fake
-        self.enterContext(patch("requests.get", new = self.http.get))
 
     def test_download_to_streams_chunks_to_path(self):
         content = b"first" * (1024 * 256) + b"second"

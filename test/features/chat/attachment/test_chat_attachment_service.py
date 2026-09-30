@@ -3,11 +3,12 @@ import unittest
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 from uuid import uuid4
 
 import stubs
-from requests_mock import Mocker
+from fakes.fake_http_client import FakeHTTPClient
 from util.di_utils import FakeInterceptor, di_for_tests
 
 from api.auth import verify_jwt_token, verify_public_attachment_token
@@ -16,7 +17,6 @@ from features.chat.attachment.chat_attachment_repo import ChatAttachmentReposito
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage
 from util.config import config
-from util.error_codes import ATTACHMENT_STORAGE_FAILED
 from util.errors import ExternalServiceError, NotFoundError, ValidationError
 
 
@@ -401,8 +401,8 @@ class ChatAttachmentServiceTest(unittest.TestCase):
 
             # the system copy operation supplies a storage failure without replacing owned code
             with (
-                patch("shutil.copyfile", side_effect = ExternalServiceError("failed", ATTACHMENT_STORAGE_FAILED)),
-                self.assertRaises(ExternalServiceError),
+                patch("shutil.copyfile", side_effect = OSError("Disk full")),
+                self.assertRaises(OSError),
             ):
                 self.service.save(attachment, file_path = source)
 
@@ -781,14 +781,12 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.addCleanup(setattr, config, "web_timeout_s", config.web_timeout_s)
         config.web_timeout_s = 5
         self.repo.save(attachment)
-        # requests is a third-party transport; this path has no injected HTTP client
-        with Mocker() as transport:
-            transport.get(
-                "http://example.com/photo.png",
-                content = b"\x89PNG\r\n\x1a\ncontent",
-                headers = {"Content-Type": "image/png"},
-            )
-            result = self.service.resolve_attachments(["attachment-id"], ["http://example.com/photo.png"])
+        http = cast(FakeHTTPClient, self.di.http_client())
+        http.responses["http://example.com/photo.png"].append(stubs.external.http_response(
+            content = b"\x89PNG\r\n\x1a\ncontent",
+            headers = {"Content-Type": "image/png"},
+        ))
+        result = self.service.resolve_attachments(["attachment-id"], ["http://example.com/photo.png"])
 
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0], attachment)

@@ -146,16 +146,16 @@ def di_for_tests(
     construction. HTTP, storage clients, bot APIs, OpenAI, Google, Replicate, xAI,
     the base chat model, and URL shortening have shared per-environment fakes, configurable
     through normal DI providers. The model's usage decorator, services, repositories, and bot SDKs
-    remain real. Network access is blocked for the scope.
+    remain real. Direct requests.get/post calls use the same default HTTP fake through
+    scoped transport replacements. Network access is blocked for the scope.
     Exit closes the session, disposes the engine, removes files, and restores network
     access. Configuration belongs to the test: assign config properties directly and restore any changed
     values in test cleanup. Opening or closing a DI environment does not reset settings.
 
-    SQLUtil can coexist during migration, but owns a separate database and session.
-    This helper leaves db.sql globals untouched; seed and query through this DI's
-    repositories rather than SQLUtil when using this environment.
-    DI.new_session() and clones open independent sessions on this same database;
-    callers close them with a context manager before the environment exits.
+    Seed and query through this DI's repositories. The helper leaves production
+    db.sql globals untouched. DI.new_session() opens an independent session on the
+    same database; pass it to clone(db = ...) when a separate scope is needed.
+    Close that scope with a context manager before the environment exits.
     A temporary constructor hook supplies the context-local interceptor to the real
     DI initializer. Fresh instances inherit it in asyncio tasks and asyncio.to_thread
     workers without inheriting a session. Production DI has no ambient interceptor.
@@ -175,7 +175,10 @@ def di_for_tests(
         defaults.register_factory(AbstractContextManager[Session], lambda _: Session(db.get_bind(), autoflush = False))
         defaults.register(S3Client, FakeS3Client())
         defaults.register(Uploadcare, FakeUploadcareClient())
-        defaults.register(HTTPClient, FakeHTTPClient())
+        http = FakeHTTPClient()
+        defaults.register(HTTPClient, http)
+        resources.enter_context(patch("requests.get", new = http.get))
+        resources.enter_context(patch("requests.post", new = http.post))
         defaults.register(TelegramBotAPI, FakeTelegramBotAPI())
         defaults.register(WhatsAppBotAPI, FakeWhatsAppBotAPI())
         defaults.register(BaseChatModel, FakeChatModel())

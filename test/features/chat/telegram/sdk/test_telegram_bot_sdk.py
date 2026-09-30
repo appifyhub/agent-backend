@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import cast
 from unittest import TestCase
-from unittest.mock import patch
 
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
 from stubs import domain, external
@@ -90,20 +89,18 @@ class TelegramBotSDKTest(TestCase):
 
     def test_send_video(self):
         attachment = domain.chat_attachment(id = "local789", extension = "mp4", mime_type = "video/mp4")
-        content = b"video content"
+        content = external.video_bytes()
         self.di.attachment_storage.put(attachment, content)
         chat = domain.chat_config()
-        # replace the operating-system runtime, retaining the SDK and its local-file handling
-        with (
-            patch("shutil.which", return_value = "/test/ffprobe"),
-            patch("subprocess.run", return_value = external.ffprobe_result()),
-        ):
-            result = self.sdk.send_video(chat_config = chat, attachment = attachment, caption = "test video")
+        result = self.sdk.send_video(chat_config = chat, attachment = attachment, caption = "test video")
 
         self.assertEqual(self.api.get_sent_message(result.message_id), {
             "chat_id": chat.external_id,
             "content": content,
-            "metadata": domain.video_metadata(size_bytes = len(content), has_fast_start = False),
+            "metadata": domain.video_metadata(
+                size_bytes = len(content), audio_codecs = (), audio_stream_count = 0,
+                width = 160, height = 90, duration_seconds = 0.2,
+            ),
             "caption": "test video",
             "parse_mode": "markdown",
             "disable_notification": False,

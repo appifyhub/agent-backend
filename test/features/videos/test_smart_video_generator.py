@@ -56,8 +56,6 @@ class SmartVideoGeneratorTest(TestCase):
         self.http.responses["https://example.com/video.mp4"].append(
             stubs.external.http_response(content = stubs.external.video_bytes()),
         )
-        # remote video delivery still uses requests directly
-        self.enterContext(patch("requests.get", new = self.http.get))
         self.workers = BackgroundThreads()
         # plain threads need the test context; their real worker bodies still execute
         self.enterContext(patch.object(smart_video_generator, "Thread", new = self.workers.create))

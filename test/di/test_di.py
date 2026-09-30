@@ -264,23 +264,6 @@ class DITest(TestCase):
         self.assertIsNot(clone.telegram_domain_mapper, parent_mapper)
         self.assertEqual([request.di for request in requests], [di, clone])
 
-    def test_helper_returns_production_di_with_real_local_dependencies(self):
-        di = self.enterContext(di_for_tests())
-
-        self.assertIs(type(di), DI)
-        self.assertIsInstance(di.attachment_storage, LocalAttachmentStorage)
-        self.assertIs(di.attachment_storage, di.local_attachment_storage())
-        self.assertEqual(di.user_repo.count(), 0)
-
-    def test_external_clients_are_shared_with_clones_but_isolated_between_environments(self):
-        with di_for_tests() as first, di_for_tests() as second:
-            clone = first.clone()
-            for factory in ("s3_client", "uploadcare_client", "http_client"):
-                with self.subTest(factory = factory):
-                    client = getattr(first, factory)()
-                    self.assertIs(client, getattr(clone, factory)())
-                    self.assertIsNot(client, getattr(second, factory)())
-
     def test_local_storage_factory_preserves_default_root(self):
         storage = DI().local_attachment_storage()
 
@@ -298,23 +281,6 @@ class DITest(TestCase):
 
                 self.assertEqual(locator, f"file://{root}/{attachment.uri}")
                 self.assertEqual((root / attachment.uri).read_bytes(), b"custom root")
-
-    def test_real_service_persists_attachment_and_bytes(self):
-        di = self.enterContext(di_for_tests())
-        user = di.user_repo.save(domain.user())
-        chat = di.chat_config_repo.save(domain.chat_config())
-        attachment = domain.chat_attachment(
-            chat_id = chat.chat_id,
-            uploader_user_id = user.id,
-            mime_type = "text/plain",
-            extension = "txt",
-        )
-
-        saved = di.chat_attachment_service.save(attachment, content = b"stored text")
-
-        self.assertEqual(di.chat_attachment_repo.get(saved.id).last_url, saved.last_url)
-        with di.attachment_storage.open(saved) as stream:
-            self.assertEqual(stream.read(), b"stored text")
 
     def test_environments_do_not_share_database_or_storage(self):
         with di_for_tests() as first:

@@ -1,14 +1,11 @@
-from pathlib import Path
-from subprocess import CompletedProcess
 from typing import cast
 from unittest import TestCase
-from unittest.mock import patch
 from uuid import UUID
 
+from fakes.fake_http_client import FakeHTTPClient
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
 from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from PIL import Image
-from requests_mock import Mocker
 from stubs import domain, external
 from util.di_utils import di_for_tests
 
@@ -30,7 +27,7 @@ class PlatformBotSDKTest(TestCase):
     whatsapp_chat: ChatConfig
     telegram: FakeTelegramBotAPI
     whatsapp: FakeWhatsAppBotAPI
-    http: Mocker
+    http: FakeHTTPClient
 
     def setUp(self):
         self.di = self.enterContext(di_for_tests())
@@ -45,13 +42,14 @@ class PlatformBotSDKTest(TestCase):
         self.sdk = self.di.platform_bot_sdk()
         self.telegram = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
         self.whatsapp = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
-        # media downloads use requests directly; substitute only the external transport
-        self.http = self.enterContext(Mocker())
+        self.http = cast(FakeHTTPClient, self.di.http_client())
 
     def test_send_photo_resizes_and_uploads(self):
         body = external.image_bytes(size = (1500, 1500), compress_level = 0)
         self.assertGreater(len(body), TELEGRAM_MAX_PHOTO_SIZE_BYTES)
-        self.http.get("https://example.com/image.png", content = body, headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/png"},
+        ))
 
         result = self.sdk.send_photo(self.chat.external_id, "https://example.com/image.png")
 
@@ -63,7 +61,9 @@ class PlatformBotSDKTest(TestCase):
     def test_whatsapp_send_photo_adds_background_to_transparent_png(self):
         self.di.inject_invoker_chat(self.whatsapp_chat)
         body = external.image_bytes(color = (100, 150, 200, 128))
-        self.http.get("https://example.com/image.png", content = body, headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/png"},
+        ))
 
         result = self.sdk.send_photo(self.whatsapp_chat.external_id, "https://example.com/image.png")
 
@@ -76,7 +76,9 @@ class PlatformBotSDKTest(TestCase):
 
     def test_send_photo_stores_original_when_no_resize_needed(self):
         body = external.image_bytes(image_format = "JPEG")
-        self.http.get("https://example.com/image.jpg", content = body, headers = {"Content-Type": "image/jpeg"})
+        self.http.responses["https://example.com/image.jpg"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/jpeg"},
+        ))
 
         result = self.sdk.send_photo(self.chat.external_id, "https://example.com/image.jpg")
 
@@ -86,7 +88,7 @@ class PlatformBotSDKTest(TestCase):
         self.assertIn("photo_url", self.telegram.get_sent_message(result.message_id))
 
     def test_send_photo_download_failure_raises(self):
-        self.http.get("https://example.com/image.png", status_code = 503)
+        self.http.responses["https://example.com/image.png"].append(external.http_response(status_code = 503))
 
         with self.assertRaises(ExternalServiceError) as raised:
             self.sdk.send_photo(self.chat.external_id, "https://example.com/image.png")
@@ -96,7 +98,7 @@ class PlatformBotSDKTest(TestCase):
         self.assertEqual(self.di.chat_attachment_repo.get_all(), [])
 
     def test_send_photo_empty_download_raises(self):
-        self.http.get("https://example.com/image.png", content = b"")
+        self.http.responses["https://example.com/image.png"].append(external.http_response(content = b""))
 
         with self.assertRaises(ExternalServiceError) as raised:
             self.sdk.send_photo(self.chat.external_id, "https://example.com/image.png")
@@ -107,7 +109,9 @@ class PlatformBotSDKTest(TestCase):
 
     def test_send_document_preserves_original_content(self):
         body = external.image_bytes(color = (100, 150, 200, 128))
-        self.http.get("https://example.com/image.png", content = body, headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/png"},
+        ))
 
         result = self.sdk.send_document(self.chat.external_id, "https://example.com/image.png")
 
@@ -118,8 +122,12 @@ class PlatformBotSDKTest(TestCase):
         self.assertIn("document_url", self.telegram.get_sent_message(result.message_id))
 
     def test_send_document_with_thumbnail_builds_public_url(self):
-        self.http.get("https://example.com/doc.pdf", content = b"%PDF-1.7 document", headers = {"Content-Type": "application/pdf"})  # ruff: ignore[line-too-long]
-        self.http.get("https://example.com/thumb.png", content = external.image_bytes(), headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/doc.pdf"].append(external.http_response(
+            content = b"%PDF-1.7 document", headers = {"Content-Type": "application/pdf"},
+        ))
+        self.http.responses["https://example.com/thumb.png"].append(external.http_response(
+            content = external.image_bytes(), headers = {"Content-Type": "image/png"},
+        ))
 
         result = self.sdk.send_document(
             self.chat.external_id, "https://example.com/doc.pdf", caption = "caption",
@@ -133,7 +141,9 @@ class PlatformBotSDKTest(TestCase):
         self.assertEqual(attachment.mime_type, "application/pdf")
 
     def test_smart_send_photo_file_mode_sends_document_only(self):
-        self.http.get("https://example.com/image.png", content = external.image_bytes(), headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = external.image_bytes(), headers = {"Content-Type": "image/png"},
+        ))
 
         result = self.sdk.smart_send_photo(ChatConfigDB.MediaMode.file, self.chat.external_id, "https://example.com/image.png")
 
@@ -143,8 +153,12 @@ class PlatformBotSDKTest(TestCase):
 
     def test_smart_send_photo_all_mode_sends_photo_and_document(self):
         body = external.image_bytes(color = (100, 150, 200, 128))
-        self.http.get("https://example.com/image.png", content = body, headers = {"Content-Type": "image/png"})
-        self.http.get("https://example.com/thumb.png", content = external.image_bytes(), headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].extend([
+            external.http_response(content = body, headers = {"Content-Type": "image/png"}) for _ in range(2)
+        ])
+        self.http.responses["https://example.com/thumb.png"].append(external.http_response(
+            content = external.image_bytes(), headers = {"Content-Type": "image/png"},
+        ))
 
         result = self.sdk.smart_send_photo(
             ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/image.png",
@@ -164,7 +178,9 @@ class PlatformBotSDKTest(TestCase):
 
     def test_smart_send_photo_all_mode_continues_after_photo_delivery_failure(self):
         self.telegram.photo_error = ExternalServiceError("Photo upload failed", FILE_UPLOAD_FAILED)
-        self.http.get("https://example.com/image.png", content = external.image_bytes(), headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].extend([
+            external.http_response(content = external.image_bytes(), headers = {"Content-Type": "image/png"}) for _ in range(2)
+        ])
 
         result = self.sdk.smart_send_photo(ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/image.png")
 
@@ -174,7 +190,9 @@ class PlatformBotSDKTest(TestCase):
 
     def test_smart_send_photo_photo_mode_falls_back_to_document(self):
         self.telegram.photo_error = ExternalServiceError("Photo upload failed", FILE_UPLOAD_FAILED)
-        self.http.get("https://example.com/image.png", content = external.image_bytes(), headers = {"Content-Type": "image/png"})
+        self.http.responses["https://example.com/image.png"].extend([
+            external.http_response(content = external.image_bytes(), headers = {"Content-Type": "image/png"}) for _ in range(2)
+        ])
 
         result = self.sdk.smart_send_photo(ChatConfigDB.MediaMode.photo, self.chat.external_id, "https://example.com/image.png")
 
@@ -183,29 +201,21 @@ class PlatformBotSDKTest(TestCase):
         self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
     def test_prepare_outgoing_video_stores_prepared_media(self):
-        original = external.mp4_container_bytes(fast_start = False)
-        prepared = external.mp4_container_bytes(content = b"prepared")
-        self.http.get("https://example.com/video.mp4", content = original)
+        original = external.video_bytes(fast_start = False)
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = original))
 
-        def run_process(command: list[str], **_: object) -> CompletedProcess[str]:
-            if command[0] == "ffmpeg":
-                Path(command[-1]).write_bytes(prepared)
-            return external.ffprobe_result()
-
-        # only the external video executables are substituted; preparation and storage run normally
-        with patch("shutil.which", return_value = "/test/video-runtime"), patch("subprocess.run", side_effect = run_process):
-            attachment = self.sdk.prepare_outgoing_video_attachment(self.chat, "https://example.com/video.mp4")
+        attachment = self.sdk.prepare_outgoing_video_attachment(self.chat, "https://example.com/video.mp4")
 
         self.assertEqual(attachment.extension, "mp4")
+        self.assertGreater(attachment.size, 0)
         with self.di.attachment_storage.open(attachment) as stream:
-            self.assertEqual(stream.read(), prepared)
+            self.assertNotEqual(stream.read(), original)
 
     def test_prepare_outgoing_video_stores_compliant_media(self):
-        body = external.mp4_container_bytes()
-        self.http.get("https://example.com/video.mp4", content = body)
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = body))
 
-        with patch("shutil.which", return_value = "/test/ffprobe"), patch("subprocess.run", return_value = external.ffprobe_result()):  # ruff: ignore[line-too-long]
-            attachment = self.sdk.prepare_outgoing_video_attachment(self.chat, "https://example.com/video.mp4")
+        attachment = self.sdk.prepare_outgoing_video_attachment(self.chat, "https://example.com/video.mp4")
 
         self.assertEqual(attachment.extension, "mp4")
         with self.di.attachment_storage.open(attachment) as stream:
@@ -213,28 +223,21 @@ class PlatformBotSDKTest(TestCase):
 
     def test_prepare_outgoing_video_respects_whatsapp_limit(self):
         self.di.inject_invoker_chat(self.whatsapp_chat)
-        body = external.mp4_container_bytes(content = bytes(WHATSAPP_MAX_VIDEO_SIZE_BYTES))
-        prepared = external.mp4_container_bytes(content = b"smaller video")
-        self.http.get("https://example.com/video.mp4", content = body)
+        body = external.video_bytes() + external.iso_media_box(b"free", bytes(WHATSAPP_MAX_VIDEO_SIZE_BYTES))
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = body))
 
-        def run_process(command: list[str], **_: object) -> CompletedProcess[str]:
-            if command[0] == "ffmpeg":
-                Path(command[-1]).write_bytes(prepared)
-            return external.ffprobe_result()
+        attachment = self.sdk.prepare_outgoing_video_attachment(self.whatsapp_chat, "https://example.com/video.mp4")
 
-        with patch("shutil.which", return_value = "/test/video-runtime"), patch("subprocess.run", side_effect = run_process):
-            attachment = self.sdk.prepare_outgoing_video_attachment(self.whatsapp_chat, "https://example.com/video.mp4")
-
+        self.assertGreater(attachment.size, 0)
         self.assertLessEqual(attachment.size, WHATSAPP_MAX_VIDEO_SIZE_BYTES)
         with self.di.attachment_storage.open(attachment) as stream:
-            self.assertEqual(stream.read(), prepared)
+            self.assertNotEqual(stream.read(), body)
 
     def test_send_video_routes_telegram_native_attachment(self):
-        body = external.mp4_container_bytes()
-        self.http.get("https://example.com/video.mp4", content = body)
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = body))
 
-        with patch("shutil.which", return_value = "/test/ffprobe"), patch("subprocess.run", return_value = external.ffprobe_result()):  # ruff: ignore[line-too-long]
-            result = self.sdk.send_video(self.chat.external_id, "https://example.com/video.mp4", caption = "caption")
+        result = self.sdk.send_video(self.chat.external_id, "https://example.com/video.mp4", caption = "caption")
 
         sent = self.telegram.get_sent_message(result.message_id)
         self.assertEqual(sent["content"], body)
@@ -244,10 +247,9 @@ class PlatformBotSDKTest(TestCase):
 
     def test_send_video_routes_whatsapp_native_attachment(self):
         self.di.inject_invoker_chat(self.whatsapp_chat)
-        self.http.get("https://example.com/video.mp4", content = external.mp4_container_bytes())
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = external.video_bytes()))
 
-        with patch("shutil.which", return_value = "/test/ffprobe"), patch("subprocess.run", return_value = external.ffprobe_result()):  # ruff: ignore[line-too-long]
-            result = self.sdk.send_video(self.whatsapp_chat.external_id, "https://example.com/video.mp4", caption = "caption")
+        result = self.sdk.send_video(self.whatsapp_chat.external_id, "https://example.com/video.mp4", caption = "caption")
 
         sent = self.whatsapp.get_sent_message(result.message_id)
         self.assertTrue(sent["video_url"].startswith(f"{config.public_api_base_url}/attachments/public/"))
@@ -265,8 +267,10 @@ class PlatformBotSDKTest(TestCase):
         self.assertEqual(raised.exception.error_code, UNSUPPORTED_CHAT_TYPE)
 
     def test_smart_send_video_file_mode_sends_document_only(self):
-        body = external.mp4_container_bytes()
-        self.http.get("https://example.com/video.mp4", content = body, headers = {"Content-Type": "video/mp4"})
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(
+            content = body, headers = {"Content-Type": "video/mp4"},
+        ))
 
         result = self.sdk.smart_send_video(
             ChatConfigDB.MediaMode.file, self.chat.external_id, "https://example.com/video.mp4", caption = "caption",
@@ -279,13 +283,14 @@ class PlatformBotSDKTest(TestCase):
         self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
     def test_smart_send_video_all_mode_sends_video_and_document(self):
-        body = external.mp4_container_bytes()
-        self.http.get("https://example.com/video.mp4", content = body, headers = {"Content-Type": "video/mp4"})
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].extend([
+            external.http_response(content = body, headers = {"Content-Type": "video/mp4"}) for _ in range(2)
+        ])
 
-        with patch("shutil.which", return_value = "/test/ffprobe"), patch("subprocess.run", return_value = external.ffprobe_result()):  # ruff: ignore[line-too-long]
-            result = self.sdk.smart_send_video(
-                ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/video.mp4", caption = "caption",
-            )
+        result = self.sdk.smart_send_video(
+            ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/video.mp4", caption = "caption",
+        )
 
         video, document = self.telegram.get_sent_messages(self.chat.external_id)
         self.assertIn("metadata", video)
@@ -298,11 +303,12 @@ class PlatformBotSDKTest(TestCase):
 
     def test_smart_send_video_photo_mode_falls_back_to_document(self):
         self.telegram.video_error = ExternalServiceError("Video upload failed", FILE_UPLOAD_FAILED)
-        body = external.mp4_container_bytes()
-        self.http.get("https://example.com/video.mp4", content = body, headers = {"Content-Type": "video/mp4"})
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].extend([
+            external.http_response(content = body, headers = {"Content-Type": "video/mp4"}) for _ in range(2)
+        ])
 
-        with patch("shutil.which", return_value = "/test/ffprobe"), patch("subprocess.run", return_value = external.ffprobe_result()):  # ruff: ignore[line-too-long]
-            result = self.sdk.smart_send_video(ChatConfigDB.MediaMode.photo, self.chat.external_id, "https://example.com/video.mp4")
+        result = self.sdk.smart_send_video(ChatConfigDB.MediaMode.photo, self.chat.external_id, "https://example.com/video.mp4")
 
         sent, = self.telegram.get_sent_messages(self.chat.external_id)
         self.assertNotIn("metadata", sent)

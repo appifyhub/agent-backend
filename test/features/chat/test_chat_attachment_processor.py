@@ -6,7 +6,6 @@ from unittest import TestCase
 from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_http_client import FakeHTTPClient
 from fakes.fake_openai_client import FakeOpenAIClient
-from requests_mock import Mocker
 from stubs import domain, external
 from util.di_utils import di_for_tests
 
@@ -388,15 +387,15 @@ class ChatAttachmentProcessorTest(TestCase):
 
     def test_url_resolved_attachment_is_processed(self):
         self.model.responses.append(external.ai_message(content = "Image description"))
-        # URL ingestion uses requests directly; only its external transport is substituted
-        with Mocker() as transport:
-            transport.get("https://example.com/image.png", content = b"image data", headers = {"Content-Type": "image/png"})
-            processor = self.di.chat_attachment_processor(
-                additional_context = "context",
-                attachment_ids = [],
-                urls = ["https://example.com/image.png"],
-            )
-            result = processor.execute()
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = b"image data", headers = {"Content-Type": "image/png"},
+        ))
+        processor = self.di.chat_attachment_processor(
+            additional_context = "context",
+            attachment_ids = [],
+            urls = ["https://example.com/image.png"],
+        )
+        result = processor.execute()
 
         self.assertEqual(result, ChatAttachmentProcessor.Result.success)
         self.assertEqual(len(processor.result), 1)
@@ -405,15 +404,15 @@ class ChatAttachmentProcessorTest(TestCase):
     def test_url_resolved_merged_with_stored_attachments(self):
         attachment = self.attachments.save(domain.chat_attachment(), content = b"image data")
         self.model.responses.append(external.ai_message(content = "Combined image description"))
-        # URL ingestion uses requests directly; only its external transport is substituted
-        with Mocker() as transport:
-            transport.get("https://example.com/image.png", content = b"image data", headers = {"Content-Type": "image/png"})
-            processor = self.di.chat_attachment_processor(
-                additional_context = "context",
-                attachment_ids = [attachment.id],
-                urls = ["https://example.com/image.png"],
-            )
-            result = processor.execute()
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = b"image data", headers = {"Content-Type": "image/png"},
+        ))
+        processor = self.di.chat_attachment_processor(
+            additional_context = "context",
+            attachment_ids = [attachment.id],
+            urls = ["https://example.com/image.png"],
+        )
+        result = processor.execute()
 
         self.assertEqual(result, ChatAttachmentProcessor.Result.success)
         self.assertEqual(len(processor.result), 2)

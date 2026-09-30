@@ -53,7 +53,6 @@ opentelemetry-instrumentation-httpx = "*"
 
 [dev-packages]
 pytest = "*"
-requests-mock = "*"
 ruff = "*"
 pre-commit = "*"
 the-agent = {path = ".", editable = true}

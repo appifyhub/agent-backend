@@ -188,17 +188,6 @@ def process_result(**overrides: Any) -> CompletedProcess[str]:
     return CompletedProcess(**(defaults | overrides))
 
 
-def ffprobe_result() -> CompletedProcess[str]:
-    payload = {
-        "streams": [
-            {"codec_type": "video", "codec_name": "h264", "pix_fmt": "yuv420p", "width": 1920, "height": 1080},
-            {"codec_type": "audio", "codec_name": "aac"},
-        ],
-        "format": {"format_name": "mp4", "duration": "12"},
-    }
-    return CompletedProcess(args = ["ffprobe"], returncode = 0, stdout = dumps(payload), stderr = "")
-
-
 def image_bitmap(
     size: tuple[int, int] = (16, 16),
     color: tuple[int, int, int] | tuple[int, int, int, int] = (100, 150, 200),
@@ -233,14 +222,6 @@ def image_file(
 
 def svg_bytes() -> bytes:
     return b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4" fill="white"/></svg>'
-
-
-def mp4_container_bytes(content: bytes = b"video", fast_start: bool = True) -> bytes:
-    """Build MP4 container bytes for tests that supply FFprobe metadata separately."""
-    header = (20).to_bytes(4, "big") + b"ftyp" + b"isom" + bytes(4) + b"isom"
-    metadata = (8).to_bytes(4, "big") + b"moov"
-    media = (len(content) + 8).to_bytes(4, "big") + b"mdat" + content
-    return header + (metadata + media if fast_start else media + metadata)
 
 
 def telegram_chat_member(**overrides: Any) -> ChatMemberMember:
@@ -325,11 +306,13 @@ def http_response(
     status_code: int = 200,
     url: str = "https://example.com",
     encoding: str | None = "utf-8",
+    headers: dict[str, str] | None = None,
 ) -> Response:
     response = Response()
     response.status_code = status_code
     response.url = url
     response.encoding = encoding
+    response.headers.update(headers or {})
     response.raw = HTTPResponse(body = BytesIO(content), preload_content = False)
     return response
 
@@ -704,14 +687,15 @@ def tweet_data(**overrides: Any) -> TweetData:
     return TweetData(**(defaults | overrides))
 
 
-def video_bytes() -> bytes:
+def video_bytes(fast_start: bool = True) -> bytes:
     with TemporaryDirectory() as directory:
         path = Path(directory) / "video.mp4"
         run_process(
             [
                 "ffmpeg", "-v", "error", "-y", "-f", "lavfi",
                 "-i", "color=c=blue:s=160x90:r=10", "-t", "0.2",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path),
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                *(["-movflags", "+faststart"] if fast_start else []), str(path),
             ],
             capture_output = True,
             check = True,

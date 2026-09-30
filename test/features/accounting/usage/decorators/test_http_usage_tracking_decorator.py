@@ -40,8 +40,6 @@ class HTTPUsageTrackingDecoratorTest(TestCase):
         self.decorator = self.di.tracked_http_get(self.tool)
         self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
         config.usage_maintenance_fee_credits = 1.0
-        # this legacy adapter calls the third-party requests transport directly
-        self.enterContext(patch("requests.get", new = self.http.get))
 
     def test_get_tracks_api_call_and_deducts_credits(self):
         response = stubs.external.http_json_response({"data": "test"})
