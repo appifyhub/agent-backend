@@ -1,10 +1,15 @@
 import subprocess
 import tempfile
 import unittest
+from functools import partial
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from typing import cast
+from unittest.mock import patch
 
 import stubs
+from fakes.fake_http_client import FakeHTTPClient
+from util.di_utils import di_for_tests
 
 from features.videos import video_file_utils
 from util.error_codes import VIDEO_PREPARATION_FAILED, VIDEO_RUNTIME_MISSING
@@ -12,6 +17,14 @@ from util.errors import ConfigurationError, ExternalServiceError
 
 
 class VideoFileUtilsTest(unittest.TestCase):
+
+    _fixture_directory: TemporaryDirectory[str]
+    compliant_path: Path
+    no_fast_start_path: Path
+    webm_path: Path
+    root: Path
+    http: FakeHTTPClient
+    _temp_paths: list[str]
 
     @classmethod
     def setUpClass(cls):
@@ -62,7 +75,14 @@ class VideoFileUtilsTest(unittest.TestCase):
         )
 
     def setUp(self):
-        self._temp_paths: list[str] = []
+        self._temp_paths = []
+        self.root = Path(self.enterContext(TemporaryDirectory()))
+        di = self.enterContext(di_for_tests())
+        self.http = cast(FakeHTTPClient, di.http_client())
+        # the downloader still uses requests directly
+        self.enterContext(patch("requests.get", new = self.http.get))
+        # keep system-created temporary files in a directory whose cleanup we can observe
+        self.enterContext(patch.object(tempfile, "NamedTemporaryFile", new = partial(NamedTemporaryFile, dir = self.root)))
 
     def tearDown(self):
         for path in self._temp_paths:
@@ -163,70 +183,32 @@ class VideoFileUtilsTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, VIDEO_PREPARATION_FAILED)
 
     def test_prepare_video_retries_with_lower_bitrate_and_resolution(self):
-        source = stubs.domain.video_metadata(
-            container = "webm",
-            video_codecs = ("vp9",),
-            audio_codecs = ("opus",),
-            width = 160,
-            height = 90,
-            duration_seconds = 10,
-            size_bytes = 2_000_000,
-        )
-        oversized = stubs.domain.video_metadata(size_bytes = 1_200_000)
-        fitting = stubs.domain.video_metadata(
-            width = 80,
-            height = 44,
-            size_bytes = 900_000,
-        )
-        outputs = [self._temp_path() for _ in range(3)]
+        run_process = subprocess.run
+        outputs: list[Path] = []
 
-        with patch(
-            "features.videos.video_file_utils.inspect_video",
-            side_effect = [source, oversized, oversized, fitting],
-        ), patch(
-            "features.videos.video_file_utils._create_temp_path",
-            side_effect = outputs,
-        ), patch("features.videos.video_file_utils._transcode_video") as mock_transcode:
+        def oversized_first_passes(command, **kwargs):
+            result = run_process(command, **kwargs)
+            if Path(command[0]).name == "ffmpeg":
+                output = Path(command[-1])
+                outputs.append(output)
+                if len(outputs) < 3:
+                    with output.open("ab") as stream:
+                        stream.write(b"0" * 100_001)
+            return result
+
+        # simulate encoder overshoot at the process boundary; inspection and retry logic stay real
+        with patch.object(subprocess, "run", new = oversized_first_passes):
             result = video_file_utils.prepare_video(
-                "source.webm",
-                max_size_bytes = 1_000_000,
-                max_width = 160,
-                max_height = 90,
+                str(self.webm_path), max_size_bytes = 100_000, max_width = 160, max_height = 90,
             )
 
-        self.assertEqual(result, outputs[2])
-        self.assertEqual(
-            mock_transcode.call_args_list,
-            [
-                call(
-                    input_path = "source.webm",
-                    output_path = outputs[0],
-                    width = 160,
-                    height = 90,
-                    video_bitrate = None,
-                    has_audio = True,
-                ),
-                call(
-                    input_path = "source.webm",
-                    output_path = outputs[1],
-                    width = 160,
-                    height = 90,
-                    video_bitrate = 592_000,
-                    has_audio = True,
-                ),
-                call(
-                    input_path = "source.webm",
-                    output_path = outputs[2],
-                    width = 120,
-                    height = 66,
-                    video_bitrate = 473_600,
-                    has_audio = True,
-                ),
-            ],
-        )
-        self.assertFalse(Path(outputs[0]).exists())
-        self.assertFalse(Path(outputs[1]).exists())
-        self.assertTrue(Path(outputs[2]).exists())
+        self.assertEqual(len(outputs), 3)
+        self.assertEqual(result, str(outputs[-1]))
+        metadata = video_file_utils.inspect_video(result)
+        self.assertLess(metadata.width, 160)
+        self.assertTrue(video_file_utils.video_meets_constraints(metadata, 100_000, 160, 90))
+        self.assertFalse(outputs[0].exists())
+        self.assertFalse(outputs[1].exists())
 
     def test_run_process_reports_missing_runtime(self):
         with patch("features.videos.video_file_utils.shutil.which", return_value = None):
@@ -236,145 +218,92 @@ class VideoFileUtilsTest(unittest.TestCase):
         self.assertEqual(context.exception.error_code, VIDEO_RUNTIME_MISSING)
 
     def test_run_process_reports_timeout(self):
-        with patch("features.videos.video_file_utils.shutil.which", return_value = "/usr/bin/ffmpeg"), patch(
-            "features.videos.video_file_utils.subprocess.run",
-            side_effect = subprocess.TimeoutExpired(["ffmpeg"], 300),
-        ):
+        # timeout is a system process failure, not application behavior
+        with patch.object(subprocess, "run", side_effect = subprocess.TimeoutExpired(["ffmpeg"], 300)):
             with self.assertRaises(ExternalServiceError) as context:
                 video_file_utils._run_process(["ffmpeg"], "ffmpeg")
 
         self.assertEqual(context.exception.error_code, VIDEO_PREPARATION_FAILED)
 
     def test_run_process_reports_failed_command(self):
-        result = subprocess.CompletedProcess(
-            ["ffmpeg"],
-            returncode = 1,
-            stdout = "",
-            stderr = "conversion failed",
-        )
-
-        with patch("features.videos.video_file_utils.shutil.which", return_value = "/usr/bin/ffmpeg"), patch(
-            "features.videos.video_file_utils.subprocess.run",
-            return_value = result,
-        ):
-            with self.assertRaises(ExternalServiceError) as context:
-                video_file_utils._run_process(["ffmpeg"], "ffmpeg")
+        with self.assertRaises(ExternalServiceError) as context:
+            video_file_utils._run_process(["ffmpeg", "-definitely-invalid-option"], "ffmpeg")
 
         self.assertEqual(context.exception.error_code, VIDEO_PREPARATION_FAILED)
 
     def test_inspect_video_rejects_empty_ffprobe_response(self):
-        result = subprocess.CompletedProcess(["ffprobe"], returncode = 0, stdout = "", stderr = "")
-
-        with patch("features.videos.video_file_utils._run_process", return_value = result):
+        # exercise malformed external process output through the real parser
+        with patch.object(subprocess, "run", return_value = stubs.external.process_result()):
             with self.assertRaises(ExternalServiceError) as context:
                 video_file_utils.inspect_video(str(self.compliant_path))
 
         self.assertEqual(context.exception.error_code, VIDEO_PREPARATION_FAILED)
 
     def test_download_video_streams_to_temporary_file(self):
-        response = MagicMock()
-        response.__enter__.return_value = response
-        response.iter_content.return_value = [b"first", b"", b"second"]
+        content = b"first" * video_file_utils.DOWNLOAD_CHUNK_SIZE + b"second"
+        self.http.responses["https://example.com/video.mp4"].append(stubs.external.http_response(content = content))
 
-        with patch("features.videos.video_file_utils.requests.get", return_value = response):
-            result = video_file_utils.download_video("https://example.com/video.mp4")
-        self._temp_paths.append(result)
+        result = video_file_utils.download_video("https://example.com/video.mp4")
 
-        self.assertEqual(Path(result).read_bytes(), b"firstsecond")
-        response.iter_content.assert_called_once_with(chunk_size = video_file_utils.DOWNLOAD_CHUNK_SIZE)
+        self.assertEqual(Path(result).read_bytes(), content)
+        self.assertTrue(self.http.requests[0][1]["stream"])
 
     def test_download_video_removes_empty_temporary_file(self):
-        output_path = self._temp_path(".video")
-        response = MagicMock()
-        response.__enter__.return_value = response
-        response.iter_content.return_value = []
+        self.http.responses["https://example.com/empty.mp4"].append(stubs.external.http_response(content = b""))
 
-        with patch("features.videos.video_file_utils._create_temp_path", return_value = output_path), patch(
-            "features.videos.video_file_utils.requests.get",
-            return_value = response,
-        ):
-            with self.assertRaises(ExternalServiceError):
-                video_file_utils.download_video("https://example.com/empty.mp4")
+        with self.assertRaises(ExternalServiceError):
+            video_file_utils.download_video("https://example.com/empty.mp4")
 
-        self.assertFalse(Path(output_path).exists())
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_prepare_remote_video_files_removes_files_after_consumer_failure(self):
-        original_path = self._temp_path(".video")
-        prepared_path = self._temp_path(".mp4")
-        Path(original_path).write_bytes(b"original")
-        Path(prepared_path).write_bytes(b"prepared")
-        metadata = video_file_utils.inspect_video(str(self.compliant_path))
-
-        with patch(
-            "features.videos.video_file_utils.download_video",
-            return_value = original_path,
-        ) as mock_download, patch(
-            "features.videos.video_file_utils.prepare_video",
-            return_value = prepared_path,
-        ) as mock_prepare, patch("features.videos.video_file_utils.inspect_video", return_value = metadata):
-            with self.assertRaises(ExternalServiceError):
-                with video_file_utils.prepare_remote_video_files("https://example.com/video.mp4") as paths:
-                    self.assertTrue(Path(paths[0]).exists())
-                    self.assertTrue(Path(paths[1]).exists())
-                    raise ExternalServiceError("Delivery failed", VIDEO_PREPARATION_FAILED)
-
-        mock_download.assert_called_once_with("https://example.com/video.mp4")
-        mock_prepare.assert_called_once_with(
-            original_path,
-            max_size_bytes = None,
-            max_width = None,
-            max_height = None,
+        self.http.responses["https://example.com/video.webm"].append(
+            stubs.external.http_response(content = self.webm_path.read_bytes()),
         )
-        self.assertFalse(Path(original_path).exists())
-        self.assertFalse(Path(prepared_path).exists())
+
+        with self.assertRaises(ExternalServiceError):
+            with video_file_utils.prepare_remote_video_files("https://example.com/video.webm") as paths:
+                self.assertTrue(Path(paths[0]).exists())
+                self.assertTrue(Path(paths[1]).exists())
+                self.assertNotEqual(paths[0], paths[1])
+                raise ExternalServiceError("Delivery failed", VIDEO_PREPARATION_FAILED)
+
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_prepare_remote_video_files_keeps_paths_until_consumer_finishes(self):
-        original_path = self._temp_path(".video")
-        prepared_path = self._temp_path(".mp4")
-        Path(original_path).write_bytes(b"original")
-        Path(prepared_path).write_bytes(b"prepared")
-        metadata = video_file_utils.inspect_video(str(self.compliant_path))
+        self.http.responses["https://example.com/video.webm"].append(
+            stubs.external.http_response(content = self.webm_path.read_bytes()),
+        )
 
-        with patch(
-            "features.videos.video_file_utils.download_video",
-            return_value = original_path,
-        ), patch(
-            "features.videos.video_file_utils.prepare_video",
-            return_value = prepared_path,
-        ), patch("features.videos.video_file_utils.inspect_video", return_value = metadata):
-            with video_file_utils.prepare_remote_video_files("https://example.com/video.mp4") as paths:
-                self.assertEqual(Path(paths[0]).read_bytes(), b"original")
-                self.assertEqual(Path(paths[1]).read_bytes(), b"prepared")
+        with video_file_utils.prepare_remote_video_files("https://example.com/video.webm") as paths:
+            self.assertEqual(Path(paths[0]).read_bytes(), self.webm_path.read_bytes())
+            self.assertGreater(Path(paths[1]).stat().st_size, 0)
+            self.assertNotEqual(paths[0], paths[1])
+            self.assertTrue(video_file_utils.video_meets_constraints(paths[2]))
 
-        self.assertFalse(Path(original_path).exists())
-        self.assertFalse(Path(prepared_path).exists())
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_prepare_video_removes_all_outputs_when_no_attempt_fits(self):
-        source = stubs.domain.video_metadata(
-            container = "webm",
-            video_codecs = ("vp9",),
-            audio_codecs = ("opus",),
-            duration_seconds = 10,
-            size_bytes = 2_000_000,
-        )
-        oversized = stubs.domain.video_metadata(size_bytes = 1_200_000)
-        outputs = [self._temp_path() for _ in range(len(video_file_utils.TRANSCODE_ATTEMPTS) + 1)]
+        run_process = subprocess.run
+        attempts: list[Path] = []
 
-        with patch(
-            "features.videos.video_file_utils.inspect_video",
-            side_effect = [source, *[oversized] * len(outputs)],
-        ), patch(
-            "features.videos.video_file_utils._create_temp_path",
-            side_effect = outputs,
-        ), patch("features.videos.video_file_utils._transcode_video"):
+        def oversized_output(command, **kwargs):
+            result = run_process(command, **kwargs)
+            if Path(command[0]).name == "ffmpeg":
+                output = Path(command[-1])
+                attempts.append(output)
+                with output.open("ab") as stream:
+                    stream.write(b"0" * 100_001)
+            return result
+
+        # force encoder overshoot while running real transcoding and metadata inspection
+        with patch.object(subprocess, "run", new = oversized_output):
             with self.assertRaises(ExternalServiceError) as context:
-                video_file_utils.prepare_video(
-                    "source.webm",
-                    max_size_bytes = 1_000_000,
-                )
+                video_file_utils.prepare_video(str(self.webm_path), max_size_bytes = 100_000)
 
         self.assertEqual(context.exception.error_code, VIDEO_PREPARATION_FAILED)
-        self.assertTrue(all(not Path(output).exists() for output in outputs))
+        self.assertEqual(len(attempts), len(video_file_utils.TRANSCODE_ATTEMPTS) + 1)
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_video_preparation_slots_allow_two_concurrent_preparations(self):
         slots = video_file_utils.VIDEO_PREPARATION_SLOTS
@@ -392,20 +321,16 @@ class VideoFileUtilsTest(unittest.TestCase):
     def test_iso_media_layout_distinguishes_mov_and_fast_start(self):
         mov_path = self._temp_path(".mov")
         Path(mov_path).write_bytes(
-            self._box(b"ftyp", b"qt  " + b"\x00" * 4)
-            + self._box(b"moov")
-            + self._box(b"mdat"),
+            stubs.external.iso_media_box(b"ftyp", b"qt  " + b"\x00" * 4)
+            + stubs.external.iso_media_box(b"moov")
+            + stubs.external.iso_media_box(b"mdat"),
         )
         mp4_path = self._temp_path(".mp4")
         Path(mp4_path).write_bytes(
-            self._box(b"ftyp", b"isom" + b"\x00" * 4)
-            + self._box(b"mdat")
-            + self._box(b"moov"),
+            stubs.external.iso_media_box(b"ftyp", b"isom" + b"\x00" * 4)
+            + stubs.external.iso_media_box(b"mdat")
+            + stubs.external.iso_media_box(b"moov"),
         )
 
         self.assertEqual(video_file_utils._inspect_iso_media_layout(mov_path), ("mov", True))
         self.assertEqual(video_file_utils._inspect_iso_media_layout(mp4_path), ("mp4", False))
-
-    @staticmethod
-    def _box(box_type: bytes, payload: bytes = b"") -> bytes:
-        return (8 + len(payload)).to_bytes(4, byteorder = "big") + box_type + payload

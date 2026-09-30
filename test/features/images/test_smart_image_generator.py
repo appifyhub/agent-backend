@@ -1,142 +1,111 @@
 import json
-import unittest
-from unittest.mock import MagicMock, Mock, call, patch
-from uuid import UUID
+from dataclasses import replace
+from re import compile, escape
+from threading import Thread
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_x_ai_client import FakeXAIClient
+from util.di_utils import di_for_tests
+from util.thread_utils import BackgroundThreads
 
-from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_image
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import GPT_5_NANO, IMAGE_GEN_GROK_IMAGINE_QUALITY
-from features.external_tools.intelligence_presets import default_tool_for
 from features.images import smart_image_generator
-from features.images.image_api_utils import map_to_model_parameters
 from features.images.smart_image_generator import SmartImageGenerator
-from util.error_codes import IMAGE_GENERATION_FAILED, MISSING_CONTENT
+from util.config import config
+from util.error_codes import IMAGE_GENERATION_FAILED, INSUFFICIENT_CREDITS, MISSING_CONTENT
 from util.errors import ExternalServiceError, ValidationError
 
 
-class SmartImageGeneratorTest(unittest.TestCase):
+class SmartImageGeneratorTest(TestCase):
+
+    di: DI
+    copywriter: FakeChatModel
+    provider: FakeXAIClient
+    bot: FakeTelegramBotAPI
+    http: FakeHTTPClient
+    workers: BackgroundThreads
+    copywriter_tool: ConfiguredTool
+    image_tool: ConfiguredTool
+    generator: SmartImageGenerator
 
     def setUp(self):
-        self.copywriter = Mock()
-        self.copywriter.invoke.return_value = AIMessage(content = "Enhanced image prompt")
-        self.di = Mock(spec = DI)
-        self.di.chat_langchain_model.return_value = self.copywriter
-        self.di.invoker = stubs.domain.user()
-
-    def _generator(
-        self,
-        attachment_ids: list[str] | None = None,
-        urls: list[str] | None = None,
-        copywriter_tool = None,
-        image_tool = None,
-    ) -> SmartImageGenerator:
-        return SmartImageGenerator(
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user(
+            tool_choice_images_gen = IMAGE_GEN_GROK_IMAGINE_QUALITY.id,
+        )))
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config(external_id = "12345")))
+        self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        self.image_tool = stubs.domain.configured_tool(
+            definition = IMAGE_GEN_GROK_IMAGINE_QUALITY,
+            purpose = ToolType.images_gen,
+        )
+        self.copywriter = cast(FakeChatModel, self.di.base_chat_langchain_model(self.copywriter_tool))
+        self.provider = cast(FakeXAIClient, self.di.base_x_ai_client(self.image_tool))
+        self.bot = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.copywriter.responses.append(stubs.external.ai_message(content = "Enhanced image prompt"))
+        self.provider.image.responses.append(stubs.external.x_ai_image_response(content = stubs.external.image_bytes()))
+        self.http.responses[compile(escape(config.public_api_base_url) + r"/attachments/public/[^/]+")].append(
+            stubs.external.http_response(content = stubs.external.image_bytes()),
+        )
+        # the legacy downloaders call requests directly; share the environment's HTTP fake
+        self.enterContext(patch("requests.get", new = self.http.get))
+        self.workers = BackgroundThreads()
+        # plain threads need the test context; their real worker bodies still execute
+        self.enterContext(patch.object(smart_image_generator, "Thread", new = self.workers.create))
+        self.addCleanup(self.workers.finish)
+        self.generator = self.di.smart_image_generator(
             raw_prompt = "Make them shake hands",
-            attachment_ids = attachment_ids or [],
-            urls = urls or [],
-            configured_copywriter_tool = copywriter_tool or stubs.domain.configured_tool(
-                definition = GPT_5_NANO,
-                purpose = ToolType.copywriting,
-            ),
-            configured_image_gen_tool = image_tool or stubs.domain.configured_tool(
-                definition = IMAGE_GEN_GROK_IMAGINE_QUALITY,
-                purpose = ToolType.images_gen,
-            ),
-            di = self.di,
+            attachment_ids = [],
+            urls = [],
+            configured_copywriter_tool = self.copywriter_tool,
+            configured_image_gen_tool = self.image_tool,
         )
 
     def test_constructor_rejects_empty_prompt_before_resolving_attachments(self):
-        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
-        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
-
         with self.assertRaises(ValidationError) as context:
-            SmartImageGenerator(
+            self.di.smart_image_generator(
                 raw_prompt = " ",
-                attachment_ids = ["attachment"],
+                attachment_ids = ["missing-attachment"],
                 urls = [],
-                configured_copywriter_tool = copywriter_tool,
-                configured_image_gen_tool = image_tool,
-                di = self.di,
+                configured_copywriter_tool = self.copywriter_tool,
+                configured_image_gen_tool = self.image_tool,
             )
 
         self.assertEqual(context.exception.error_code, MISSING_CONTENT)
-        self.di.chat_attachment_service.resolve_image_attachments.assert_not_called()
+        self.assertEqual(self.http.requests, [])
 
     def test_execute_upscales_synchronously_before_starting_worker(self):
-        events = []
-        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
-        chat = stubs.domain.chat_config()
-        self.di.require_invoker_chat.return_value = chat
-        self.di.require_invoker_chat_type.return_value = chat.chat_type
-        worker = Mock()
-        worker.start.side_effect = lambda: events.append("worker")
-        self.di.spending_service.validate_pre_flight.side_effect = lambda *_, **__: events.append("preflight")
-        self.copywriter.invoke.side_effect = lambda messages: (
-            events.append("copywriter"),
-            AIMessage(content = "Enhanced image prompt"),
-        )[1]
+        result = self.generator.execute()
 
-        with patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots, patch.object(
-            smart_image_generator,
-            "Thread",
-            return_value = worker,
-        ) as thread, patch.object(
-            smart_image_generator.prompt_resolvers,
-            "copywriting_image_prompt_upscaler",
-            return_value = "Copywriter system prompt",
-        ) as prompt_upscaler:
-            slots.acquire.return_value = True
-
-            result = self._generator(image_tool = image_tool).execute()
-
-        self.assertEqual(events, ["preflight", "copywriter", "worker"])
-        self.assertEqual(result, {
-            "status": "started",
-            "description": "Image generation has started. You will receive a notification when the image is ready.",
-            "used_reference_images": 0,
-            "ignored_reference_images": 0,
-        })
-        prompt_upscaler.assert_called_once_with(chat.chat_type, 0)
-        self.assertEqual(self.copywriter.invoke.call_args.args[0], [
-            SystemMessage("Copywriter system prompt"),
-            HumanMessage("Make them shake hands"),
-        ])
-        worker_kwargs = thread.call_args.kwargs["kwargs"]
-        self.assertEqual(worker_kwargs["parameters"].prompt, "Enhanced image prompt")
-        self.assertEqual(worker_kwargs["input_image_urls"], [])
-        self.assertNotIn("di", worker_kwargs)
-        self.assertIs(thread.call_args.kwargs["target"], smart_image_generator._run_image_worker)
-        self.assertTrue(thread.call_args.kwargs["daemon"])
-        slots.acquire.assert_called_once_with(blocking = False)
-        slots.release.assert_not_called()
-        self.di.spending_service.validate_pre_flight.assert_called_once_with(
-            image_tool,
-            input_image_sizes = None,
-            output_image_sizes = ["2K"],
-        )
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(result["used_reference_images"], 0)
+        self.assertEqual(result["ignored_reference_images"], 0)
+        self.assertEqual(len(self.copywriter.prompts), 1)
+        self.assertEqual(self.copywriter.prompts[0][-1].content, "Make them shake hands")
+        self.assertEqual(self.provider.image.requests, [])
+        self.assertEqual(self.bot.get_sent_messages("12345"), [])
+        self.workers.finish()
+        self.assertEqual(self.provider.image.requests[0]["prompt"], "Enhanced image prompt")
 
     def test_llm_tool_parses_references_and_returns_immediate_acknowledgement(self):
-        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
-        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
-        generator = Mock()
-        generator.execute.return_value = {
-            "status": "started",
-            "description": "Image generation has started.",
-            "used_reference_images": 2,
-            "ignored_reference_images": 1,
-        }
-        self.di.tool_choice_resolver.require_tool.side_effect = [copywriter_tool, image_tool]
-        self.di.smart_image_generator.return_value = generator
-
+        for attachment_id in ("first", "second"):
+            self.di.chat_attachment_service.save(
+                stubs.domain.chat_attachment(id = attachment_id, external_id = None),
+                content = stubs.external.image_bytes(),
+            )
+        for url in ("https://example.com/first.png", "https://example.com/second.png"):
+            self.http.responses[url].append(stubs.external.http_response(content = stubs.external.image_bytes()))
         result = json.loads(generate_image(
             di = self.di,
             prompt = "Make them shake hands",
@@ -147,363 +116,138 @@ class SmartImageGeneratorTest(unittest.TestCase):
         ))
 
         self.assertIs(ALL_LLM_TOOLS["generate_image"], generate_image)
-        self.di.tool_choice_resolver.require_tool.assert_has_calls([
-            call(
-                SmartImageGenerator.COPYWRITER_TOOL_TYPE,
-                default_tool_for(SmartImageGenerator.COPYWRITER_TOOL_TYPE),
-            ),
-            call(
-                SmartImageGenerator.IMAGE_GEN_TOOL_TYPE,
-                default_tool_for(SmartImageGenerator.IMAGE_GEN_TOOL_TYPE),
-            ),
-        ])
-        self.di.smart_image_generator.assert_called_once_with(
+        self.assertEqual(result["result"], "Success")
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(result["used_reference_images"], 1)
+        self.assertEqual(result["ignored_reference_images"], 3)
+        self.assertEqual(self.provider.image.requests, [])
+        self.workers.finish()
+        self.assertEqual(self.provider.image.requests[0]["resolution"], "2k")
+
+    def test_execute_retains_first_supported_reference(self):
+        for attachment_id in ("first", "ignored"):
+            self.di.chat_attachment_service.save(
+                stubs.domain.chat_attachment(id = attachment_id, external_id = None),
+                content = stubs.external.image_bytes(),
+            )
+        generator = self.di.smart_image_generator(
             raw_prompt = "Make them shake hands",
-            attachment_ids = ["first", "second"],
-            urls = ["https://example.com/first.png", "https://example.com/second.png"],
-            configured_copywriter_tool = copywriter_tool,
-            configured_image_gen_tool = image_tool,
-            aspect_ratio = "16:9",
-            output_size = "2K",
+            attachment_ids = ["first", "ignored"],
+            urls = [],
+            configured_copywriter_tool = self.copywriter_tool,
+            configured_image_gen_tool = self.image_tool,
         )
-        generator.execute.assert_called_once_with()
-        self.assertEqual(result, {
-            "result": "Success",
-            "status": "started",
-            "description": "Image generation has started.",
-            "used_reference_images": 2,
-            "ignored_reference_images": 1,
-            "next_step": "Tell the partner that image generation started and it will be sent once ready",
-        })
 
-    def test_execute_retains_first_supported_reference_before_upscaling_and_worker_handoff(self):
-        first = stubs.domain.chat_attachment(id = "first")
-        ignored = stubs.domain.chat_attachment(id = "ignored")
-        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
-        chat = stubs.domain.chat_config()
-        self.di.require_invoker_chat.return_value = chat
-        self.di.require_invoker_chat_type.return_value = chat.chat_type
-        self.di.chat_attachment_service.resolve_image_attachments.return_value = [first, ignored]
-        self.di.chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(
-            url = "https://example.com/first.png",
+        result = generator.execute()
+        self.workers.finish()
+
+        self.assertEqual(result["used_reference_images"], 1)
+        self.assertEqual(result["ignored_reference_images"], 1)
+        references = self.di.chat_attachment_service.resolve_image_attachments(
+            [], [self.provider.image.requests[0]["image_url"]],
         )
-        self.di.attachment_storage.open.return_value = MagicMock()
-        worker = Mock()
+        self.assertEqual([attachment.id for attachment in references], ["first"])
 
-        with patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots, patch.object(
-            smart_image_generator,
-            "Thread",
-            return_value = worker,
-        ) as thread, patch.object(
-            smart_image_generator.prompt_resolvers,
-            "copywriting_image_prompt_upscaler",
-            return_value = "Copywriter system prompt",
-        ) as prompt_upscaler, patch.object(
-            smart_image_generator,
-            "calculate_image_size_category",
-            return_value = "4k",
-        ):
-            slots.acquire.return_value = True
-
-            result = self._generator(
-                attachment_ids = ["first", "ignored"],
-                urls = ["https://example.com/reference.png"],
-                image_tool = image_tool,
-            ).execute()
-
-        self.assertEqual(result, {
-            "status": "started",
-            "description": "Image generation has started. You will receive a notification when the image is ready.",
-            "used_reference_images": 1,
-            "ignored_reference_images": 1,
-        })
-        self.di.chat_attachment_service.resolve_image_attachments.assert_called_once_with(
-            ["first", "ignored"],
-            ["https://example.com/reference.png"],
+    def test_execute_stops_before_upscaling_when_preflight_fails(self):
+        self.di.user_repo.save(replace(self.di.invoker, credit_balance = -1))
+        generator = self.di.smart_image_generator(
+            raw_prompt = "Make them shake hands",
+            attachment_ids = [],
+            urls = [],
+            configured_copywriter_tool = self.copywriter_tool,
+            configured_image_gen_tool = replace(self.image_tool, uses_credits = True, payer_id = self.di.invoker.id),
         )
-        self.di.chat_attachment_service.create_public_url.assert_called_once_with(first)
-        self.di.attachment_storage.open.assert_called_once_with(first)
-        self.di.spending_service.validate_pre_flight.assert_called_once_with(
-            image_tool,
-            input_image_sizes = ["4k"],
-            output_image_sizes = ["2K"],
-        )
-        prompt_upscaler.assert_called_once_with(chat.chat_type, 1)
-        worker_kwargs = thread.call_args.kwargs["kwargs"]
-        self.assertEqual(worker_kwargs["parameters"].input_image, "https://example.com/first.png")
-        self.assertEqual(worker_kwargs["parameters"].prompt, "Enhanced image prompt")
-        self.assertEqual(worker_kwargs["input_attachments"], [first])
-        self.assertEqual(worker_kwargs["input_image_urls"], ["https://example.com/first.png"])
-        self.assertEqual(worker_kwargs["input_image_sizes"], ["4k"])
-        self.assertEqual(worker_kwargs["output_image_sizes"], ["2K"])
 
-    def test_execute_stops_before_upscaling_and_admission_when_preflight_fails(self):
-        preflight_error = ValidationError("Image generation is not affordable", MISSING_CONTENT)
-        self.di.spending_service.validate_pre_flight.side_effect = preflight_error
+        with self.assertRaises(ValidationError) as context:
+            generator.execute()
 
-        with patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots, patch.object(
-            smart_image_generator,
-            "Thread",
-        ) as thread, patch.object(
-            smart_image_generator.prompt_resolvers,
-            "copywriting_image_prompt_upscaler",
-        ) as prompt_upscaler:
-            with self.assertRaises(ValidationError) as context:
-                self._generator().execute()
-
-        self.assertIs(context.exception, preflight_error)
-        prompt_upscaler.assert_not_called()
-        self.copywriter.invoke.assert_not_called()
-        slots.acquire.assert_not_called()
-        thread.assert_not_called()
+        self.assertEqual(context.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.copywriter.prompts, [])
+        self.assertEqual(self.workers.threads, [])
 
     def test_execute_rejects_busy_service_after_upscaling(self):
-        chat = stubs.domain.chat_config()
-        self.di.require_invoker_chat.return_value = chat
-        self.di.require_invoker_chat_type.return_value = chat.chat_type
-        with patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots, patch.object(
-            smart_image_generator,
-            "Thread",
-        ) as thread, patch.object(
-            smart_image_generator.prompt_resolvers,
-            "copywriting_image_prompt_upscaler",
-            return_value = "Copywriter system prompt",
-        ):
-            slots.acquire.return_value = False
+        while smart_image_generator.IMAGE_GENERATION_SLOTS.acquire(blocking = False):
+            self.addCleanup(smart_image_generator.IMAGE_GENERATION_SLOTS.release)
 
-            with self.assertRaises(ExternalServiceError) as context:
-                self._generator().execute()
+        with self.assertRaises(ExternalServiceError) as context:
+            self.generator.execute()
 
         self.assertEqual(context.exception.error_code, IMAGE_GENERATION_FAILED)
-        self.copywriter.invoke.assert_called_once()
-        thread.assert_not_called()
-        slots.release.assert_not_called()
+        self.assertEqual(len(self.copywriter.prompts), 1)
+        self.assertEqual(self.workers.threads, [])
 
     def test_execute_does_not_acquire_slot_when_upscaling_fails(self):
-        self.copywriter.invoke.side_effect = RuntimeError("Copywriter unavailable")
-        chat = stubs.domain.chat_config()
-        self.di.require_invoker_chat.return_value = chat
-        self.di.require_invoker_chat_type.return_value = chat.chat_type
+        self.copywriter.responses.clear()
+        self.copywriter.responses.append(ExternalServiceError("Copywriter unavailable", IMAGE_GENERATION_FAILED))
+        with self.assertRaises(ExternalServiceError):
+            self.generator.execute()
 
-        with patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots, patch.object(
-            smart_image_generator,
-            "Thread",
-        ) as thread, patch.object(
-            smart_image_generator.prompt_resolvers,
-            "copywriting_image_prompt_upscaler",
-            return_value = "Copywriter system prompt",
-        ):
-            with self.assertRaises(RuntimeError):
-                self._generator().execute()
+        self.assertEqual(self.workers.threads, [])
+        self.assertEqual(self.provider.image.requests, [])
+        acquired = 0
+        try:
+            while smart_image_generator.IMAGE_GENERATION_SLOTS.acquire(blocking = False):
+                acquired += 1
+            self.assertEqual(acquired, 16)
+        finally:
+            for _ in range(acquired):
+                smart_image_generator.IMAGE_GENERATION_SLOTS.release()
 
-        slots.acquire.assert_not_called()
-        slots.release.assert_not_called()
-        thread.assert_not_called()
-
-    def test_execute_releases_slot_when_worker_cannot_start(self):
-        worker = Mock()
-        worker.start.side_effect = RuntimeError("Thread unavailable")
-        chat = stubs.domain.chat_config()
-        self.di.require_invoker_chat.return_value = chat
-        self.di.require_invoker_chat_type.return_value = chat.chat_type
-
-        with patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots, patch.object(
-            smart_image_generator,
-            "Thread",
-            return_value = worker,
-        ), patch.object(
-            smart_image_generator.prompt_resolvers,
-            "copywriting_image_prompt_upscaler",
-            return_value = "Copywriter system prompt",
-        ):
-            slots.acquire.return_value = True
-
+    def test_execute_releases_slot_when_thread_start_fails(self):
+        # OS thread startup failure cannot be reproduced reliably with normal threads
+        with patch.object(Thread, "start", side_effect = RuntimeError("Thread unavailable")):
             with self.assertRaises(ExternalServiceError) as context:
-                self._generator().execute()
+                self.generator.execute()
 
         self.assertEqual(context.exception.error_code, IMAGE_GENERATION_FAILED)
-        slots.release.assert_called_once_with()
+        acquired = 0
+        try:
+            while smart_image_generator.IMAGE_GENERATION_SLOTS.acquire(blocking = False):
+                acquired += 1
+            self.assertEqual(acquired, 16)
+        finally:
+            for _ in range(acquired):
+                smart_image_generator.IMAGE_GENERATION_SLOTS.release()
 
-    def test_background_worker_releases_generation_scope_then_sets_upload_action_and_delivers(self):
-        invoker_id = UUID(int = 1)
-        chat_id = UUID(int = 2)
-        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
-        first = stubs.domain.chat_attachment(id = "first")
-        parameters = map_to_model_parameters(
-            image_tool.definition,
-            prompt = "Enhanced image prompt",
-            input_urls = ["https://example.com/first.png"],
-        )
-        events = []
-        worker_context = MagicMock()
-        worker_db = Mock()
-        worker_context.__enter__.return_value = worker_db
-        worker_di = Mock(spec = DI)
-        generator = Mock()
-        generator.error = None
-        generator.execute.side_effect = lambda: (
-            events.append("generation completed"),
-            "https://example.com/image.png",
-        )[1]
-        worker_di.simple_image_generator.return_value = generator
-        worker_di.rollback_db_session.side_effect = lambda: events.append("accounting transaction released")
-        platform_sdk = worker_di.platform_bot_sdk.return_value
-        platform_sdk.set_chat_action.side_effect = lambda **_: events.append("upload action")
-        platform_sdk.smart_send_photo.side_effect = lambda **_: events.append("image delivery started")
+    def test_background_worker_sets_upload_action_delivers_and_releases_slot(self):
+        self.generator.execute()
+        self.workers.finish()
 
-        with patch.object(
-            smart_image_generator,
-            "get_detached_session",
-            return_value = worker_context,
-        ) as get_session, patch.object(
-            smart_image_generator,
-            "DI",
-            return_value = worker_di,
-        ) as di_factory, patch.object(
-            smart_image_generator,
-            "IMAGE_GENERATION_SLOTS",
-        ) as slots:
-            smart_image_generator._run_image_worker(
-                configured_image_gen_tool = image_tool,
-                parameters = parameters,
-                input_attachments = [first],
-                input_image_urls = ["https://example.com/first.png"],
-                input_image_sizes = ["2k"],
-                output_image_sizes = ["2k"],
-                invoker_id = invoker_id,
-                invoker_chat_id = chat_id,
-                external_chat_id = "12345",
-                media_mode = ChatConfigDB.MediaMode.photo,
-            )
-
-        get_session.assert_called_once_with()
-        self.assertEqual(events, [
-            "generation completed",
-            "accounting transaction released",
-            "upload action",
-            "image delivery started",
-        ])
-        di_factory.assert_called_once_with(worker_db, invoker_id.hex, chat_id.hex)
-        worker_di.simple_image_generator.assert_called_once_with(
-            configured_tool = image_tool,
-            parameters = parameters,
-            input_attachments = [first],
-            input_image_urls = ["https://example.com/first.png"],
-            input_image_sizes = ["2k"],
-            output_image_sizes = ["2k"],
-        )
-        worker_di.rollback_db_session.assert_called_once_with()
-        platform_sdk.set_chat_action.assert_called_once_with(chat_id = "12345", action = "upload_photo")
-        platform_sdk.smart_send_photo.assert_called_once_with(
-            media_mode = ChatConfigDB.MediaMode.photo,
-            chat_id = "12345",
-            photo_url = "https://example.com/image.png",
-            thumbnail = "https://example.com/image.png",
-        )
-        worker_context.__exit__.assert_called_once()
-        slots.release.assert_called_once_with()
+        self.assertEqual(self.bot.statuses["12345"], "upload_photo")
+        messages = self.bot.get_sent_messages("12345")
+        self.assertEqual(len(messages), 1)
+        self.assertIn("photo_url", messages[0])
+        attachments = self.di.chat_attachment_service.resolve_image_attachments([], [messages[0]["photo_url"]])
+        self.assertEqual(len(attachments), 1)
+        acquired = 0
+        try:
+            while smart_image_generator.IMAGE_GENERATION_SLOTS.acquire(blocking = False):
+                acquired += 1
+            self.assertEqual(acquired, 16)
+        finally:
+            for _ in range(acquired):
+                smart_image_generator.IMAGE_GENERATION_SLOTS.release()
 
     def test_background_worker_notifies_chat_with_formatted_failure(self):
-        invoker_id = UUID(int = 1)
-        chat_id = UUID(int = 2)
-        copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
-        image_tool = stubs.domain.configured_tool(definition = IMAGE_GEN_GROK_IMAGINE_QUALITY, purpose = ToolType.images_gen)
-        chat = stubs.domain.chat_config()
-        parameters = map_to_model_parameters(image_tool.definition, prompt = "Enhanced image prompt")
-        known_error = ExternalServiceError("Replicate unavailable", IMAGE_GENERATION_FAILED)
         cases = [
-            (known_error, None, known_error),
-            (
-                RuntimeError("Replicate unavailable"),
-                None,
-                ExternalServiceError(
-                    "Unexpected image generation or delivery failure: Replicate unavailable",
-                    IMAGE_GENERATION_FAILED,
-                ),
-            ),
-            (
-                None,
-                "Provider returned no image",
-                ExternalServiceError(
-                    "Image generator failure: Provider returned no image",
-                    IMAGE_GENERATION_FAILED,
-                ),
-            ),
+            (ExternalServiceError("Provider unavailable", IMAGE_GENERATION_FAILED), "Provider unavailable"),
+            (RuntimeError("Unexpected provider failure"), "Unexpected provider failure"),
+            (stubs.external.x_ai_image_response(), "filtered by moderation"),
         ]
+        self.provider.image.responses.clear()
+        self.copywriter.responses.clear()
+        for index, (response, expected_detail) in enumerate(cases):
+            with self.subTest(failure = expected_detail):
+                self.provider.image.responses.append(response)
+                self.copywriter.responses.extend([
+                    stubs.external.ai_message(content = "Enhanced image prompt"),
+                    stubs.external.ai_message(content = "Localized image failure notification"),
+                ])
 
-        for raised_error, generator_error, expected_error in cases:
-            with self.subTest(error_type = type(raised_error).__name__, generator_error = generator_error):
-                generation_context = MagicMock()
-                notification_context = MagicMock()
-                generation_context.__enter__.return_value = Mock()
-                notification_context.__enter__.return_value = Mock()
-                generation_di = Mock(spec = DI)
-                notification_di = Mock(spec = DI)
-                generator = generation_di.simple_image_generator.return_value
-                generator.error = generator_error
-                if raised_error is not None:
-                    generator.execute.side_effect = raised_error
-                else:
-                    generator.execute.return_value = None
-                notification_di.require_invoker_chat.return_value = chat
-                notification_di.tool_choice_resolver.require_tool.return_value = copywriter_tool
-                notification_di.sys_announcements_service.return_value.execute.return_value = (
-                    chat,
-                    AIMessage(content = "Localized image failure notification"),
-                )
+                self.generator.execute()
+                self.workers.finish()
 
-                with patch.object(
-                    smart_image_generator,
-                    "get_detached_session",
-                    side_effect = [generation_context, notification_context],
-                ), patch.object(
-                    smart_image_generator,
-                    "DI",
-                    side_effect = [generation_di, notification_di],
-                ), patch.object(
-                    smart_image_generator,
-                    "IMAGE_GENERATION_SLOTS",
-                ) as slots:
-                    smart_image_generator._run_image_worker(
-                        configured_image_gen_tool = image_tool,
-                        parameters = parameters,
-                        input_attachments = [],
-                        input_image_urls = [],
-                        input_image_sizes = None,
-                        output_image_sizes = ["2k"],
-                        invoker_id = invoker_id,
-                        invoker_chat_id = chat_id,
-                        external_chat_id = "12345",
-                        media_mode = ChatConfigDB.MediaMode.photo,
-                    )
-
-                notification_di.tool_choice_resolver.require_tool.assert_called_once_with(
-                    purpose = SysAnnouncementsService.TOOL_TYPE,
-                    default_tool = default_tool_for(SysAnnouncementsService.TOOL_TYPE),
-                )
-                notification_di.sys_announcements_service.assert_called_once_with(
-                    raw_information = f"Your image could not be generated or delivered.\n\n{str(expected_error)}",
-                    target_chat = chat,
-                    configured_tool = copywriter_tool,
-                )
-                notification_di.platform_bot_sdk.return_value.send_text_message.assert_called_once_with(
-                    chat_id = "12345",
-                    text = "Localized image failure notification",
-                )
-                notification_di.platform_bot_sdk.return_value.smart_send_photo.assert_not_called()
-                slots.release.assert_called_once_with()
+                messages = self.bot.get_sent_messages("12345")
+                self.assertEqual(len(messages), index + 1)
+                self.assertEqual(messages[-1]["text"], "Localized image failure notification")
+                self.assertIn(expected_detail, str(self.copywriter.prompts[-1]))

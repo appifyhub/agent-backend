@@ -1,6 +1,12 @@
+from base64 import b64encode
+from dataclasses import asdict
 from io import BytesIO
 from json import dumps
+from pathlib import Path
+from random import Random
 from subprocess import CompletedProcess
+from subprocess import run as run_process
+from tempfile import TemporaryDirectory
 from typing import Any, BinaryIO
 
 from botocore.exceptions import ClientError
@@ -151,8 +157,11 @@ def x_ai_chat_response(content: str = "xAI answer", **overrides: Any) -> XAIChat
     return XAIChatResponse(chat_pb2.GetChatCompletionResponse(**(defaults | overrides)), index = None)
 
 
-def x_ai_image_response(**overrides: Any) -> XAIImageResponse:
-    defaults = {"model": "grok-imagine-image", "images": [{"url": "https://example.com/image.png"}]}
+def x_ai_image_response(content: bytes | None = None, **overrides: Any) -> XAIImageResponse:
+    images = [{"url": "https://example.com/image.png"}] if content is None else [
+        {"base64": "data:image/png;base64," + b64encode(content).decode(), "respect_moderation": True},
+    ]
+    defaults = {"model": "grok-imagine-image", "images": images}
     return XAIImageResponse(image_pb2.ImageResponse(**(defaults | overrides)), index = 0)
 
 
@@ -174,6 +183,11 @@ def openai_embedding_response(**overrides: Any) -> CreateEmbeddingResponse:
     return CreateEmbeddingResponse(**(defaults | overrides))
 
 
+def process_result(**overrides: Any) -> CompletedProcess[str]:
+    defaults = {"args": [], "returncode": 0, "stdout": "", "stderr": ""}
+    return CompletedProcess(**(defaults | overrides))
+
+
 def ffprobe_result() -> CompletedProcess[str]:
     payload = {
         "streams": [
@@ -185,6 +199,17 @@ def ffprobe_result() -> CompletedProcess[str]:
     return CompletedProcess(args = ["ffprobe"], returncode = 0, stdout = dumps(payload), stderr = "")
 
 
+def image_bitmap(
+    size: tuple[int, int] = (16, 16),
+    color: tuple[int, int, int] | tuple[int, int, int, int] = (100, 150, 200),
+    noisy: bool = False,
+) -> Image.Image:
+    mode = "RGBA" if len(color) == 4 else "RGB"
+    if noisy:
+        return Image.frombytes(mode, size, Random(42).randbytes(size[0] * size[1] * len(color)))
+    return Image.new(mode, size, color = color)
+
+
 def image_bytes(
     image_format: str = "PNG",
     size: tuple[int, int] = (16, 16),
@@ -192,9 +217,22 @@ def image_bytes(
     **save_options: Any,
 ) -> bytes:
     buffer = BytesIO()
-    with Image.new("RGBA" if len(color) == 4 else "RGB", size, color = color) as image:
+    with image_bitmap(size = size, color = color) as image:
         image.save(buffer, format = image_format, **save_options)
     return buffer.getvalue()
+
+
+def image_file(
+    path: Path,
+    size: tuple[int, int] = (16, 16),
+    color: tuple[int, int, int] | tuple[int, int, int, int] = (100, 150, 200),
+) -> Path:
+    path.write_bytes(image_bytes(size = size, color = color))
+    return path
+
+
+def svg_bytes() -> bytes:
+    return b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4" fill="white"/></svg>'
 
 
 def mp4_container_bytes(content: bytes = b"video", fast_start: bool = True) -> bytes:
@@ -557,7 +595,7 @@ def http_authorization_credentials(**overrides: Any) -> HTTPAuthorizationCredent
     return HTTPAuthorizationCredentials(**(defaults | overrides))
 
 
-def x_tweet_response(**overrides: Any) -> dict[str, Any]:
+def x_tweet_response(tweet: TweetData | None = None, **overrides: Any) -> dict[str, Any]:
     defaults = {
         "data": {"text": "Test tweet content", "lang": "en", "author_id": "123"},
         "includes": {
@@ -569,6 +607,38 @@ def x_tweet_response(**overrides: Any) -> dict[str, Any]:
             }],
         },
     }
+    if tweet is not None:
+        defaults["data"] = {
+            "text": tweet.text, "lang": tweet.language, "created_at": tweet.created_at, "author_id": "123",
+            "entities": {"urls": [
+                {
+                    "url": link.expanded_url, "expanded_url": link.expanded_url,
+                    "title": link.title, "description": link.description,
+                    "images": [{"url": link.og_image_url}] if link.og_image_url else [],
+                }
+                for link in tweet.link_previews
+            ]},
+            "referenced_tweets": [
+                {"type": kind, "id": identifier}
+                for kind, identifier in (("quoted", tweet.quoted_tweet_id), ("replied_to", tweet.replied_to_tweet_id))
+                if identifier is not None
+            ],
+        }
+        defaults["includes"] = {
+            "users": [{
+                "id": "123", "name": tweet.user.name, "username": tweet.user.handle,
+                "description": tweet.user.bio, "profile_image_url": tweet.user.profile_image_url,
+            }],
+            "media": [
+                {
+                    "url": media.url, "preview_image_url": media.preview_url, "type": media.media_type,
+                    "variants": [asdict(variant) for variant in media.variants],
+                    "duration_ms": media.duration_ms, "width": media.width, "height": media.height,
+                    "alt_text": media.alt_text,
+                }
+                for media in tweet.media
+            ],
+        }
     return defaults | overrides
 
 
@@ -632,3 +702,22 @@ def tweet_data(**overrides: Any) -> TweetData:
     if "link_previews" not in overrides:
         defaults["link_previews"] = [tweet_link_preview()]
     return TweetData(**(defaults | overrides))
+
+
+def video_bytes() -> bytes:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "video.mp4"
+        run_process(
+            [
+                "ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                "-i", "color=c=blue:s=160x90:r=10", "-t", "0.2",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path),
+            ],
+            capture_output = True,
+            check = True,
+        )
+        return path.read_bytes()
+
+
+def iso_media_box(box_type: bytes, payload: bytes = b"") -> bytes:
+    return (8 + len(payload)).to_bytes(4, byteorder = "big") + box_type + payload
