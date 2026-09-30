@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from urllib.parse import urlparse
 
 from dateutil.relativedelta import relativedelta
@@ -65,8 +66,14 @@ def format_sources_from_xai(response: object, di: DI) -> str:
     return __render_sources(raw_sources, di)
 
 
-def __is_iterable(value: object) -> bool:
-    return not isinstance(value, str | bytes) and hasattr(value, "__iter__")
+def __is_iterable(value: Any) -> bool:
+    if isinstance(value, str | bytes):
+        return False
+    try:
+        iter(value)
+    except TypeError:
+        return False
+    return True
 
 
 def __extract_xai_inline_source(citation: object) -> tuple[str, str] | None:

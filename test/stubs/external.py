@@ -7,11 +7,12 @@ from botocore.exceptions import ClientError
 from docx import Document as DocxDocument
 from fakes.fake_uploadcare_client import FakeUploadcareFile
 from fastapi.security import HTTPAuthorizationCredentials
-from google.genai.types import GenerateContentResponse, Model
+from google.genai.types import GenerateContentResponse, GroundingChunk, Model
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatResult
 from openai.types import CreateEmbeddingResponse, Embedding
 from openai.types.audio import Transcription
+from perplexity.types.shared.api_public_search_result import APIPublicSearchResult
 from PIL import Image
 from replicate.client import Client as ReplicateClient
 from replicate.helpers import FileOutput
@@ -97,7 +98,12 @@ def google_generate_content_response(**overrides: Any) -> GenerateContentRespons
     return GenerateContentResponse(**(defaults | overrides))
 
 
-def google_grounding_response(query_count: int = 2, **overrides: Any) -> GenerateContentResponse:
+def google_grounding_response(
+    query_count: int = 2,
+    text: str = "Google answer",
+    grounding_chunks: list[GroundingChunk] | None = None,
+    **overrides: Any,
+) -> GenerateContentResponse:
     defaults = {
         "usage_metadata": {
             "prompt_token_count": 10,
@@ -105,7 +111,13 @@ def google_grounding_response(query_count: int = 2, **overrides: Any) -> Generat
             "thoughts_token_count": 50,
             "total_token_count": 260,
         },
-        "candidates": [{"grounding_metadata": {"web_search_queries": [f"query {i}" for i in range(query_count)]}}],
+        "candidates": [{
+            "content": {"parts": [{"text": text}], "role": "model"},
+            "grounding_metadata": {
+                "web_search_queries": [f"query {i}" for i in range(query_count)],
+                "grounding_chunks": grounding_chunks or [],
+            },
+        }],
     }
     return google_generate_content_response(**(defaults | overrides))
 
@@ -114,10 +126,21 @@ def google_model(**overrides: Any) -> Model:
     return Model(**({"name": "test-model", "display_name": "Test Model"} | overrides))
 
 
-def x_ai_chat_response(**overrides: Any) -> XAIChatResponse:
+def google_grounding_chunk(**overrides: Any) -> GroundingChunk:
+    defaults = {"web": {"title": "example.com", "uri": "https://example.com/page"}}
+    return GroundingChunk(**(defaults | overrides))
+
+
+def perplexity_search_result(**overrides: Any) -> APIPublicSearchResult:
+    defaults = {"title": "Example page", "url": "https://example.com/page"}
+    return APIPublicSearchResult(**(defaults | overrides))
+
+
+def x_ai_chat_response(content: str = "xAI answer", **overrides: Any) -> XAIChatResponse:
     defaults = {
         "id": "response-123",
         "model": "grok-4.3",
+        "outputs": [{"message": {"role": "ROLE_ASSISTANT", "content": content}}],
         "usage": {
             "cost_in_usd_ticks": 25_000_000,
             "prompt_tokens": 10,
@@ -532,6 +555,21 @@ def http_authorization_credentials(**overrides: Any) -> HTTPAuthorizationCredent
         "credentials": "valid-token",
     }
     return HTTPAuthorizationCredentials(**(defaults | overrides))
+
+
+def x_tweet_response(**overrides: Any) -> dict[str, Any]:
+    defaults = {
+        "data": {"text": "Test tweet content", "lang": "en", "author_id": "123"},
+        "includes": {
+            "users": [{
+                "id": "123",
+                "username": "testuser",
+                "name": "Test User",
+                "description": "Test bio",
+            }],
+        },
+    }
+    return defaults | overrides
 
 
 def tweet_media_variant(**overrides: Any) -> TweetMediaVariant:
