@@ -74,7 +74,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.attachment_public_token_ttl_seconds, 600)
         self.assertEqual(config.social_card_video_max_duration_s, 120)
 
-        self.assertEqual(config.db_url.get_secret_value(), "postgresql://root:root@localhost:5432/agent")
+        self.assertEqual(config.db_url.get_secret_value(), "postgresql+psycopg2://root:root@localhost:5432/agent")
         self.assertTrue(config.api_key.get_secret_value())  # Check if API key is generated
         self.assertEqual(config.telegram_auth_key.get_secret_value(), "it_is_really_telegram")
         self.assertEqual(config.telegram_bot_token.get_secret_value(), "invalid")
@@ -237,7 +237,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.attachment_public_token_ttl_seconds, 300)
         self.assertEqual(config.social_card_video_max_duration_s, 90)
 
-        self.assertEqual(config.db_url.get_secret_value(), "postgresql://admin:admin123@db.example.com:5432/test_db")
+        self.assertEqual(config.db_url.get_secret_value(), "postgresql+psycopg2://admin:admin123@db.example.com:5432/test_db")
         self.assertEqual(config.api_key.get_secret_value(), "1111-2222-3333-4444")
         self.assertEqual(config.telegram_auth_key.get_secret_value(), "abcd1234")
         self.assertEqual(config.telegram_bot_token.get_secret_value(), "id:sha")

@@ -316,7 +316,7 @@ class Config(metaclass = Singleton):
         db_host = self.__senv("POSTGRES_HOST", lambda: def_db_host).get_secret_value()
         db_name = self.__senv("POSTGRES_DB", lambda: def_db_name).get_secret_value()
         db_port = 5432  # standard for postgres
-        self.db_url = SecretStr(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
+        self.db_url = SecretStr(f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
 
     @staticmethod
     def __env(name: str, default: Callable[[], str]) -> str:
