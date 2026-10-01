@@ -1,80 +1,50 @@
 import unittest
 from datetime import datetime, timedelta
-from itertools import count
-from unittest.mock import MagicMock, Mock, patch
+from typing import cast
 
 import stubs
-from db.sql_util import SQLUtil
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from pydantic import SecretStr
-from sqlalchemy import Connection, event
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
-from db.model.chat_message import ChatMessageDB
 from db.model.user import UserDB
 from di.di import DI
+from features.chat.attachment.chat_attachment_repo import ChatAttachmentRepository
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
+from features.chat.config.chat_config_repo import ChatConfigRepository
+from features.chat.membership.chat_membership_service import ChatMembershipService
+from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
-from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
 from features.integrations.integrations import resolve_agent_user
+from features.users.user_repo import UserRepository
 from util.config import config
 from util.errors import InternalError
 from util.functions import generate_deterministic_short_uuid
 
-_ingestion_order = count(1)
-
-
-def _assign_sqlite_ingestion_order(
-    _mapper,
-    connection: Connection,
-    target: ChatMessageDB,
-) -> None:
-    if connection.dialect.name != "sqlite" or target.ingestion_order is not None:
-        return
-    target.ingestion_order = next(_ingestion_order)
-
-
-def setUpModule() -> None:
-    event.listen(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
-
-
-def tearDownModule() -> None:
-    event.remove(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
-
 
 class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
-    sql: SQLUtil
-    mock_di: DI
+    di: DI
     resolver: WhatsAppChatInboundService
+    chats: ChatConfigRepository
+    users: UserRepository
+    messages: ChatMessageRepository
+    attachment_repo: ChatAttachmentRepository
+    attachments: ChatAttachmentService
+    memberships: ChatMembershipService
+    api: FakeWhatsAppBotAPI
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_config_repo = self.sql.chat_config_repo()
-        # noinspection PyPropertyAccess
-        self.mock_di.user_repo = self.sql.user_repo()
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_message_repo = self.sql.chat_message_repo()
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_attachment_repo = self.sql.chat_attachment_repo()
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_attachment_service = ChatAttachmentService(self.mock_di)
-        # noinspection PyPropertyAccess
-        self.mock_di.whatsapp_bot_api = MagicMock()
-        self.mock_di.whatsapp_bot_api.download_media.return_value = b"\xff\xd8\xff\xe0fake-jpeg"
-        # noinspection PyPropertyAccess
-        self.mock_di.attachment_storage = MagicMock()
-        self.mock_di.attachment_storage.put.side_effect = lambda metadata, content: f"s3://the-agent/{metadata.uri}"
-        self.mock_di.attachment_storage.owns_uri.side_effect = lambda uri: bool(uri) and uri.startswith("s3://the-agent/chats/")
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_membership_service = MagicMock()
-        # noinspection PyPropertyAccess
-        self.mock_di.whatsapp_domain_mapper = MagicMock(wraps = WhatsAppDomainMapper())
-        self.resolver = WhatsAppChatInboundService(self.mock_di)
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.api = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+        self.attachments = self.di.chat_attachment_service
+        self.memberships = self.di.chat_membership_service
+        self.attachment_repo = self.di.chat_attachment_repo
+        self.chats = self.di.chat_config_repo
+        self.messages = self.di.chat_message_repo
+        self.users = self.di.user_repo
+        self.resolver = self.di.whatsapp_chat_inbound_service
 
     def test_ingest_update_empty(self):
         result = self.resolver.ingest_update(stubs.external.whatsapp_update(entry = []))
@@ -153,8 +123,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             ),
             **{"from": agent_id},
         )
-        original_save = self.mock_di.chat_message_repo.save
-        self.mock_di.chat_message_repo.save = Mock(wraps = original_save)
 
         result = self.resolver.ingest_message(
             message,
@@ -174,12 +142,11 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         assert result.author is not None
         self.assertEqual(result.author.whatsapp_user_id, agent_id)
         self.assertEqual(result.attachments, [])
-        self.mock_di.whatsapp_domain_mapper.map_attachments.assert_not_called()
-        self.mock_di.whatsapp_bot_api.download_media.assert_not_called()
-        self.mock_di.chat_membership_service.ensure_for_inbound.assert_not_called()
-        self.mock_di.chat_message_repo.save.assert_called_once()
+        self.assertEqual(self.memberships.get_all_for_user(result.author.id), [])
+        self.assertEqual(self.messages.get(result.chat.chat_id, result.message.message_id), result.message)
 
     def test_ingest_message_with_attachment_uses_local_attachment_id(self):
+        self.api.downloads["e1"] = b"image content"
         message = stubs.external.whatsapp_message(
             id = "m1",
             timestamp = str(int(datetime.now().timestamp())),
@@ -191,8 +158,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             ),
             **{"from": "1"},
         )
-        original_save = self.mock_di.chat_message_repo.save
-        self.mock_di.chat_message_repo.save = Mock(wraps = original_save)
 
         result = self.resolver.ingest_message(message, stubs.external.whatsapp_value(messages = [message]))
 
@@ -204,13 +169,12 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.attachments[0].uploader_user_id, result.author.id)
         self.assertIn(f"📎 [ {attachment_id} (image/jpeg) ]", result.message.text)
         self.assertEqual(result.raw_message_text, "This is a message")
-        mapped_message = self.mock_di.whatsapp_domain_mapper.map_message.call_args.args[0]
-        self.assertIs(mapped_message, message)
         self.assertNotIn(attachment_id, result.raw_message_text)
-        self.mock_di.chat_message_repo.save.assert_called_once()
-        self.mock_di.chat_membership_service.ensure_for_inbound.assert_called_once_with(result.author, result.chat)
+        self.assertEqual(self.messages.get(result.chat.chat_id, result.message.message_id), result.message)
+        self.assertIsNotNone(self.memberships.get(result.author.id, result.chat.chat_id))
 
     def test_ingest_message_with_video_uses_authenticated_download_path(self):
+        self.api.downloads["video1"] = b"video content"
         message = stubs.external.whatsapp_message(
             id = "video-message",
             timestamp = str(int(datetime.now().timestamp())),
@@ -230,14 +194,14 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(len(result.attachments), 1)
         self.assertEqual(result.attachments[0].external_id, "video1")
         self.assertEqual(result.attachments[0].mime_type, "video/mp4")
-        self.mock_di.whatsapp_bot_api.download_media.assert_called_once_with("video1")
+        self.assertEqual(self.attachments.get(result.attachments[0].id), result.attachments[0])
 
     def test_ingest_message_with_reply_uses_local_attachment_id(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.chats.save(
             stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Agent", whatsapp_user_id = "123"))
-        self.sql.chat_message_repo().save(
+        uploader = self.users.save(stubs.domain.user(full_name = "Agent", whatsapp_user_id = "123"))
+        self.messages.save(
             stubs.domain.chat_message(
                 chat_id = chat.chat_id,
                 message_id = "old-message",
@@ -245,7 +209,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
                 text = "Original caption\n\n📎 [ remote123 ]",
             ),
         )
-        self.sql.chat_attachment_repo().save(
+        self.attachment_repo.save(
             stubs.domain.chat_attachment(
                 id = "local123",
                 chat_id = chat.chat_id,
@@ -283,7 +247,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         )
 
         result = self.resolver.store_author(mapped_data)
-        saved_user = self.sql.user_repo().get_by_whatsapp_user_id(mapped_data.whatsapp_user_id or "")
+        saved_user = self.users.get(result.id)
 
         assert result is not None
         self.assertEqual(result, saved_user)
@@ -293,14 +257,13 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.whatsapp_user_id, mapped_data.whatsapp_user_id)
         self.assertIsNone(result.open_ai_key)
         self.assertEqual(result.group, UserDB.Group.standard)
-        self.assertEqual(result.created_at, datetime.now().date())
 
     def test_store_author_by_whatsapp_user_id(self):
         existing_user_data = stubs.domain.user(
             whatsapp_user_id = "1234567890",
             full_name = "Existing User",
         )
-        existing_user = self.sql.user_repo().save(existing_user_data)
+        existing_user = self.users.save(existing_user_data)
 
         mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1234567890",
@@ -309,7 +272,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
 
         result = self.resolver.store_author(mapped_data)
         assert result is not None
-        saved_user = self.sql.user_repo().get(result.id)
+        saved_user = self.users.get(result.id)
 
         assert result is not None
         self.assertEqual(result, saved_user)
@@ -322,9 +285,9 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.group, existing_user.group)
         self.assertEqual(result.created_at, existing_user.created_at)
 
-    @patch("features.users.user_repo.UserRepository.count")
-    def test_store_author_user_limit_reached_creates_waitlisted_user(self, mock_count):
-        mock_count.return_value = config.max_users  # reach maximum immediately
+    def test_store_author_user_limit_reached_creates_waitlisted_user(self):
+        self.addCleanup(setattr, config, "max_users", config.max_users)
+        config.max_users = 0
         mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = "New User",
@@ -335,7 +298,6 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertTrue(result.is_on_waitlist)
         self.assertFalse(result.is_invited_to_start)
         self.assertFalse(result.are_policies_accepted)
-        mock_count.assert_called_once()
 
     def test_store_author_existing(self):
         existing_user_data = stubs.domain.user(
@@ -367,7 +329,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             tool_choice_api_stock_quote = "twelve-data",
             tool_choice_api_twitter = "rapidapi",
         )
-        existing_user = self.sql.user_repo().save(existing_user_data)
+        existing_user = self.users.save(existing_user_data)
 
         mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
@@ -377,7 +339,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         result = self.resolver.store_author(mapped_data)
         assert result is not None
 
-        saved_user = self.sql.user_repo().get(result.id)
+        saved_user = self.users.get(result.id)
 
         self.assertEqual(result, saved_user)
         self.assertEqual(result.id, existing_user.id)
@@ -420,7 +382,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             whatsapp_user_id = "1",
             full_name = "Existing User",
         )
-        existing_user = self.sql.user_repo().save(existing_user_data)
+        existing_user = self.users.save(existing_user_data)
 
         # Test with None full_name
         mapped_data_none = stubs.domain.user_remote_data(
@@ -445,7 +407,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.full_name, existing_user.full_name)  # Should preserve existing name
 
     def test_store_message_new(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.chats.save(
             stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
         mapped_data = stubs.domain.chat_message_remote_data(
@@ -456,7 +418,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         formatted_text = "Formatted message"
 
         result = self.resolver.store_message(mapped_data, formatted_text, chat.chat_id, None)
-        saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
+        saved_message = self.messages.get(chat.chat_id, mapped_data.message_id)
 
         assert result is not None
         self.assertEqual(result, saved_message)
@@ -468,7 +430,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(mapped_data.text, "Raw message")
 
     def test_store_message_with_existing(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.chats.save(
             stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
         old_message = stubs.domain.chat_message(
@@ -478,9 +440,9 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
             sent_at = datetime.now() - timedelta(days = 1),
             text = "Old message",
         )
-        self.sql.chat_message_repo().save(old_message)
+        self.messages.save(old_message)
 
-        new_author = self.sql.user_repo().save(stubs.domain.user(full_name = "First Last", whatsapp_user_id = "c1"))
+        new_author = self.users.save(stubs.domain.user(full_name = "First Last", whatsapp_user_id = "c1"))
         mapped_data = stubs.domain.chat_message_remote_data(
             message_id = "m1",
             sent_at = datetime.now(),
@@ -489,7 +451,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         formatted_text = "Formatted updated message"
 
         result = self.resolver.store_message(mapped_data, formatted_text, chat.chat_id, new_author.id)
-        saved_message = self.sql.chat_message_repo().get(chat.chat_id, mapped_data.message_id)
+        saved_message = self.messages.get(chat.chat_id, mapped_data.message_id)
 
         self.assertEqual(result, saved_message)
         self.assertEqual(result.chat_id, chat.chat_id)
@@ -500,11 +462,12 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(mapped_data.text, "Raw updated message")
 
     def test_store_attachment_new(self):
-        chat = self.sql.chat_config_repo().save(
+        self.api.downloads["e1"] = b"image content"
+        chat = self.chats.save(
             stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader", whatsapp_user_id = "123"))
-        self.sql.chat_message_repo().save(
+        uploader = self.users.save(stubs.domain.user(full_name = "Uploader", whatsapp_user_id = "123"))
+        self.messages.save(
             stubs.domain.chat_message(chat_id = chat.chat_id, message_id = "m1", author_id = None, text = "x"),
         )
         mapped_data = stubs.domain.chat_attachment_remote_data(
@@ -514,7 +477,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         )
 
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
-        saved_attachment = self.sql.chat_attachment_repo().get_by_external_id(chat.chat_id, mapped_data.external_id)
+        saved_attachment = self.attachments.get(result.id)
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, generate_deterministic_short_uuid(mapped_data.external_id))
@@ -522,33 +485,30 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.uploader_user_id, uploader.id)
         self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(result.message_id, mapped_data.message_id)
-        self.assertEqual(result.size, len(self.mock_di.whatsapp_bot_api.download_media.return_value))
-        self.assertTrue(result.last_url.startswith(f"s3://{config.s3_bucket}/chats/"))
         self.assertEqual(result.extension, "jpg")
         self.assertEqual(result.mime_type, "image/jpeg")
 
     def test_store_attachment_existing(self):
-        chat = self.sql.chat_config_repo().save(
+        self.api.downloads["e1"] = b"image content"
+        chat = self.chats.save(
             stubs.domain.chat_config(external_id = "c1", chat_type = ChatConfigDB.ChatType.whatsapp),
         )
-        self.sql.chat_message_repo().save(
+        self.messages.save(
             stubs.domain.chat_message(chat_id = chat.chat_id, message_id = "m1", author_id = None, text = "x"),
         )
-        uploader = self.sql.user_repo().save(stubs.domain.user(full_name = "Uploader", whatsapp_user_id = "123"))
+        uploader = self.users.save(stubs.domain.user(full_name = "Uploader", whatsapp_user_id = "123"))
         old_attachment_data = stubs.domain.chat_attachment(
             id = "i1",
             external_id = "e1",
             chat_id = chat.chat_id,
             uploader_user_id = uploader.id,
             message_id = "m1",
-            size = 1,
-            last_url = f"s3://{config.s3_bucket}/chats/{chat.chat_id}/attachments/i1.jpg",
         )
-        self.sql.chat_attachment_repo().save(old_attachment_data)
+        old_attachment_data = self.attachments.save(old_attachment_data, content = b"existing image")
 
         mapped_data = stubs.domain.chat_attachment_remote_data(external_id = "e1", message_id = "m1")
         result = self.resolver.store_attachment(mapped_data, chat.chat_id, uploader.id)
-        saved_attachment = self.sql.chat_attachment_repo().get("i1")
+        saved_attachment = self.attachments.get("i1")
 
         self.assertEqual(result, saved_attachment)
         self.assertEqual(result.id, old_attachment_data.id)

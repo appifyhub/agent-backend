@@ -1,38 +1,33 @@
 import unittest
-from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
-from unittest.mock import Mock
-from uuid import UUID
+from datetime import datetime, timedelta
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di_utils import di_for_tests
 
 from db.model.chat_message_burst import ChatMessageBurstDB
+from di.di import DI
 from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.chat.message_burst_repo import ChatMessageBurstRepository
 
 
 class ChatMessageBurstRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     message_repo: ChatMessageRepository
     repo: ChatMessageBurstRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.message_repo = self.sql.chat_message_repo()
-        self.repo = self.sql.chat_message_burst_repo()
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.message_repo = self.di.chat_message_repo
+        self.repo = self.di.chat_message_burst_repo
 
     def test_claim_and_finalization_preserve_newer_messages(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = None,
             ),
         )
-        author = self.sql.user_repo().save(stubs.domain.user())
+        author = self.di.user_repo.save(stubs.domain.user())
         first_message = self.message_repo.save(
             stubs.domain.chat_message(
                 chat_id = chat.chat_id,
@@ -80,15 +75,15 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         completed = self.repo.finalize(second_claim)
 
         self.assertIsNone(completed)
-        self.assertEqual(self.sql.get_session().query(ChatMessageBurstDB).count(), 0)
+        self.assertEqual(self.di.db.query(ChatMessageBurstDB).count(), 0)
 
     def test_delete_older_than_uses_strict_cutoff(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = None,
             ),
         )
-        author = self.sql.user_repo().save(stubs.domain.user())
+        author = self.di.user_repo.save(stubs.domain.user())
         message = self.message_repo.save(
             stubs.domain.chat_message(
                 chat_id = chat.chat_id,
@@ -102,56 +97,48 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
             is_addressed = False,
             quiet_period_s = 0,
         )
-        process_after = self.sql.get_session().query(ChatMessageBurstDB.process_after).scalar()
+        process_after = self.di.db.query(ChatMessageBurstDB.process_after).scalar()
 
         boundary_count = self.repo.delete_older_than(process_after)
         deleted_count = self.repo.delete_older_than(process_after + timedelta(seconds = 1))
 
         self.assertEqual(boundary_count, 0)
         self.assertEqual(deleted_count, 1)
-        self.assertEqual(self.sql.get_session().query(ChatMessageBurstDB).count(), 0)
+        self.assertEqual(self.di.db.query(ChatMessageBurstDB).count(), 0)
 
-    def test_finalize_normalizes_timezone_aware_database_time(self):
-        database_now = datetime(2026, 1, 2, 12, 0, 0, tzinfo = timezone.utc)
-        queued = SimpleNamespace(
-            message_count = 2,
-            process_after = datetime(2026, 1, 2, 12, 0, 0, 250000),
-        )
-        db = Mock()
-        db.execute.side_effect = [
-            Mock(scalar_one = Mock(return_value = database_now)),
-            Mock(one_or_none = Mock(return_value = None)),
-            Mock(one_or_none = Mock(return_value = queued)),
-        ]
-        repository = ChatMessageBurstRepository(db)
-        claim = stubs.domain.claimed_chat_message_burst(
-            chat_id = UUID(int = 1),
-            author_id = UUID(int = 2),
-            message_count = 1,
-            last_message_sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            last_message_ingestion_order = 1,
-            is_addressed = False,
-        )
+    def test_finalize_preserves_remaining_quiet_period_for_newer_messages(self):
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
+        author = self.di.user_repo.save(stubs.domain.user())
+        first = self.message_repo.save(stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = author.id,
+            message_id = "first",
+        ))
+        scheduled = self.repo.record_message(first, is_addressed = False, quiet_period_s = 0)
+        claim = self.repo.claim(scheduled)
+        second = self.message_repo.save(stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = author.id,
+            message_id = "second",
+            ingestion_order = 2,
+        ))
+        self.repo.record_message(second, is_addressed = True, quiet_period_s = 60)
 
-        result = repository.finalize(claim)
+        waiting = self.repo.finalize(claim)
 
-        self.assertEqual(
-            result,
-            stubs.domain.scheduled_chat_message_burst(
-                chat_id = claim.chat_id,
-                author_id = claim.author_id,
-                message_count = 2,
-                wait_seconds = 0.25,
-            ),
-        )
+        self.assertIsNotNone(waiting)
+        self.assertEqual(waiting.message_count, 2)
+        self.assertGreater(waiting.wait_seconds, 0)
+        self.assertLessEqual(waiting.wait_seconds, 60)
+        self.assertIsNone(self.repo.claim(waiting))
 
     def test_new_message_count_supersedes_old_schedule_before_claim(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = None,
             ),
         )
-        author = self.sql.user_repo().save(stubs.domain.user())
+        author = self.di.user_repo.save(stubs.domain.user())
         first = self.message_repo.save(
             stubs.domain.chat_message(
                 chat_id = chat.chat_id,

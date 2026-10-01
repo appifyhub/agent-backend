@@ -1,669 +1,400 @@
-import io
-import os
-import tempfile
-import unittest
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from typing import cast
+from unittest import TestCase
+from uuid import UUID
 
-import stubs
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from PIL import Image
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-from features.integrations.integration_config import (
-    TELEGRAM_MAX_PHOTO_SIZE_BYTES,
-    TELEGRAM_MAX_VIDEO_SIZE_BYTES,
-    WHATSAPP_MAX_VIDEO_SIZE_BYTES,
-)
+from features.chat.config.chat_config import ChatConfig
+from features.integrations.integration_config import TELEGRAM_MAX_PHOTO_SIZE_BYTES, WHATSAPP_MAX_VIDEO_SIZE_BYTES
 from features.integrations.platform_bot_sdk import ChatAccess, PlatformBotSDK
 from util.config import config
+from util.error_codes import EXTERNAL_EMPTY_RESPONSE, FILE_UPLOAD_FAILED, MEDIA_DOWNLOAD_FAILED, UNSUPPORTED_CHAT_TYPE
 from util.errors import ConfigurationError, ExternalServiceError
 
 
-def _make_di() -> DI:
-    di = Mock(spec = DI)
-    di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.telegram
-    di.chat_config_repo = Mock()
-    di.chat_config_repo.get_by_external_identifiers.return_value = stubs.domain.chat_config(
-        external_id = "tg-chat-1",
-    )
-    di.invoker = stubs.domain.user()
-    di.telegram_bot_sdk = Mock()
-    di.telegram_bot_sdk.send_photo = Mock(return_value = "sent")
-    di.telegram_bot_sdk.send_document = Mock(return_value = "document-sent")
-    di.telegram_bot_sdk.send_video = Mock(return_value = "video-sent")
-    di.whatsapp_bot_sdk = Mock()
-    di.whatsapp_bot_sdk.send_photo = Mock(return_value = "sent")
-    di.whatsapp_bot_sdk.send_document = Mock(return_value = "document-sent")
-    di.whatsapp_bot_sdk.send_video = Mock(return_value = "video-sent")
-    di.chat_attachment_service = Mock()
-    stored_attachment = stubs.domain.chat_attachment(id = "stored-attachment")
-    di.chat_attachment_service.save.return_value = stored_attachment
-    di.chat_attachment_service.create_public_url.return_value = stubs.domain.public_attachment(
-        url = _public_attachment_url("stored-attachment"),
-    )
-    return di
+class PlatformBotSDKTest(TestCase):
 
+    di: DI
+    sdk: PlatformBotSDK
+    chat: ChatConfig
+    whatsapp_chat: ChatConfig
+    telegram: FakeTelegramBotAPI
+    whatsapp: FakeWhatsAppBotAPI
+    http: FakeHTTPClient
 
-def _public_attachment_url(token: str) -> str:
-    return f"{config.public_api_base_url}/attachments/public/{token}"
-
-
-def _mock_response(body: bytes = b"data") -> Mock:
-    resp = Mock()
-    resp.status_code = 200
-    resp.iter_content.return_value = [body]
-    resp.raise_for_status = Mock()
-    resp.__enter__ = Mock(return_value = resp)
-    resp.__exit__ = Mock(return_value = False)
-    return resp
-
-
-def _make_temp_file(content: bytes = b"data") -> str:
-    tmp = tempfile.NamedTemporaryFile(delete = False, suffix = ".png")
-    tmp.write(content)
-    tmp.flush()
-    tmp.close()
-    return tmp.name
-
-
-def _capture_saved_file(di: DI) -> dict[str, object]:
-    captured: dict[str, object] = {}
-
-    def save(*, attachment, file_path, remote_url = None):
-        captured["attachment"] = attachment
-        captured["file_path"] = file_path
-        captured["content"] = Path(file_path).read_bytes()
-        captured["remote_url"] = remote_url
-        return di.chat_attachment_service.save.return_value
-
-    di.chat_attachment_service.save.side_effect = save
-    return captured
-
-
-def _image_bytes(image: Image.Image, image_format: str = "PNG", **kwargs) -> bytes:
-    buffer = io.BytesIO()
-    image.save(buffer, format = image_format, **kwargs)
-    return buffer.getvalue()
-
-
-def _jpeg_bytes() -> bytes:
-    image = Image.new("RGB", (10, 10), color = (100, 150, 200))
-    return _image_bytes(image, "JPEG", quality = 90)
-
-
-class PlatformBotSDKTest(unittest.TestCase):
-
-    def __video_context(
-        self,
-        original: bytes = b"original",
-        prepared: bytes | None = None,
-        container: str = "mp4",
-    ):
-        original_path = _make_temp_file(original)
-        self.addCleanup(os.unlink, original_path)
-        prepared_path = original_path
-        if prepared is not None:
-            prepared_path = _make_temp_file(prepared)
-            self.addCleanup(os.unlink, prepared_path)
-        context = MagicMock()
-        context.__enter__.return_value = (
-            original_path,
-            prepared_path,
-            stubs.domain.video_metadata(
-                container = container,
-                size_bytes = len(prepared or original),
-            ),
-        )
-        return context, original_path, prepared_path, context.__enter__.return_value[2]
+    def setUp(self):
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(domain.user()))
+        self.chat = self.di.chat_config_repo.save(domain.chat_config(external_id = "123456789"))
+        self.whatsapp_chat = self.di.chat_config_repo.save(domain.chat_config(
+            chat_id = UUID("33333333-3333-4333-8333-c33333333333"),
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = "15551234567",
+        ))
+        self.di.inject_invoker_chat(self.chat)
+        self.sdk = self.di.platform_bot_sdk()
+        self.telegram = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.whatsapp = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+        self.http = cast(FakeHTTPClient, self.di.http_client())
 
     def test_send_photo_resizes_and_uploads(self):
-        di = _make_di()
-        captured = _capture_saved_file(di)
-        prepared_path = _make_temp_file(b"prepared")
-        resized_path = _make_temp_file(b"resized")
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"x" * (6 * 1024 * 1024))
-            mock_prepare.return_value = prepared_path
-            mock_resize.return_value = resized_path
-            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
-        mock_prepare.assert_called_once()
-        mock_resize.assert_called_once()
-        self.assertEqual(mock_resize.call_args.args[0], prepared_path)
-        self.assertEqual(mock_resize.call_args.args[1], TELEGRAM_MAX_PHOTO_SIZE_BYTES)
-        self.assertEqual(captured["content"], b"resized")
-        self.assertFalse(Path(resized_path).exists())
-        di.telegram_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            di.chat_attachment_service.save.return_value,
-            None,
-        )
-        self.assertEqual(result, "sent")
+        body = external.image_bytes(size = (1500, 1500), compress_level = 0)
+        self.assertGreater(len(body), TELEGRAM_MAX_PHOTO_SIZE_BYTES)
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/png"},
+        ))
 
-    def test_whatsapp_send_photo_prepares_before_resize(self):
-        di = _make_di()
-        di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
-        prepared_path = _make_temp_file(b"prepared")
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"source")
-            mock_prepare.return_value = prepared_path
-            mock_resize.return_value = prepared_path
-            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
+        result = self.sdk.send_photo(self.chat.external_id, "https://example.com/image.png")
 
-        mock_prepare.assert_called_once()
-        self.assertEqual(mock_resize.call_args.args[0], prepared_path)
-        di.whatsapp_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            di.chat_attachment_service.save.return_value,
-            None,
-        )
-        self.assertEqual(result, "sent")
+        attachment, = self.di.chat_attachment_repo.get_all_by_message(self.chat.chat_id, result.message_id)
+        self.assertLessEqual(attachment.size, TELEGRAM_MAX_PHOTO_SIZE_BYTES)
+        self.assertEqual(result.chat_id, self.chat.chat_id)
+        self.assertIn("photo_url", self.telegram.get_sent_message(result.message_id))
+
+    def test_whatsapp_send_photo_adds_background_to_transparent_png(self):
+        self.di.inject_invoker_chat(self.whatsapp_chat)
+        body = external.image_bytes(color = (100, 150, 200, 128))
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/png"},
+        ))
+
+        result = self.sdk.send_photo(self.whatsapp_chat.external_id, "https://example.com/image.png")
+
+        attachment, = self.di.chat_attachment_repo.get_all_by_message(self.whatsapp_chat.chat_id, result.message_id)
+        with self.di.attachment_storage.open(attachment) as stream, Image.open(stream) as image:
+            self.assertEqual(image.mode, "RGB")
+        self.assertEqual(result.chat_id, self.whatsapp_chat.chat_id)
+        self.assertIn("image_url", self.whatsapp.get_sent_message(result.message_id))
+        self.assertEqual(self.telegram.get_sent_messages(self.chat.external_id), [])
 
     def test_send_photo_stores_original_when_no_resize_needed(self):
-        di = _make_di()
-        captured = _capture_saved_file(di)
-        body = _jpeg_bytes()
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = body)
-            mock_resize.side_effect = lambda path, max_size_bytes: path
-            result = sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.jpg")
-        self.assertEqual(captured["content"], body)
-        self.assertEqual(
-            captured["remote_url"],
-            "http://example.com/img.jpg",
-        )
-        di.telegram_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            di.chat_attachment_service.save.return_value,
-            None,
-        )
-        self.assertEqual(result, "sent")
+        body = external.image_bytes(image_format = "JPEG")
+        self.http.responses["https://example.com/image.jpg"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/jpeg"},
+        ))
+
+        result = self.sdk.send_photo(self.chat.external_id, "https://example.com/image.jpg")
+
+        attachment, = self.di.chat_attachment_repo.get_all_by_message(self.chat.chat_id, result.message_id)
+        with self.di.attachment_storage.open(attachment) as stream:
+            self.assertEqual(stream.read(), body)
+        self.assertIn("photo_url", self.telegram.get_sent_message(result.message_id))
 
     def test_send_photo_download_failure_raises(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get:
-            response = _mock_response()
-            response.raise_for_status.side_effect = Exception("boom")
-            mock_get.return_value = response
-            with self.assertRaises(ExternalServiceError):
-                sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
-        di.chat_attachment_service.save.assert_not_called()
-        di.telegram_bot_sdk.send_photo.assert_not_called()
+        self.http.responses["https://example.com/image.png"].append(external.http_response(status_code = 503))
+
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.sdk.send_photo(self.chat.external_id, "https://example.com/image.png")
+
+        self.assertEqual(raised.exception.error_code, MEDIA_DOWNLOAD_FAILED)
+        self.assertEqual(self.telegram.get_sent_messages(self.chat.external_id), [])
+        self.assertEqual(self.di.chat_attachment_repo.get_all(), [])
 
     def test_send_photo_empty_download_raises(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get:
-            mock_get.return_value = _mock_response(body = b"")
-            with self.assertRaises(ExternalServiceError):
-                sdk.send_photo(chat_id = 1, photo_url = "http://example.com/img.png")
-        di.chat_attachment_service.save.assert_not_called()
-        di.telegram_bot_sdk.send_photo.assert_not_called()
+        self.http.responses["https://example.com/image.png"].append(external.http_response(content = b""))
 
-    def test_send_document_does_not_resize(self):
-        di = _make_di()
-        captured = _capture_saved_file(di)
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            response = _mock_response(body = b"document")
-            response.headers = {"Content-Type": "application/pdf"}
-            mock_get.return_value = response
-            mock_resize.side_effect = lambda path, max_size_bytes: path
-            result = sdk.send_document(chat_id = 1, document_url = "http://example.com/doc.pdf")
-        self.assertIsNone(mock_resize.call_args.args[1])
-        mock_prepare.assert_not_called()
-        self.assertEqual(captured["content"], b"document")
-        stored_attachment = captured["attachment"]
-        self.assertIsNone(stored_attachment.last_url)
-        self.assertEqual(stored_attachment.mime_type, "application/pdf")
-        self.assertEqual(
-            captured["remote_url"],
-            "http://example.com/doc.pdf",
-        )
-        di.telegram_bot_sdk.send_document.assert_called_once_with(
-            chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-            attachment = di.chat_attachment_service.save.return_value,
-            thumbnail = None,
-            caption = None,
-        )
-        self.assertEqual(result, "document-sent")
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.sdk.send_photo(self.chat.external_id, "https://example.com/image.png")
+
+        self.assertEqual(raised.exception.error_code, MEDIA_DOWNLOAD_FAILED)
+        self.assertEqual(self.telegram.get_sent_messages(self.chat.external_id), [])
+        self.assertEqual(self.di.chat_attachment_repo.get_all(), [])
+
+    def test_send_document_preserves_original_content(self):
+        body = external.image_bytes(color = (100, 150, 200, 128))
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = body, headers = {"Content-Type": "image/png"},
+        ))
+
+        result = self.sdk.send_document(self.chat.external_id, "https://example.com/image.png")
+
+        attachment, = self.di.chat_attachment_repo.get_all_by_message(self.chat.chat_id, result.message_id)
+        with self.di.attachment_storage.open(attachment) as stream:
+            self.assertEqual(stream.read(), body)
+        self.assertEqual(attachment.mime_type, "image/png")
+        self.assertIn("document_url", self.telegram.get_sent_message(result.message_id))
 
     def test_send_document_with_thumbnail_builds_public_url(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"document")
-            mock_resize.side_effect = lambda path, max_size_bytes: path
-            result = sdk.send_document(
-                chat_id = 1,
-                document_url = "http://example.com/doc.pdf",
-                caption = "caption",
-                thumbnail = "http://example.com/thumb.png",
-            )
-        self.assertEqual(mock_resize.call_count, 2)
-        mock_prepare.assert_not_called()
-        di.chat_attachment_service.create_public_url.assert_called_once()
-        di.telegram_bot_sdk.send_document.assert_called_once_with(
-            chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-            attachment = di.chat_attachment_service.save.return_value,
-            thumbnail = _public_attachment_url("stored-attachment"),
-            caption = "caption",
+        self.http.responses["https://example.com/doc.pdf"].append(external.http_response(
+            content = b"%PDF-1.7 document", headers = {"Content-Type": "application/pdf"},
+        ))
+        self.http.responses["https://example.com/thumb.png"].append(external.http_response(
+            content = external.image_bytes(), headers = {"Content-Type": "image/png"},
+        ))
+
+        result = self.sdk.send_document(
+            self.chat.external_id, "https://example.com/doc.pdf", caption = "caption",
+            thumbnail = "https://example.com/thumb.png",
         )
-        self.assertEqual(result, "document-sent")
+
+        sent = self.telegram.get_sent_message(result.message_id)
+        self.assertTrue(sent["thumbnail"].startswith(f"{config.public_api_base_url}/attachments/public/"))
+        self.assertEqual(sent["caption"], "caption")
+        attachment, = self.di.chat_attachment_repo.get_all_by_message(self.chat.chat_id, result.message_id)
+        self.assertEqual(attachment.mime_type, "application/pdf")
 
     def test_smart_send_photo_file_mode_sends_document_only(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"document")
-            mock_resize.side_effect = lambda path, max_size_bytes: path
-            result = sdk.smart_send_photo(
-                media_mode = ChatConfigDB.MediaMode.file,
-                chat_id = 1,
-                photo_url = "http://example.com/img.png",
-            )
-        di.telegram_bot_sdk.send_photo.assert_not_called()
-        di.telegram_bot_sdk.send_document.assert_called_once()
-        mock_prepare.assert_not_called()
-        self.assertEqual(result, "document-sent")
+        self.http.responses["https://example.com/image.png"].append(external.http_response(
+            content = external.image_bytes(), headers = {"Content-Type": "image/png"},
+        ))
+
+        result = self.sdk.smart_send_photo(ChatConfigDB.MediaMode.file, self.chat.external_id, "https://example.com/image.png")
+
+        sent, = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertIn("document_url", sent)
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
     def test_smart_send_photo_all_mode_sends_photo_and_document(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.add_outgoing_png_background") as mock_prepare, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"data")
-            mock_prepare.side_effect = lambda path: path
-            mock_resize.side_effect = lambda path, max_size_bytes: path
-            result = sdk.smart_send_photo(
-                media_mode = ChatConfigDB.MediaMode.all,
-                chat_id = 1,
-                photo_url = "http://example.com/img.png",
-                caption = "caption",
-                thumbnail = "http://example.com/thumb.png",
-            )
-        di.telegram_bot_sdk.send_photo.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            di.chat_attachment_service.save.return_value,
-            "caption",
+        body = external.image_bytes(color = (100, 150, 200, 128))
+        self.http.responses["https://example.com/image.png"].extend([
+            external.http_response(content = body, headers = {"Content-Type": "image/png"}) for _ in range(2)
+        ])
+        self.http.responses["https://example.com/thumb.png"].append(external.http_response(
+            content = external.image_bytes(), headers = {"Content-Type": "image/png"},
+        ))
+
+        result = self.sdk.smart_send_photo(
+            ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/image.png",
+            caption = "caption", thumbnail = "https://example.com/thumb.png",
         )
-        di.telegram_bot_sdk.send_document.assert_called_once_with(
-            chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-            attachment = di.chat_attachment_service.save.return_value,
-            thumbnail = _public_attachment_url("stored-attachment"),
-            caption = "caption",
-        )
-        mock_prepare.assert_called_once()
-        self.assertEqual(result, "document-sent")
+
+        photo, document = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertIn("photo_url", photo)
+        self.assertIn("document_url", document)
+        self.assertEqual(photo["caption"], "caption")
+        self.assertEqual(document["caption"], "caption")
+        self.assertTrue(document["thumbnail"].startswith(f"{config.public_api_base_url}/attachments/public/"))
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), document)
+        attachment, = self.di.chat_attachment_repo.get_all_by_message(self.chat.chat_id, result.message_id)
+        with self.di.attachment_storage.open(attachment) as stream:
+            self.assertEqual(stream.read(), body)
+
+    def test_smart_send_photo_all_mode_continues_after_photo_delivery_failure(self):
+        self.telegram.photo_error = ExternalServiceError("Photo upload failed", FILE_UPLOAD_FAILED)
+        self.http.responses["https://example.com/image.png"].extend([
+            external.http_response(content = external.image_bytes(), headers = {"Content-Type": "image/png"}) for _ in range(2)
+        ])
+
+        result = self.sdk.smart_send_photo(ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/image.png")
+
+        sent, = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertIn("document_url", sent)
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
     def test_smart_send_photo_photo_mode_falls_back_to_document(self):
-        di = _make_di()
-        di.telegram_bot_sdk.send_photo.side_effect = Exception("send failed")
-        sdk = PlatformBotSDK(di = di)
-        with patch("features.integrations.platform_bot_sdk.requests.get") as mock_get, \
-                patch("features.integrations.platform_bot_sdk.resize_file") as mock_resize:
-            mock_get.return_value = _mock_response(body = b"data")
-            mock_resize.side_effect = lambda path, max_size_bytes: path
-            result = sdk.smart_send_photo(
-                media_mode = ChatConfigDB.MediaMode.photo,
-                chat_id = 1,
-                photo_url = "http://example.com/img.png",
-            )
-        di.telegram_bot_sdk.send_photo.assert_called_once()
-        di.telegram_bot_sdk.send_document.assert_called_once()
-        self.assertEqual(result, "document-sent")
+        self.telegram.photo_error = ExternalServiceError("Photo upload failed", FILE_UPLOAD_FAILED)
+        self.http.responses["https://example.com/image.png"].extend([
+            external.http_response(content = external.image_bytes(), headers = {"Content-Type": "image/png"}) for _ in range(2)
+        ])
+
+        result = self.sdk.smart_send_photo(ChatConfigDB.MediaMode.photo, self.chat.external_id, "https://example.com/image.png")
+
+        sent, = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertIn("document_url", sent)
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
     def test_prepare_outgoing_video_stores_prepared_media(self):
-        di = _make_di()
-        captured = _capture_saved_file(di)
-        sdk = PlatformBotSDK(di = di)
-        video_context, _, _, _ = self.__video_context(prepared = b"prepared")
+        original = external.video_bytes(fast_start = False)
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = original))
 
-        with patch(
-            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
-            return_value = video_context,
-        ) as mock_video_files:
-            result = sdk.prepare_outgoing_video_attachment(
-                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-                public_url = "https://example.com/video.mp4",
-            )
+        attachment = self.sdk.prepare_outgoing_video_attachment(self.chat, "https://example.com/video.mp4")
 
-        mock_video_files.assert_called_once_with(
-            "https://example.com/video.mp4",
-            max_size_bytes = TELEGRAM_MAX_VIDEO_SIZE_BYTES,
-        )
-        di.chat_attachment_service.save.assert_called_once()
-        self.assertEqual(captured["content"], b"prepared")
-        attachment = captured["attachment"]
-        self.assertIsNone(attachment.last_url)
         self.assertEqual(attachment.extension, "mp4")
-        self.assertIsNone(attachment.mime_type)
-        self.assertEqual(
-            captured["remote_url"],
-            "https://example.com/video.mp4",
-        )
-        self.assertIs(result, di.chat_attachment_service.save.return_value)
-
-    def test_prepare_outgoing_video_uses_url_when_container_is_unknown(self):
-        di = _make_di()
-        captured = _capture_saved_file(di)
-        sdk = PlatformBotSDK(di = di)
-        video_context, _, _, _ = self.__video_context(prepared = b"prepared", container = "unknown")
-
-        with patch(
-            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
-            return_value = video_context,
-        ):
-            sdk.prepare_outgoing_video_attachment(
-                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-                public_url = "https://example.com/video.webm",
-            )
-
-        attachment = captured["attachment"]
-        self.assertIsNone(attachment.extension)
-        self.assertEqual(
-            captured["remote_url"],
-            "https://example.com/video.webm",
-        )
+        self.assertGreater(attachment.size, 0)
+        with self.di.attachment_storage.open(attachment) as stream:
+            self.assertNotEqual(stream.read(), original)
 
     def test_prepare_outgoing_video_stores_compliant_media(self):
-        di = _make_di()
-        captured = _capture_saved_file(di)
-        sdk = PlatformBotSDK(di = di)
-        video_context, _, _, _ = self.__video_context()
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = body))
 
-        with patch(
-            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
-            return_value = video_context,
-        ):
-            sdk.prepare_outgoing_video_attachment(
-                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-                public_url = "https://example.com/video.mp4",
-            )
+        attachment = self.sdk.prepare_outgoing_video_attachment(self.chat, "https://example.com/video.mp4")
 
-        di.chat_attachment_service.save.assert_called_once()
-        self.assertEqual(captured["content"], b"original")
+        self.assertEqual(attachment.extension, "mp4")
+        with self.di.attachment_storage.open(attachment) as stream:
+            self.assertEqual(stream.read(), body)
 
-    def test_prepare_outgoing_video_uses_whatsapp_limit(self):
-        di = _make_di()
-        di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
-        sdk = PlatformBotSDK(di = di)
-        video_context, _, _, _ = self.__video_context(prepared = b"prepared")
+    def test_prepare_outgoing_video_respects_whatsapp_limit(self):
+        self.di.inject_invoker_chat(self.whatsapp_chat)
+        body = external.video_bytes() + external.iso_media_box(b"free", bytes(WHATSAPP_MAX_VIDEO_SIZE_BYTES))
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = body))
 
-        with patch(
-            "features.integrations.platform_bot_sdk.prepare_remote_video_files",
-            return_value = video_context,
-        ) as mock_video_files:
-            sdk.prepare_outgoing_video_attachment(
-                chat_config = di.chat_config_repo.get_by_external_identifiers.return_value,
-                public_url = "https://example.com/video.mp4",
-            )
+        attachment = self.sdk.prepare_outgoing_video_attachment(self.whatsapp_chat, "https://example.com/video.mp4")
 
-        mock_video_files.assert_called_once_with(
-            "https://example.com/video.mp4",
-            max_size_bytes = WHATSAPP_MAX_VIDEO_SIZE_BYTES,
-        )
+        self.assertGreater(attachment.size, 0)
+        self.assertLessEqual(attachment.size, WHATSAPP_MAX_VIDEO_SIZE_BYTES)
+        with self.di.attachment_storage.open(attachment) as stream:
+            self.assertNotEqual(stream.read(), body)
 
-    def test_send_video_prepares_for_telegram_and_routes_native_attachment(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        prepared_attachment = stubs.domain.chat_attachment(id = "prepared")
+    def test_send_video_routes_telegram_native_attachment(self):
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = body))
 
-        with patch.object(sdk, "prepare_outgoing_video_attachment", return_value = prepared_attachment) as mock_prepare:
-            result = sdk.send_video(
-                chat_id = 1,
-                video_url = "https://example.com/video.mp4",
-                caption = "caption",
-            )
+        result = self.sdk.send_video(self.chat.external_id, "https://example.com/video.mp4", caption = "caption")
 
-        mock_prepare.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            "https://example.com/video.mp4",
-        )
-        di.telegram_bot_sdk.send_video.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            prepared_attachment,
-            "caption",
-        )
-        self.assertEqual(result, "video-sent")
+        sent = self.telegram.get_sent_message(result.message_id)
+        self.assertEqual(sent["content"], body)
+        self.assertEqual(sent["caption"], "caption")
+        self.assertEqual(result.chat_id, self.chat.chat_id)
+        self.assertEqual(self.whatsapp.get_sent_messages(self.whatsapp_chat.external_id), [])
 
-    def test_send_video_prepares_for_whatsapp_and_routes_native_attachment(self):
-        di = _make_di()
-        di.require_invoker_chat_type.return_value = ChatConfigDB.ChatType.whatsapp
-        sdk = PlatformBotSDK(di = di)
-        prepared_attachment = stubs.domain.chat_attachment(id = "prepared")
+    def test_send_video_routes_whatsapp_native_attachment(self):
+        self.di.inject_invoker_chat(self.whatsapp_chat)
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(content = external.video_bytes()))
 
-        with patch.object(
-            sdk,
-            "prepare_outgoing_video_attachment",
-            return_value = prepared_attachment,
-        ):
-            result = sdk.send_video(
-                chat_id = 1,
-                video_url = "https://example.com/video.mp4",
-                caption = "caption",
-            )
+        result = self.sdk.send_video(self.whatsapp_chat.external_id, "https://example.com/video.mp4", caption = "caption")
 
-        di.whatsapp_bot_sdk.send_video.assert_called_once_with(
-            di.chat_config_repo.get_by_external_identifiers.return_value,
-            prepared_attachment,
-            "caption",
-        )
-        self.assertEqual(result, "video-sent")
+        sent = self.whatsapp.get_sent_message(result.message_id)
+        self.assertTrue(sent["video_url"].startswith(f"{config.public_api_base_url}/attachments/public/"))
+        self.assertEqual(sent["caption"], "caption")
+        self.assertEqual(result.chat_id, self.whatsapp_chat.chat_id)
+        self.assertEqual(self.telegram.get_sent_messages(self.chat.external_id), [])
 
     def test_send_video_rejects_unsupported_chat_type(self):
-        di = _make_di()
-        di.require_invoker_chat_type.return_value = "unsupported"
-        sdk = PlatformBotSDK(di = di)
+        chat = self.di.chat_config_repo.save(domain.chat_config(chat_type = ChatConfigDB.ChatType.github))
+        self.di.inject_invoker_chat(chat)
 
-        with patch.object(sdk, "prepare_outgoing_video_attachment", return_value = Mock()), \
-                self.assertRaises(ConfigurationError):
-            sdk.send_video(
-                chat_id = 1,
-                video_url = "https://example.com/video.mp4",
-            )
+        with self.assertRaises(ConfigurationError) as raised:
+            self.sdk.send_video(chat.external_id, "https://example.com/video.mp4")
+
+        self.assertEqual(raised.exception.error_code, UNSUPPORTED_CHAT_TYPE)
 
     def test_smart_send_video_file_mode_sends_document_only(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].append(external.http_response(
+            content = body, headers = {"Content-Type": "video/mp4"},
+        ))
 
-        with patch.object(sdk, "send_video", return_value = "video-sent") as mock_send_video, \
-                patch.object(sdk, "send_document", return_value = "document-sent") as mock_send_document:
-            result = sdk.smart_send_video(
-                media_mode = ChatConfigDB.MediaMode.file,
-                chat_id = 1,
-                video_url = "https://example.com/video.mp4",
-                caption = "caption",
-            )
-
-        mock_send_video.assert_not_called()
-        mock_send_document.assert_called_once_with(
-            1,
-            "https://example.com/video.mp4",
-            "caption",
+        result = self.sdk.smart_send_video(
+            ChatConfigDB.MediaMode.file, self.chat.external_id, "https://example.com/video.mp4", caption = "caption",
         )
-        self.assertEqual(result, "document-sent")
+
+        sent, = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertNotIn("metadata", sent)
+        self.assertEqual(sent["content"], body)
+        self.assertEqual(sent["caption"], "caption")
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
     def test_smart_send_video_all_mode_sends_video_and_document(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].extend([
+            external.http_response(content = body, headers = {"Content-Type": "video/mp4"}) for _ in range(2)
+        ])
 
-        with patch.object(sdk, "send_video", return_value = "video-sent") as mock_send_video, \
-                patch.object(sdk, "send_document", return_value = "document-sent") as mock_send_document:
-            result = sdk.smart_send_video(
-                media_mode = ChatConfigDB.MediaMode.all,
-                chat_id = 1,
-                video_url = "https://example.com/video.mp4",
-                caption = "caption",
-            )
+        result = self.sdk.smart_send_video(
+            ChatConfigDB.MediaMode.all, self.chat.external_id, "https://example.com/video.mp4", caption = "caption",
+        )
 
-        mock_send_video.assert_called_once_with(
-            1,
-            "https://example.com/video.mp4",
-            "caption",
-        )
-        mock_send_document.assert_called_once_with(
-            1,
-            "https://example.com/video.mp4",
-            "caption",
-        )
-        self.assertEqual(result, "document-sent")
+        video, document = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertIn("metadata", video)
+        self.assertNotIn("metadata", document)
+        self.assertEqual(video["content"], body)
+        self.assertEqual(document["content"], body)
+        self.assertEqual(video["caption"], "caption")
+        self.assertEqual(document["caption"], "caption")
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), document)
 
     def test_smart_send_video_photo_mode_falls_back_to_document(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
+        self.telegram.video_error = ExternalServiceError("Video upload failed", FILE_UPLOAD_FAILED)
+        body = external.video_bytes()
+        self.http.responses["https://example.com/video.mp4"].extend([
+            external.http_response(content = body, headers = {"Content-Type": "video/mp4"}) for _ in range(2)
+        ])
 
-        with patch.object(sdk, "send_video", side_effect = RuntimeError("send failed")) as mock_send_video, \
-                patch.object(sdk, "send_document", return_value = "document-sent") as mock_send_document:
-            result = sdk.smart_send_video(
-                media_mode = ChatConfigDB.MediaMode.photo,
-                chat_id = 1,
-                video_url = "https://example.com/video.mp4",
-            )
+        result = self.sdk.smart_send_video(ChatConfigDB.MediaMode.photo, self.chat.external_id, "https://example.com/video.mp4")
 
-        mock_send_video.assert_called_once_with(
-            1,
-            "https://example.com/video.mp4",
-            None,
-        )
-        mock_send_document.assert_called_once_with(
-            1,
-            "https://example.com/video.mp4",
-            None,
-        )
-        self.assertEqual(result, "document-sent")
+        sent, = self.telegram.get_sent_messages(self.chat.external_id)
+        self.assertNotIn("metadata", sent)
+        self.assertEqual(sent["content"], body)
+        self.assertEqual(self.telegram.get_sent_message(result.message_id), sent)
 
 
-class ResolveChatAccessTest(unittest.TestCase):
+class ResolveChatAccessTest(TestCase):
 
-    def _make_member(self, status: str) -> SimpleNamespace:
-        return SimpleNamespace(status = status)
+    di: DI
+    sdk: PlatformBotSDK
+    api: FakeTelegramBotAPI
+
+    def setUp(self):
+        self.di = self.enterContext(di_for_tests())
+        self.sdk = self.di.platform_bot_sdk()
+        self.api = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
 
     def test_own_private_chat_returns_owner(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(external_id = "chat1")
-        user = stubs.domain.user(telegram_chat_id = "chat1")
+        chat = domain.chat_config(external_id = "chat1")
+        user = domain.user(telegram_chat_id = "chat1")
 
-        self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.owner)
-        di.telegram_bot_sdk.get_chat_member.assert_not_called()
+        self.assertEqual(self.sdk.resolve_chat_access(chat, user), ChatAccess.owner)
 
     def test_private_chat_not_owned_returns_none(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(external_id = "other_chat")
-        user = stubs.domain.user(telegram_chat_id = "chat1")
+        chat = domain.chat_config(external_id = "other_chat")
+        user = domain.user(telegram_chat_id = "chat1")
 
-        self.assertIsNone(sdk.resolve_chat_access(chat, user))
-        di.telegram_bot_sdk.get_chat_member.assert_not_called()
+        self.assertIsNone(self.sdk.resolve_chat_access(chat, user))
 
     def test_telegram_group_creator_returns_admin(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("creator")
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = external.telegram_chat_owner()
 
-        self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.admin)
+        self.assertEqual(self.sdk.resolve_chat_access(chat, user), ChatAccess.admin)
 
     def test_telegram_group_administrator_returns_admin(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("administrator")
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = external.telegram_chat_administrator()
 
-        self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.admin)
+        self.assertEqual(self.sdk.resolve_chat_access(chat, user), ChatAccess.admin)
 
     def test_telegram_group_member_returns_member(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("member")
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = external.telegram_chat_member()
 
-        self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.member)
+        self.assertEqual(self.sdk.resolve_chat_access(chat, user), ChatAccess.member)
 
     def test_telegram_group_restricted_returns_member(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("restricted")
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = external.telegram_chat_member_restricted()
 
-        self.assertEqual(sdk.resolve_chat_access(chat, user), ChatAccess.member)
+        self.assertEqual(self.sdk.resolve_chat_access(chat, user), ChatAccess.member)
 
     def test_telegram_group_left_returns_none(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("left")
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = external.telegram_chat_member_left()
 
-        self.assertIsNone(sdk.resolve_chat_access(chat, user))
+        self.assertIsNone(self.sdk.resolve_chat_access(chat, user))
 
     def test_telegram_group_kicked_returns_none(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = self._make_member("kicked")
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = external.telegram_chat_member_banned()
 
-        self.assertIsNone(sdk.resolve_chat_access(chat, user))
+        self.assertIsNone(self.sdk.resolve_chat_access(chat, user))
 
-    def test_telegram_group_api_returns_none_returns_none(self):
-        di = _make_di()
-        di.telegram_bot_sdk.get_chat_member.return_value = None
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user()
+    def test_telegram_group_api_failure_returns_none(self):
+        chat = domain.chat_config(is_private = False)
+        user = domain.user()
+        self.api.members[(chat.external_id, str(user.telegram_user_id))] = ExternalServiceError("API failed", EXTERNAL_EMPTY_RESPONSE)  # ruff: ignore[line-too-long]
 
-        self.assertIsNone(sdk.resolve_chat_access(chat, user))
+        self.assertIsNone(self.sdk.resolve_chat_access(chat, user))
 
     def test_telegram_group_no_telegram_user_id_returns_none(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(is_private = False)
-        user = stubs.domain.user(telegram_user_id = None)
+        chat = domain.chat_config(is_private = False)
+        user = domain.user(telegram_user_id = None)
 
-        self.assertIsNone(sdk.resolve_chat_access(chat, user))
-        di.telegram_bot_sdk.get_chat_member.assert_not_called()
+        self.assertIsNone(self.sdk.resolve_chat_access(chat, user))
 
     def test_whatsapp_group_returns_none(self):
-        di = _make_di()
-        sdk = PlatformBotSDK(di = di)
-        chat = stubs.domain.chat_config(
-            is_private = False,
-            chat_type = ChatConfigDB.ChatType.whatsapp,
-        )
-        user = stubs.domain.user()
+        chat = domain.chat_config(is_private = False, chat_type = ChatConfigDB.ChatType.whatsapp)
 
-        self.assertIsNone(sdk.resolve_chat_access(chat, user))
-
-
-class TempFileBehaviorTest(unittest.TestCase):
-
-    def test_named_temporary_file_deleted_manually(self):
-        with tempfile.NamedTemporaryFile(delete = False) as tmp:
-            path = tmp.name
-            tmp.write(b"data")
-        self.assertTrue(os.path.exists(path))
-        os.unlink(path)
-        self.assertFalse(os.path.exists(path))
+        self.assertIsNone(self.sdk.resolve_chat_access(chat, domain.user()))

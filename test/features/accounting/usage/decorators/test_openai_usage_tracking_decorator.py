@@ -1,160 +1,123 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock
+from dataclasses import replace
+from io import BytesIO
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
+from fakes.fake_openai_client import FakeOpenAIClient
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
+from di.di import DI
 from features.accounting.usage.decorators.openai_usage_tracking_decorator import OpenAIUsageTrackingDecorator
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
+from features.external_tools.external_tool_library import WHISPER_1
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
+from util.errors import ExternalServiceError, ValidationError
 
 
-class OpenAIUsageTrackingDecoratorTest(unittest.TestCase):
+class OpenAIUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    client: FakeOpenAIClient
+    decorator: OpenAIUsageTrackingDecorator
 
     def setUp(self):
-        self.mock_client = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_text_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = WHISPER_1.id),
+            purpose = ToolType.hearing,
+            uses_credits = True,
         )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.hearing)
+        self.client = cast(FakeOpenAIClient, self.di.base_open_ai_client(self.tool))
+        self.decorator = self.di.open_ai_client(self.tool)
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
 
-        self.decorator = OpenAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
+    def test_audio_transcriptions_tracks_usage_and_deducts_credits(self):
+        response = stubs.external.openai_transcription(usage = {
+            "type": "tokens", "input_tokens": 100, "output_tokens": 50, "total_tokens": 150,
+        })
+        self.client.audio.transcriptions.responses.append(response)
+
+        result = self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
+
+        self.assertEqual(result, response)
+        self.assertEqual(self.client.audio.transcriptions.recordings, [b"audio"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.tool.id, self.tool.definition.id)
+        self.assertEqual(record.tool_purpose, ToolType.hearing)
+        self.assertEqual((record.input_tokens, record.output_tokens, record.total_tokens), (100, 50, 150))
+        self.assertTrue(record.uses_credits)
+        self.assertFalse(record.is_failed)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
         )
-
-    def test_audio_transcriptions_tracks_usage(self):
-        mock_response = Mock()
-        mock_response.text = "Transcribed text"
-        mock_usage = Mock()
-        mock_usage.model_dump.return_value = {
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "total_tokens": 150,
-        }
-        mock_response.usage = mock_usage
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.hearing)
-        decorator = OpenAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
-
-        self.mock_client.audio.transcriptions.create = Mock(return_value = mock_response)
-
-        result = decorator.audio.transcriptions.create(model = "whisper-1", file = Mock())
-
-        self.assertEqual(result, mock_response)
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.hearing)
-        self.assertEqual(call_args.kwargs["input_tokens"], 100)
-        self.assertEqual(call_args.kwargs["output_tokens"], 50)
-        self.assertEqual(call_args.kwargs["total_tokens"], 150)
-        self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
-        self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
 
     def test_audio_transcriptions_measures_runtime(self):
-        mock_response = Mock()
-        mock_response.text = "Transcribed text"
-        mock_response.usage = Mock()
+        self.client.audio.transcriptions.responses.append(stubs.external.openai_transcription())
+        # the system clock makes elapsed time deterministic
+        with patch("features.accounting.usage.decorators.openai_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
 
-        def slow_create(*args, **kwargs):
-            sleep(0.01)
-            return mock_response
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
-        self.mock_client.audio.transcriptions.create = slow_create
+    def test_embeddings_tracks_usage_and_deducts_credits(self):
+        response = stubs.external.openai_embedding_response(usage = {"prompt_tokens": 50, "total_tokens": 50})
+        self.client.embeddings.responses.append(response)
 
-        self.decorator.audio.transcriptions.create(model = "whisper-1", file = Mock())
+        result = self.decorator.embeddings.create(model = "text-embedding-3-small", input = "test")
 
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
-
-    def test_embeddings_tracks_usage(self):
-        mock_embedding_data = Mock()
-        mock_embedding_data.embedding = [0.1, 0.2, 0.3]
-
-        mock_response = Mock()
-        mock_response.data = [mock_embedding_data]
-        mock_usage = Mock()
-        mock_usage.model_dump.return_value = {
-            "prompt_tokens": 50,
-            "total_tokens": 50,
-        }
-        mock_response.usage = mock_usage
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.hearing)
-        decorator = OpenAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
+        self.assertEqual(result, response)
+        self.assertEqual(self.client.embeddings.inputs, ["test"])
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual((record.input_tokens, record.total_tokens), (50, 50))
+        self.assertFalse(record.is_failed)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
         )
-
-        self.mock_client.embeddings.create = Mock(return_value = mock_response)
-
-        result = decorator.embeddings.create(model = "text-embedding-3-small", input = "test")
-
-        self.assertEqual(result, mock_response)
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["input_tokens"], 50)
-        self.assertEqual(call_args.kwargs["total_tokens"], 50)
 
     def test_embeddings_measures_runtime(self):
-        mock_response = Mock()
-        mock_response.data = [Mock()]
-        mock_response.usage = Mock()
+        self.client.embeddings.responses.append(stubs.external.openai_embedding_response())
+        # the system clock makes elapsed time deterministic
+        with patch("features.accounting.usage.decorators.openai_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            self.decorator.embeddings.create(model = "text-embedding-3-small", input = "test")
 
-        def slow_create(*args, **kwargs):
-            sleep(0.01)
-            return mock_response
-
-        self.mock_client.embeddings.create = slow_create
-
-        self.decorator.embeddings.create(model = "text-embedding-3-small", input = "test")
-
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
     def test_delegates_other_attributes(self):
-        self.mock_client.some_other_attribute = "test_value"
+        self.assertEqual(self.decorator.api_key, self.client.api_key)
 
-        result = self.decorator.some_other_attribute
+    def test_audio_transcriptions_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
 
-        self.assertEqual(result, "test_value")
+        with self.assertRaises(ValidationError) as raised:
+            self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
 
-    def test_audio_transcriptions_calls_validate_pre_flight(self):
-        mock_response = Mock()
-        mock_response.usage = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.hearing)
-        decorator = OpenAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-        )
-        self.mock_client.audio.transcriptions.create = Mock(return_value = mock_response)
-
-        decorator.audio.transcriptions.create(model = "whisper-1", file = Mock())
-
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.audio.transcriptions.recordings, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
 
     def test_audio_transcriptions_failure_tracks_without_deduction(self):
-        self.mock_client.audio.transcriptions.create = Mock(side_effect = RuntimeError("API error"))
+        error = ExternalServiceError("API error", UNEXPECTED_ERROR)
+        self.client.audio.transcriptions.responses.append(error)
 
-        with self.assertRaises(RuntimeError):
-            self.decorator.audio.transcriptions.create(model = "whisper-1", file = Mock())
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
 
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+        self.assertIs(raised.exception, error)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)

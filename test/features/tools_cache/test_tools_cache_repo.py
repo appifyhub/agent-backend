@@ -3,22 +3,20 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di_utils import di_for_tests
 
+from di.di import DI
 from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 
 
 class ToolsCacheRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: ToolsCacheRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.tools_cache_repo()
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.tools_cache_repo
 
     def test_save_creates_tools_cache(self):
         created_at = datetime(2026, 1, 1, 12, 0, 0)

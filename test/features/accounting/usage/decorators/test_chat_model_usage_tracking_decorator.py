@@ -1,302 +1,122 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
-from langchain_core.messages import AIMessage
+from fakes.fake_chat_model import FakeChatModel
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
-from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import (
-    ChatModelUsageTrackingDecorator,
-    RunnableUsageTrackingDecorator,
-)
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
-from features.external_tools.external_tool import ToolType
+from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
+from features.external_tools.configured_tool import ConfiguredTool
+from features.external_tools.external_tool_library import GPT_5_5
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
+from util.errors import ExternalServiceError, ValidationError
 
 
-class ChatModelUsageTrackingDecoratorTest(unittest.TestCase):
+class ChatModelUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    model: FakeChatModel
+    decorator: ChatModelUsageTrackingDecorator
 
     def setUp(self):
-        self.mock_model = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_text_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = GPT_5_5.id),
+            uses_credits = True,
         )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool()
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool, max_tokens = 4096))
+        self.decorator = self.di.chat_langchain_model(self.tool)
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
 
-        self.decorator = ChatModelUsageTrackingDecorator(
-            wrapped_model = self.mock_model,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            max_tokens = 4096,
+    def test_model_and_bound_runnable_track_usage_and_deduct_credits(self):
+        for subject in (self.decorator, self.decorator.bind_tools([])):
+            with self.subTest(subject = type(subject).__name__):
+                response = stubs.external.ai_message(response_metadata = {
+                    "usage": {"input_tokens": 100, "output_tokens": 200, "total_tokens": 300},
+                })
+                self.model.responses.append(response)
+                messages = [stubs.external.human_message()]
+
+                result = subject.invoke(messages)
+
+                self.assertEqual(result, response)
+                self.assertEqual(self.model.prompts[-1], messages)
+                record = self.di.usage_record_repo.get_by_user(self.user.id)[0]
+                self.assertEqual(record.tool.id, self.tool.definition.id)
+                self.assertEqual(record.tool_purpose, self.tool.purpose)
+                self.assertEqual((record.input_tokens, record.output_tokens, record.total_tokens), (100, 200, 300))
+                self.assertTrue(record.uses_credits)
+                self.assertFalse(record.is_failed)
+        records = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(len(records), 2)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - sum(record.total_cost_credits for record in records),
         )
 
-    def test_invoke_tracks_usage(self):
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {
-            "usage": {
-                "input_tokens": 100,
-                "output_tokens": 200,
-                "total_tokens": 300,
-            },
-        }
-        mock_response.usage_metadata = None
-        configured_tool = stubs.domain.configured_tool()
-        decorator = ChatModelUsageTrackingDecorator(
-            wrapped_model = self.mock_model,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            max_tokens = 4096,
-        )
-
-        self.mock_model.invoke = Mock(return_value = mock_response)
-
-        result = decorator.invoke("test input")
-
-        self.assertEqual(result, mock_response)
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.chat)
-        self.assertEqual(call_args.kwargs["input_tokens"], 100)
-        self.assertEqual(call_args.kwargs["output_tokens"], 200)
-        self.assertEqual(call_args.kwargs["total_tokens"], 300)
-        self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
-        self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
-
-    def test_invoke_measures_runtime(self):
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
-
-        def slow_invoke(*args, **kwargs):
-            sleep(0.01)
-            return mock_response
-
-        self.mock_model.invoke = slow_invoke
-
-        self.decorator.invoke("test input")
-
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
+    def test_model_and_bound_runnable_measure_runtime(self):
+        for subject in (self.decorator, self.decorator.bind_tools([])):
+            with self.subTest(subject = type(subject).__name__):
+                self.model.responses.append(stubs.external.ai_message())
+                # control only the system clock; model invocation and accounting remain real
+                with patch(
+                    "features.accounting.usage.decorators.chat_model_usage_tracking_decorator.time",
+                    side_effect = [10, 10.25],
+                ):
+                    subject.invoke([stubs.external.human_message()])
+                record = self.di.usage_record_repo.get_by_user(self.user.id)[0]
+                self.assertEqual(record.runtime_seconds, 0.25)
 
     def test_invoke_passes_arguments_correctly(self):
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
+        self.model.responses.append(stubs.external.ai_message())
+        messages = [stubs.external.human_message()]
 
-        self.mock_model.invoke = Mock(return_value = mock_response)
+        self.decorator.invoke(messages, {"tags": ["test"]}, stream = False)
 
-        self.decorator.invoke("test input", {"temperature": 0.7}, stream = False)
+        self.assertEqual(self.model.prompts, [messages])
+        self.assertEqual(self.model.invocations, [({"tags": ["test"]}, {"stream": False})])
 
-        self.mock_model.invoke.assert_called_once_with("test input", {"temperature": 0.7}, stream = False)
+    def test_generate_delegates_to_wrapped_model_without_tracking(self):
+        response = stubs.external.ai_message()
+        self.model.responses.append(response)
 
-    def test_bind_tools_returns_wrapped_runnable(self):
-        mock_runnable = Mock()
-        self.mock_model.bind_tools = Mock(return_value = mock_runnable)
+        result = self.decorator._generate([stubs.external.human_message()])
 
-        result = self.decorator.bind_tools(["tool1", "tool2"])
-
-        self.assertIsInstance(result, RunnableUsageTrackingDecorator)
-        self.mock_model.bind_tools.assert_called_once_with(["tool1", "tool2"])
-
-    def test_generate_delegates_to_wrapped_model(self):
-        self.mock_model._generate = Mock(return_value = "generated")
-
-        result = self.decorator._generate("input")
-
-        self.assertEqual(result, "generated")
-        self.mock_model._generate.assert_called_once_with("input")
+        self.assertEqual(result.generations[0].message, response)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
 
     def test_llm_type_delegates_to_wrapped_model(self):
-        self.mock_model._llm_type = "test_llm_type"
+        self.assertEqual(self.decorator._llm_type, self.model._llm_type)
 
-        result = self.decorator._llm_type
+    def test_model_and_bound_runnable_reject_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
+        for subject in (self.decorator, self.decorator.bind_tools([])):
+            with self.subTest(subject = type(subject).__name__), self.assertRaises(ValidationError) as raised:
+                subject.invoke([stubs.external.human_message()])
+            self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.model.prompts, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
 
-        self.assertEqual(result, "test_llm_type")
-
-    def test_invoke_calls_validate_pre_flight(self):
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
-        configured_tool = stubs.domain.configured_tool()
-        decorator = ChatModelUsageTrackingDecorator(
-            wrapped_model = self.mock_model,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            max_tokens = 4096,
-        )
-        self.mock_model.invoke = Mock(return_value = mock_response)
-
-        decorator.invoke("test input")
-
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool, 4096, "test input")
-
-    def test_invoke_releases_db_session_after_preflight_and_before_model_call(self):
-        events = []
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
-        self.mock_spending_service.validate_pre_flight.side_effect = (
-            lambda *args, **kwargs: events.append("preflight")
-        )
-        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
-        self.mock_model.invoke = Mock(
-            side_effect = lambda *args, **kwargs: events.append("model") or mock_response,
-        )
-        self.mock_tracking_service.track_text_model.side_effect = (
-            lambda **kwargs: (
-                events.append("accounting") or stubs.domain.usage_record(total_cost_credits = 10.0)
-            )
-        )
-
-        self.decorator.invoke("test input")
-
-        self.assertEqual(events, ["preflight", "rollback", "model", "accounting"])
-
-    def test_bind_tools_runnable_calls_validate_pre_flight(self):
-        mock_runnable = Mock()
-        self.mock_model.bind_tools = Mock(return_value = mock_runnable)
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
-        mock_runnable.invoke = Mock(return_value = mock_response)
-        configured_tool = stubs.domain.configured_tool()
-        decorator = ChatModelUsageTrackingDecorator(
-            wrapped_model = self.mock_model,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            max_tokens = 4096,
-        )
-
-        runnable = decorator.bind_tools(["tool1"])
-        runnable.invoke("test input")
-
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool, 4096, "test input")
-
-    def test_invoke_failure_tracks_without_deduction(self):
-        self.mock_model.invoke = Mock(side_effect = RuntimeError("API error"))
-
-        with self.assertRaises(RuntimeError):
-            self.decorator.invoke("test input")
-
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
-
-
-class RunnableUsageTrackingDecoratorTest(unittest.TestCase):
-
-    def setUp(self):
-        self.mock_runnable = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_text_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 10.0),
-        )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool()
-
-        self.decorator = RunnableUsageTrackingDecorator(
-            wrapped_runnable = self.mock_runnable,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            max_tokens = 4096,
-        )
-
-    def test_invoke_tracks_usage(self):
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {
-            "usage": {
-                "input_tokens": 50,
-                "output_tokens": 100,
-                "total_tokens": 150,
-            },
-        }
-        mock_response.usage_metadata = None
-        configured_tool = stubs.domain.configured_tool()
-        decorator = RunnableUsageTrackingDecorator(
-            wrapped_runnable = self.mock_runnable,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            max_tokens = 4096,
-        )
-
-        self.mock_runnable.invoke = Mock(return_value = mock_response)
-
-        result = decorator.invoke("test input")
-
-        self.assertEqual(result, mock_response)
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.chat)
-        self.assertEqual(call_args.kwargs["input_tokens"], 50)
-        self.assertEqual(call_args.kwargs["output_tokens"], 100)
-        self.assertEqual(call_args.kwargs["total_tokens"], 150)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
-
-    def test_invoke_measures_runtime(self):
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
-
-        def slow_invoke(*args, **kwargs):
-            sleep(0.01)
-            return mock_response
-
-        self.mock_runnable.invoke = slow_invoke
-
-        self.decorator.invoke("test input")
-
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
-
-    def test_invoke_releases_db_session_after_preflight_and_before_runnable_call(self):
-        events = []
-        mock_response = Mock(spec = AIMessage)
-        mock_response.response_metadata = {}
-        mock_response.usage_metadata = None
-        self.mock_spending_service.validate_pre_flight.side_effect = (
-            lambda *args, **kwargs: events.append("preflight")
-        )
-        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
-        self.mock_runnable.invoke = Mock(
-            side_effect = lambda *args, **kwargs: events.append("model") or mock_response,
-        )
-        self.mock_tracking_service.track_text_model.side_effect = (
-            lambda **kwargs: (
-                events.append("accounting") or stubs.domain.usage_record(total_cost_credits = 10.0)
-            )
-        )
-
-        self.decorator.invoke("test input")
-
-        self.assertEqual(events, ["preflight", "rollback", "model", "accounting"])
-
-    def test_invoke_failure_tracks_without_deduction(self):
-        self.mock_runnable.invoke = Mock(side_effect = RuntimeError("API error"))
-
-        with self.assertRaises(RuntimeError):
-            self.decorator.invoke("test input")
-
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_text_model.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
+    def test_model_and_bound_runnable_failures_track_without_deduction(self):
+        for subject in (self.decorator, self.decorator.bind_tools([])):
+            with self.subTest(subject = type(subject).__name__):
+                error = ExternalServiceError("API error", UNEXPECTED_ERROR)
+                self.model.responses.append(error)
+                with self.assertRaises(ExternalServiceError) as raised:
+                    subject.invoke([stubs.external.human_message()])
+                self.assertIs(raised.exception, error)
+        records = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(record.is_failed for record in records))
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)

@@ -1,28 +1,53 @@
 import asyncio
-import unittest
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
-from uuid import UUID
+from datetime import datetime, timedelta
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
-import stubs
-from langchain_core.messages import AIMessage
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
+from langchain_core.messages import BaseMessage
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
+from features.chat.ingested_chat_message import IngestedChatMessage
 from features.chat.message_burst_service import MessageBurstService
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
+from util.config import config
 
 
-class MessageBurstServiceTest(unittest.TestCase):
+class MessageBurstServiceTest(TestCase):
+
+    di: DI
+    service: MessageBurstService
+    model: FakeChatModel
+    telegram: FakeTelegramBotAPI
+    whatsapp: FakeWhatsAppBotAPI
+    ingested: IngestedChatMessage
 
     def setUp(self):
-        self.di = Mock(spec = DI)
-        self.service = MessageBurstService(self.di)
-        self.di.tool_choice_resolver.get_tool.return_value = Mock()
-        self.di.chat_agent.return_value.execute.return_value = AIMessage("response")
-        self.di.domain_langchain_mapper.map_bot_message_to_storage.return_value = [
-            Mock(text = "response"),
-        ]
+        self.di = self.enterContext(di_for_tests())
+        author = self.di.user_repo.save(domain.user())
+        chat = self.di.chat_config_repo.save(domain.chat_config(is_private = True, external_id = "123"))
+        self.di.inject_invoker(author)
+        self.di.inject_invoker_chat(chat)
+        self.di.chat_membership_repo.save(domain.chat_membership(user_id = author.id, chat_id = chat.chat_id))
+        message = self.di.chat_message_repo.save(domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = author.id,
+            message_id = "message-1",
+            sent_at = datetime(2026, 1, 2, 12),
+            text = "hello",
+            ingestion_order = 1,
+        ))
+        self.ingested = domain.ingested_chat_message(chat = chat, author = author, message = message, raw_message_text = "hello")
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(domain.configured_tool(), max_tokens = 500))
+        self.telegram = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.whatsapp = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+        self.service = self.di.message_burst_service
 
     def test_explicit_address_ignores_quoted_mentions(self):
         chat_type = ChatConfigDB.ChatType.telegram
@@ -32,274 +57,128 @@ class MessageBurstServiceTest(unittest.TestCase):
         self.assertFalse(self.service.is_explicitly_addressed(f">> hello @{handle}\nnot addressed", chat_type))
 
     def test_claimed_message_uses_cutoff_and_aggregate_addressing(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
+        self.ingested.chat.is_private = False
+        self.ingested.chat.reply_chance_percent = 0
+        self.di.chat_message_repo.save(domain.chat_message(
+            chat_id = self.ingested.chat.chat_id,
+            author_id = self.ingested.author.id,
+            message_id = "newer",
+            ingestion_order = 2,
+            sent_at = self.ingested.message.sent_at + timedelta(seconds = 1),
+            text = "Future message outside this burst",
+        ))
+        claim = domain.claimed_chat_message_burst(
+            chat_id = self.ingested.chat.chat_id,
+            author_id = self.ingested.author.id,
+            last_message_sent_at = self.ingested.message.sent_at,
+            last_message_ingestion_order = self.ingested.message.ingestion_order,
+            is_addressed = True,
         )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        ingested = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            raw_message_text = "hello",
-        )
+        self.model.responses.append(external.ai_message(content = "response"))
 
-        claim = stubs.domain.claimed_chat_message_burst(
-            chat_id = message.chat_id,
-            author_id = message.author_id,
-            message_count = 1,
-            last_message_sent_at = message.sent_at,
-            last_message_ingestion_order = message.ingestion_order,
-        )
-
-        result = self.service.process_message(ingested, claim = claim)
+        result = self.service.process_message(self.ingested, claim = claim)
 
         self.assertTrue(result)
-        self.di.chat_agent.assert_called_once_with(
-            trigger_message_text = "hello",
-            trigger_message_id = "message-1",
-            configured_tool = self.di.tool_choice_resolver.get_tool.return_value,
-            cutoff_sent_at = claim.last_message_sent_at,
-            cutoff_ingestion_order = claim.last_message_ingestion_order,
-            explicitly_addressed = True,
-        )
-        self.di.chat_agent.return_value.execute.assert_called_once()
-        self.di.telegram_bot_sdk.send_text_message.assert_called_once_with(
-            chat,
-            "response",
-        )
+        self.assertEqual([message["text"] for message in self.telegram.get_sent_messages("123")], ["response"])
+        self.assertNotIn("Future message outside this burst", str(self.model.prompts))
+        self.assertIn("hello", str(self.model.prompts))
 
     def test_reaction_response_is_stored_and_sent(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-            external_id = "123",
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        ingested = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            raw_message_text = "hello",
-        )
+        self.model.responses.append(external.ai_message(content = "👍"))
 
-        self.di.chat_agent.return_value.execute.return_value = AIMessage("👍")
+        self.assertTrue(self.service.process_message(self.ingested))
 
-        result = self.service.process_message(
-            ingested,
-            claim = stubs.domain.claimed_chat_message_burst(
-                chat_id = message.chat_id,
-                author_id = message.author_id,
-                message_count = 1,
-                last_message_sent_at = message.sent_at,
-                last_message_ingestion_order = message.ingestion_order,
-            ),
-        )
-
-        self.assertTrue(result)
-        saved = self.di.chat_message_repo.save.call_args.args[0]
-        self.assertEqual(saved.message_id, "reaction:message-1")
+        self.assertEqual(self.telegram.reactions[("123", "message-1")], "👍")
+        saved = self.di.chat_message_repo.get(self.ingested.chat.chat_id, "reaction:message-1")
         self.assertEqual(saved.text, "<reaction>👍</reaction>")
-        self.di.platform_bot_sdk.return_value.set_reaction.assert_called_once_with(
-            "123",
-            "message-1",
-            "👍",
-        )
 
     def test_whatsapp_message_marks_final_message_read(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        ingested = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            raw_message_text = "hello",
-        )
+        self.ingested.chat.chat_type = ChatConfigDB.ChatType.whatsapp
+        self.model.responses.append(external.ai_message(content = "response"))
 
-        chat.chat_type = ChatConfigDB.ChatType.whatsapp
+        self.assertTrue(self.service.process_message(self.ingested))
 
-        result = self.service.process_message(
-            ingested,
-            claim = stubs.domain.claimed_chat_message_burst(
-                chat_id = message.chat_id,
-                author_id = message.author_id,
-                message_count = 1,
-                last_message_sent_at = message.sent_at,
-                last_message_ingestion_order = message.ingestion_order,
-                is_addressed = False,
-            ),
-        )
+        self.assertEqual([message["text"] for message in self.whatsapp.get_sent_messages("123")], ["response"])
+        self.assertIn("message-1", self.whatsapp.read_messages)
 
-        self.assertTrue(result)
-        self.di.whatsapp_bot_sdk.send_text_message.assert_called_once_with(
-            chat,
-            "response",
-        )
-        self.di.whatsapp_bot_sdk.mark_as_read.assert_called_once_with("message-1")
-
-    def test_delayed_attempt_opens_no_database_session_before_sleep_finishes(self):
-        message = stubs.domain.chat_message(
-            chat_id = UUID(int = 10),
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = UUID(int = 20),
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        sleep_started = asyncio.Event()
-        release_sleep = asyncio.Event()
-        detached_di = Mock(spec = DI)
-        detached_repo = Mock()
-        detached_repo.claim.return_value = None
-        # noinspection PyPropertyAccess
-        detached_di.chat_message_burst_repo = detached_repo
-        self.di.clone.return_value = detached_di
-        session = MagicMock()
-
-        async def suspended_sleep(delay_s):
-            self.assertEqual(delay_s, 0.5)
-            sleep_started.set()
-            await release_sleep.wait()
+    def test_delayed_attempt_replies_only_after_sleep_finishes(self):
+        self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)
+        config.chat_burst_quiet_period_s = 0
+        scheduled = self.service.record(self.ingested.message, is_addressed = True)
+        self.model.responses.append(external.ai_message(content = "Delayed reply"))
 
         async def scenario():
-            with (
-                patch(
-                    "features.chat.message_burst_service.asyncio.sleep",
-                    side_effect = suspended_sleep,
-                ),
-                patch(
-                    "features.chat.message_burst_service.get_detached_session",
-                    return_value = session,
-                ) as get_session,
-            ):
-                task = asyncio.create_task(
-                    self.service.process_after_quiet_period(
-                        stubs.domain.scheduled_chat_message_burst(
-                            chat_id = message.chat_id,
-                            author_id = message.author_id,
-                            message_count = 1,
-                            wait_seconds = 0.5,
-                        ),
-                    ),
-                )
-                await sleep_started.wait()
-                get_session.assert_not_called()
-                release_sleep.set()
-                self.assertFalse(await task)
-                get_session.assert_called_once()
+            sleep_started = asyncio.Event()
+            release_sleep = asyncio.Event()
+
+            async def suspended_sleep(delay_s: float):
+                sleep_started.set()
+                await release_sleep.wait()
+
+            # control the system timer; application processing and delivery remain real
+            with patch("asyncio.sleep", new = suspended_sleep):
+                task = asyncio.create_task(self.service.process_after_quiet_period(scheduled))
+                try:
+                    await asyncio.wait_for(sleep_started.wait(), timeout = 5)
+                    self.assertFalse(task.done())
+                    self.assertEqual(self.telegram.get_sent_messages("123"), [])
+                finally:
+                    release_sleep.set()
+                    result = await asyncio.wait_for(task, timeout = 5)
+                self.assertTrue(result)
 
         asyncio.run(scenario())
+        self.assertEqual([message["text"] for message in self.telegram.get_sent_messages("123")], ["Delayed reply"])
 
-    def test_obsolete_timer_noops_and_completion_schedules_waiting_messages(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 10),
-        )
-        author = stubs.domain.user(
-            id = UUID(int = 20),
-        )
-        message = stubs.domain.chat_message(
-            chat_id = chat.chat_id,
-            message_id = "message-1",
-            ingestion_order = 7,
-            author_id = author.id,
-            sent_at = datetime(2026, 1, 2, 12, 0, 0),
-            text = "hello",
-        )
-        ingested = stubs.domain.ingested_chat_message(
-            chat = chat,
-            author = author,
-            message = message,
-            raw_message_text = "hello",
-        )
+    def test_obsolete_timer_noops_and_latest_timer_replies_once(self):
+        self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)
+        config.chat_burst_quiet_period_s = 0
+        first = self.service.record(self.ingested.message, is_addressed = True)
+        message = self.di.chat_message_repo.save(domain.chat_message(
+            chat_id = self.ingested.chat.chat_id,
+            author_id = self.ingested.author.id,
+            message_id = "message-2",
+            ingestion_order = None,
+            sent_at = self.ingested.message.sent_at + timedelta(seconds = 1),
+            text = "Another message",
+        ))
+        latest = self.service.record(message, is_addressed = True)
+        self.model.responses.append(external.ai_message(content = "Combined reply"))
 
-        first = stubs.domain.scheduled_chat_message_burst(
-            chat_id = message.chat_id,
-            author_id = message.author_id,
-            message_count = 1,
-            wait_seconds = 0.5,
-        )
-        second = stubs.domain.scheduled_chat_message_burst(
-            chat_id = message.chat_id,
-            author_id = message.author_id,
-            message_count = 2,
-            wait_seconds = 0.5,
-        )
-        first_claim = stubs.domain.claimed_chat_message_burst(
-            chat_id = message.chat_id,
-            author_id = message.author_id,
-            message_count = 1,
-            last_message_sent_at = message.sent_at,
-            last_message_ingestion_order = message.ingestion_order,
-            is_addressed = False,
-        )
-        second_claim = stubs.domain.claimed_chat_message_burst(
-            chat_id = message.chat_id,
-            author_id = message.author_id,
-            message_count = 2,
-            last_message_sent_at = message.sent_at,
-            last_message_ingestion_order = message.ingestion_order,
-            is_addressed = False,
-        )
-        detached_service = Mock(spec = MessageBurstService)
-        detached_di = Mock(spec = DI)
-        detached_repo = Mock()
-        detached_repo.claim.side_effect = [first_claim, second_claim]
-        detached_repo.finalize.side_effect = [second, None]
-        # noinspection PyPropertyAccess
-        detached_di.chat_message_burst_repo = detached_repo
-        # noinspection PyPropertyAccess
-        detached_di.message_burst_service = detached_service
-        detached_service.load_claimed_message.return_value = ingested
-        detached_service.process_message.return_value = True
-        self.di.clone.return_value = detached_di
+        self.assertFalse(asyncio.run(self.service.process_after_quiet_period(first)))
+        self.assertEqual(self.telegram.get_sent_messages("123"), [])
+        self.assertTrue(asyncio.run(self.service.process_after_quiet_period(latest)))
+        self.assertFalse(asyncio.run(self.service.process_after_quiet_period(latest)))
 
-        with (
-            patch(
-                "features.chat.message_burst_service.asyncio.sleep",
-                new = AsyncMock(),
-            ),
-            patch(
-                "features.chat.message_burst_service.get_detached_session",
-                return_value = MagicMock(),
-            ),
-        ):
-            result = asyncio.run(self.service.process_after_quiet_period(first))
+        self.assertEqual([message["text"] for message in self.telegram.get_sent_messages("123")], ["Combined reply"])
+        self.assertIn("hello", str(self.model.prompts))
+        self.assertIn("Another message", str(self.model.prompts))
 
-        self.assertTrue(result)
+    def test_messages_arriving_during_processing_receive_a_followup_reply(self):
+        self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)
+        config.chat_burst_quiet_period_s = 0
+        scheduled = self.service.record(self.ingested.message, is_addressed = True)
+
+        def respond_with_another_message_waiting() -> BaseMessage:
+            message = self.di.chat_message_repo.save(domain.chat_message(
+                chat_id = self.ingested.chat.chat_id,
+                author_id = self.ingested.author.id,
+                message_id = "message-2",
+                ingestion_order = None,
+                sent_at = self.ingested.message.sent_at + timedelta(seconds = 1),
+                text = "One more question",
+            ))
+            self.service.record(message, is_addressed = True)
+            return external.ai_message(content = "First reply")
+
+        self.model.responses.extend([
+            respond_with_another_message_waiting,
+            external.ai_message(content = "Followup reply"),
+        ])
+
+        self.assertTrue(asyncio.run(self.service.process_after_quiet_period(scheduled)))
+
         self.assertEqual(
-            detached_service.process_message.call_args_list,
-            [
-                call(ingested, claim = first_claim),
-                call(ingested, claim = second_claim),
-            ],
+            [message["text"] for message in self.telegram.get_sent_messages("123")],
+            ["First reply", "Followup reply"],
         )

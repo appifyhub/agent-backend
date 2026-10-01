@@ -3,24 +3,24 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import stubs
-from db.sql_util import SQLUtil
+from util.di_utils import di_for_tests
 
+from di.di import DI
 from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
+from features.users.user import User
 from util.errors import NotFoundError, ValidationError
 
 
 class PurchaseRecordRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
+    user: User
     repo: PurchaseRecordRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.purchase_record_repo()
-        self.user = self.sql.user_repo().save(stubs.domain.user())
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.purchase_record_repo
+        self.user = self.di.user_repo.save(stubs.domain.user())
 
     def test_save_creates_new(self):
         record = stubs.domain.purchase_record(
@@ -413,7 +413,7 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
         self.assertIn("refunded", str(context.exception))
 
     def test_bind_license_key_to_user_already_bound(self):
-        other_user = self.sql.user_repo().save(
+        other_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,
@@ -554,7 +554,7 @@ class PurchaseRecordRepositoryTest(unittest.TestCase):
         self.assertTrue(updated.refunded)
 
     def test_save_updates_user_id_when_update_has_value(self):
-        other_user = self.sql.user_repo().save(
+        other_user = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid4(),
                 telegram_user_id = 987654321,

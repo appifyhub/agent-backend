@@ -69,7 +69,8 @@ For multi-step tasks, a brief inline checklist is enough:
 Never write walkthrough documents or response summaries — keep it short and in the chat unless the user specifically asks.
 Make use of available tools and task lists to track progress.
 Confirm with the user before creating new test files.
-Tests must run offline. If a unit requires extensive mocking, advise the user before proceeding.
+Follow the Testing section in `.cursor/rules/style.mdc`: use the managed production DI, shared stubs, and suitable normal components. Keep tests offline and assertions in the subject's layer; do not mock owned behavior or change production code merely for testability. Use existing external fakes before considering a narrowly justified system/external patch. Stop at agreed review milestones.
+If a unit requires extensive mocking, advise the user before proceeding.
 
 If OpenSpec (`opsx`, `openspec`) skills are available to you offer to use them for planning.
 

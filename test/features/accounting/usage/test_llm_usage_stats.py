@@ -1,8 +1,6 @@
 import unittest
-from unittest.mock import Mock
 
 import stubs
-from langchain_core.messages import AIMessage
 
 from features.accounting.usage.llm_usage_stats import LLMUsageStats
 
@@ -64,15 +62,12 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(stats.remote_runtime_seconds, 12.3)
 
     def test_from_usage_metadata_with_object(self):
-        class UsageObj:
-
-            def __init__(self, seconds: float):
-                self.seconds = seconds
-
-        usage_obj = UsageObj(seconds = 10.0)
+        usage_obj = stubs.domain.llm_usage_stats()
         stats = LLMUsageStats.from_usage_metadata(usage_obj)
 
-        self.assertEqual(stats.remote_runtime_seconds, 10.0)
+        self.assertEqual(stats.input_tokens, usage_obj.input_tokens)
+        self.assertEqual(stats.output_tokens, usage_obj.output_tokens)
+        self.assertEqual(stats.total_tokens, usage_obj.total_tokens)
 
     def test_from_usage_metadata_with_empty_dict(self):
         stats = LLMUsageStats.from_usage_metadata({})
@@ -193,13 +188,14 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(result.total_tokens, 300)
 
     def test_from_response_with_response_metadata(self):
-        response = Mock(spec = AIMessage)
-        response.response_metadata = {
-            "usage": {
-                "input_tokens": 100,
-                "output_tokens": 200,
+        response = stubs.external.ai_message(
+            response_metadata = {
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 200,
+                },
             },
-        }
+        )
 
         stats = LLMUsageStats.from_response(response)
 
@@ -208,12 +204,13 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(stats.total_tokens, 300)
 
     def test_from_response_with_usage_metadata_attribute(self):
-        response = Mock(spec = AIMessage)
-        response.response_metadata = {}
-        response.usage_metadata = {
-            "input_tokens": 150,
-            "output_tokens": 250,
-        }
+        response = stubs.external.ai_message(
+            usage_metadata = {
+                "input_tokens": 150,
+                "output_tokens": 250,
+                "total_tokens": 400,
+            },
+        )
 
         stats = LLMUsageStats.from_response(response)
 
@@ -221,15 +218,15 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(stats.output_tokens, 250)
 
     def test_from_response_with_perplexity_tokens(self):
-        response = Mock(spec = AIMessage)
-        response.response_metadata = {
-            "usage": {
-                "input_tokens": 100,
-                "output_tokens": 200,
-                "total_tokens": 300,
+        response = stubs.external.ai_message(
+            response_metadata = {
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 200,
+                    "total_tokens": 300,
+                },
             },
-        }
-        response.usage_metadata = None
+        )
 
         stats = LLMUsageStats.from_response(response)
 
@@ -239,13 +236,13 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(stats.total_tokens, 300)
 
     def test_from_response_with_fallback_to_metadata_fields(self):
-        response = Mock(spec = AIMessage)
-        response.response_metadata = {
-            "input_tokens": 100,
-            "output_tokens": 200,
-            "total_tokens": 300,
-        }
-        response.usage_metadata = None
+        response = stubs.external.ai_message(
+            response_metadata = {
+                "input_tokens": 100,
+                "output_tokens": 200,
+                "total_tokens": 300,
+            },
+        )
 
         stats = LLMUsageStats.from_response(response)
 
@@ -254,32 +251,32 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(stats.total_tokens, 300)
 
     def test_from_response_with_x_ai_chat_token_usage(self):
-        response = Mock(spec = AIMessage)
-        response.response_metadata = {
-            "token_usage": {
-                "completion_tokens": 8,
-                "prompt_tokens": 176,
-                "total_tokens": 184,
-                "completion_tokens_details": {
-                    "accepted_prediction_tokens": 0,
-                    "audio_tokens": 0,
-                    "reasoning_tokens": 0,
-                    "rejected_prediction_tokens": 0,
+        response = stubs.external.ai_message(
+            response_metadata = {
+                "token_usage": {
+                    "completion_tokens": 8,
+                    "prompt_tokens": 176,
+                    "total_tokens": 184,
+                    "completion_tokens_details": {
+                        "accepted_prediction_tokens": 0,
+                        "audio_tokens": 0,
+                        "reasoning_tokens": 0,
+                        "rejected_prediction_tokens": 0,
+                    },
+                    "prompt_tokens_details": {
+                        "audio_tokens": 0,
+                        "cached_tokens": 161,
+                        "text_tokens": 176,
+                        "image_tokens": 0,
+                    },
+                    "num_sources_used": 0,
+                    "cost_in_usd_ticks": 150500,
                 },
-                "prompt_tokens_details": {
-                    "audio_tokens": 0,
-                    "cached_tokens": 161,
-                    "text_tokens": 176,
-                    "image_tokens": 0,
-                },
-                "num_sources_used": 0,
-                "cost_in_usd_ticks": 150500,
+                "model_provider": "xai",
+                "model_name": "grok-4-1-fast-non-reasoning",
+                "finish_reason": "stop",
             },
-            "model_provider": "xai",
-            "model_name": "grok-4-1-fast-non-reasoning",
-            "finish_reason": "stop",
-        }
-        response.usage_metadata = None
+        )
 
         stats = LLMUsageStats.from_response(response)
 
@@ -288,19 +285,19 @@ class LLMUsageStatsTest(unittest.TestCase):
         self.assertEqual(stats.total_tokens, 184)
 
     def test_from_response_with_perplexity_tokens_in_usage(self):
-        response = Mock(spec = AIMessage)
-        response.response_metadata = {
-            "usage": {
-                "input_tokens": 100,
-                "output_tokens": 200,
-                "total_tokens": 300,
-                "output_token_details": {
-                    "reasoning": 50,
-                    "citation_tokens": 30,
+        response = stubs.external.ai_message(
+            response_metadata = {
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 200,
+                    "total_tokens": 300,
+                    "output_token_details": {
+                        "reasoning": 50,
+                        "citation_tokens": 30,
+                    },
                 },
             },
-        }
-        response.usage_metadata = None
+        )
 
         stats = LLMUsageStats.from_response(response)
 

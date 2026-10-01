@@ -1,61 +1,69 @@
-import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest import TestCase
 
-import stubs
+from stubs import domain
+from util.di_utils import di_for_tests
 
 from di.di import DI
-from features.tools_cache.tools_cache_repo import ToolsCacheRepository
-from features.web_browsing.html_content_cleaner import HTMLContentCleaner
+from features.tools_cache.tools_cache import ToolsCache
+from features.web_browsing.html_content_cleaner import CACHE_PREFIX, CACHE_TTL, HTMLContentCleaner
+from util.functions import digest_md5
 
 
-class HTMLContentCleanerTest(unittest.TestCase):
+class HTMLContentCleanerTest(TestCase):
 
-    mock_di: DI
-    mock_cache_repo: ToolsCacheRepository
+    di: DI
 
     def setUp(self):
-        self.mock_cache_repo = MagicMock(spec = ToolsCacheRepository)
-        self.mock_di = MagicMock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.tools_cache_repo = self.mock_cache_repo
+        self.di = self.enterContext(di_for_tests())
 
     def test_clean_up_cache_miss(self):
         html = "<html><body><h1>Title</h1><p>Some content.</p></body></html>"
-        self.mock_cache_repo.get.return_value = None
-        cleaner = HTMLContentCleaner(html, self.mock_di)
+        cleaner = self.di.html_content_cleaner(html)
+        started_at = datetime.now()
+
         result = cleaner.clean_up()
+
         self.assertIn("# Title", result)
         self.assertIn("Some content", result)
-        # noinspection PyUnresolvedReferences
-        self.mock_cache_repo.save.assert_called_once()
+        cached = self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX, digest_md5(html)))
+        self.assertEqual(cached.value, result)
+        self.assertGreaterEqual(cached.expires_at, started_at + CACHE_TTL)
+        self.assertLessEqual(cached.expires_at, datetime.now() + CACHE_TTL)
 
     def test_clean_up_cache_hit(self):
         html = "<html><body><h1>Title</h1><p>Some content.</p></body></html>"
-        self.mock_cache_repo.get.return_value = stubs.domain.tools_cache(value = "Processed Content")
-        cleaner = HTMLContentCleaner(html, self.mock_di)
+        cached = self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, digest_md5(html)),
+            value = "Processed Content",
+            expires_at = datetime.now() + timedelta(days = 1),
+        ))
+        cleaner = self.di.html_content_cleaner(html)
+
         result = cleaner.clean_up()
+
         self.assertEqual(result, "Processed Content")
-        # noinspection PyUnresolvedReferences
-        self.mock_cache_repo.save.assert_not_called()
+        self.assertEqual(self.di.tools_cache_repo.get(cached.key), cached)
 
     def test_clean_up_expired_cache(self):
         html = "<html><body><h1>Title</h1><p>Some content.</p></body></html>"
-        expired_cache_entry = stubs.domain.tools_cache(
-            expires_at = datetime.now() - timedelta(days = 1),  # Expired cache
-        )
-        self.mock_cache_repo.get.return_value = expired_cache_entry
-        cleaner = HTMLContentCleaner(html, self.mock_di)
+        cached = self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, digest_md5(html)),
+            expires_at = datetime.now() - timedelta(days = 1),
+        ))
+        cleaner = self.di.html_content_cleaner(html)
+
         result = cleaner.clean_up()
+
         self.assertIn("# Title", result)
         self.assertIn("Some content", result)
-        # noinspection PyUnresolvedReferences
-        self.mock_cache_repo.save.assert_called_once()
+        refreshed = self.di.tools_cache_repo.get(cached.key)
+        self.assertEqual(refreshed.value, result)
+        self.assertFalse(refreshed.is_expired())
 
     def test_clean_up_markup_conversion(self):
         html = "<h1>Header1</h1><h2>Header2</h2><h3>Header3</h3><a href=\"https://example.com\">Link</a>"
-        self.mock_cache_repo.get.return_value = None  # Simulate cache miss
-        cleaner = HTMLContentCleaner(html, self.mock_di)
+        cleaner = self.di.html_content_cleaner(html)
         result = cleaner.clean_up()
         self.assertIn("# Header1", result)
         self.assertIn("## Header2", result)
@@ -69,8 +77,7 @@ class HTMLContentCleanerTest(unittest.TestCase):
             '<img src="https://example.com/logo.png"/>'
             "<p>Text after</p></body></html>"
         )
-        self.mock_cache_repo.get.return_value = None
-        cleaner = HTMLContentCleaner(html, self.mock_di)
+        cleaner = self.di.html_content_cleaner(html)
         result = cleaner.clean_up()
         self.assertIn("![A photo](https://example.com/photo.png)", result)
         self.assertIn("![image](https://example.com/logo.png)", result)
@@ -87,8 +94,7 @@ class HTMLContentCleanerTest(unittest.TestCase):
             '<img src="https://cloudflareinsights.com/cdn-cgi/rum"/>'
             "<p>End</p></body></html>"
         )
-        self.mock_cache_repo.get.return_value = None
-        cleaner = HTMLContentCleaner(html, self.mock_di)
+        cleaner = self.di.html_content_cleaner(html)
         result = cleaner.clean_up()
         self.assertIn("![Real photo](https://example.com/real.jpg)", result)
         self.assertNotIn("pixel.gif", result)

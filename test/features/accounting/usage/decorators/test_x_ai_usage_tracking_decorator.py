@@ -1,289 +1,163 @@
-import unittest
-from time import sleep
-from unittest.mock import Mock
+from dataclasses import replace
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
 import stubs
+from fakes.fake_x_ai_client import FakeXAIClient
+from util.di_utils import di_for_tests
 
-from features.accounting.spending.spending_service import SpendingService
+from di.di import DI
 from features.accounting.usage.decorators.x_ai_usage_tracking_decorator import XAIUsageTrackingDecorator
-from features.accounting.usage.usage_tracking_service import UsageTrackingService
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from util.errors import ExternalServiceError
+from features.external_tools.external_tool_library import GROK_4_3, IMAGE_GEN_GROK_IMAGINE
+from features.users.user import User
+from util.config import config
+from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
+from util.errors import ExternalServiceError, ValidationError
 
 
-class XAIUsageTrackingDecoratorTest(unittest.TestCase):
+class XAIUsageTrackingDecoratorTest(TestCase):
+
+    di: DI
+    user: User
+    tool: ConfiguredTool
+    client: FakeXAIClient
+    decorator: XAIUsageTrackingDecorator
 
     def setUp(self):
-        self.image_size = "1k"
-        self.mock_client = Mock()
-        self.mock_tracking_service = Mock(spec = UsageTrackingService)
-        self.mock_tracking_service.track_image_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 2.0),
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.di.inject_invoker(self.user)
+        self.tool = stubs.domain.configured_tool(
+            definition = stubs.domain.external_tool(id = IMAGE_GEN_GROK_IMAGINE.id),
+            purpose = ToolType.images_gen,
+            uses_credits = True,
         )
-        self.mock_tracking_service.track_provider_reported_cost = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 3.5),
+        self.client = cast(FakeXAIClient, self.di.base_x_ai_client(self.tool))
+        self.decorator = self.di.x_ai_client(self.tool, output_image_sizes = ["1k"])
+        self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
+        config.usage_maintenance_fee_credits = 1.0
+
+    def test_sample_tracks_usage_by_image_size_and_deducts_credits(self):
+        response = stubs.external.x_ai_image_response()
+        self.client.image.responses.append(response)
+
+        result = self.decorator.image.sample(prompt = "test prompt", model = self.tool.definition.id, image_format = "url")
+
+        self.assertEqual(result.url, response.url)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.tool.id, self.tool.definition.id)
+        self.assertEqual(record.tool_purpose, ToolType.images_gen)
+        self.assertEqual(record.output_image_sizes, ["1k"])
+        self.assertIsNone(record.input_tokens)
+        self.assertIsNone(record.output_tokens)
+        self.assertEqual(record.model_cost_credits, 0.5)
+        self.assertTrue(record.uses_credits)
+        self.assertFalse(record.is_failed)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
         )
-        self.mock_tracking_service.track_text_model = Mock(
-            return_value = stubs.domain.usage_record(total_cost_credits = 0.0),
-        )
-        self.mock_spending_service = Mock(spec = SpendingService)
-        self.mock_rollback_db_session = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-
-        self.decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-
-    def test_image_property_returns_proxy(self):
-        image = self.decorator.image
-
-        self.assertIsNotNone(image)
-
-    def test_sample_tracks_usage_by_image_size(self):
-        mock_response = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-        self.mock_client.image.sample = Mock(return_value = mock_response)
-
-        result = decorator.image.sample(
-            prompt = "test prompt",
-            model = "grok-imagine-image",
-            image_format = "base64",
-        )
-
-        self.assertEqual(result, mock_response)
-        self.mock_tracking_service.track_image_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIs(call_args.kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_args.kwargs["tool_purpose"], ToolType.images_gen)
-        self.assertEqual(call_args.kwargs["output_image_sizes"], [self.image_size])
-        self.assertIsNone(call_args.kwargs.get("input_tokens"))
-        self.assertIsNone(call_args.kwargs.get("output_tokens"))
-        self.assertIsNotNone(call_args.kwargs["runtime_seconds"])
-        self.assertGreater(call_args.kwargs["runtime_seconds"], 0)
-        self.assertEqual(call_args.kwargs["uses_credits"], False)
-
-    def test_chat_property_returns_proxy(self):
-        chat = self.decorator.chat
-
-        self.assertIsNotNone(chat)
 
     def test_chat_sample_tracks_provider_reported_cost(self):
-        usage = Mock()
-        usage.cost_in_usd_ticks = 25_000_000
-        usage.input_tokens = 10
-        usage.output_tokens = 20
-        usage.total_tokens = 30
-        response = Mock()
-        response.usage = usage
-        response.server_side_tool_usage = {"WEB_SEARCH": 1, "X_SEARCH": 1}
-        mock_chat = Mock()
-        mock_chat.sample.return_value = response
-        self.mock_client.chat.create.return_value = mock_chat
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
+        response = stubs.external.x_ai_chat_response()
+        self.client.chat.responses.append(response)
+        tool = stubs.domain.configured_tool(definition = GROK_4_3, purpose = ToolType.search, uses_credits = True)
+        decorator = self.di.x_ai_client(tool)
 
-        result = decorator.chat.create(model = "grok-4.3").sample()
+        result = decorator.chat.create(model = tool.definition.id).sample()
 
-        self.assertEqual(result, response)
-        self.mock_tracking_service.track_provider_reported_cost.assert_called_once()
-        call_kwargs = self.mock_tracking_service.track_provider_reported_cost.call_args.kwargs
-        self.assertIs(call_kwargs["tool"], configured_tool.definition)
-        self.assertEqual(call_kwargs["provider_cost_credits"], 0.25)
-        self.assertEqual(call_kwargs["input_tokens"], 10)
-        self.assertEqual(call_kwargs["output_tokens"], 20)
-        self.assertEqual(call_kwargs["total_tokens"], 30)
-        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 3.5)
+        self.assertEqual(result.id, response.id)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.tool.id, tool.definition.id)
+        self.assertEqual(record.model_cost_credits, 0.25)
+        self.assertEqual((record.input_tokens, record.output_tokens, record.total_tokens), (10, 20, 30))
+        self.assertEqual(record.total_cost_credits, 1.25)
+        self.assertAlmostEqual(self.di.user_repo.get(self.user.id).credit_balance, self.user.credit_balance - 1.25)
 
-    def test_chat_sample_calls_validate_pre_flight(self):
-        usage = Mock()
-        usage.cost_in_usd_ticks = 1
-        response = Mock()
-        response.usage = usage
-        response.server_side_tool_usage = {}
-        mock_chat = Mock()
-        mock_chat.sample.return_value = response
-        self.mock_client.chat.create.return_value = mock_chat
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
+    def test_chat_sample_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
+        conversation = self.decorator.chat.create(model = GROK_4_3.id)
 
-        decorator.chat.create(model = "grok-4.3").sample()
+        with self.assertRaises(ValidationError) as raised:
+            conversation.sample()
 
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(configured_tool)
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.chat.conversations[0].requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
 
-    def test_chat_sample_missing_cost_tracks_failure_without_deduction(self):
-        usage = Mock()
-        usage.cost_in_usd_ticks = None
-        response = Mock()
-        response.usage = usage
-        mock_chat = Mock()
-        mock_chat.sample.return_value = response
-        self.mock_client.chat.create.return_value = mock_chat
+    def test_chat_sample_provider_failure_tracks_without_deduction(self):
+        error = ExternalServiceError("API error", UNEXPECTED_ERROR)
+        self.client.chat.responses.append(error)
 
-        with self.assertRaises(ExternalServiceError):
-            self.decorator.chat.create(model = "grok-4.3").sample()
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.decorator.chat.create(model = GROK_4_3.id).sample()
 
-        self.mock_tracking_service.track_provider_reported_cost.assert_not_called()
-        self.mock_tracking_service.track_text_model.assert_called_once()
-        self.assertTrue(self.mock_tracking_service.track_text_model.call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
-
-    def test_sample_deducts_credits(self):
-        mock_response = Mock()
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-        self.mock_client.image.sample = Mock(return_value = mock_response)
-
-        decorator.image.sample(prompt = "test", model = "grok-imagine-image")
-
-        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 2.0)
+        self.assertIs(raised.exception, error)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_sample_measures_runtime(self):
-        def slow_sample(*args, **kwargs):
-            sleep(0.01)
-            return Mock()
+        self.client.image.responses.append(stubs.external.x_ai_image_response())
+        # control only the system clock to make elapsed time deterministic
+        with patch("features.accounting.usage.decorators.x_ai_usage_tracking_decorator.time", side_effect = [10, 10.25]):
+            self.decorator.image.sample(prompt = "test", model = self.tool.definition.id)
 
-        self.mock_client.image.sample = slow_sample
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertEqual(record.runtime_seconds, 0.25)
 
-        self.decorator.image.sample(prompt = "test", model = "grok-imagine-image")
+    def test_sample_rejects_insufficient_balance_before_request(self):
+        user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
 
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertGreaterEqual(call_args.kwargs["runtime_seconds"], 0.01)
+        with self.assertRaises(ValidationError) as raised:
+            self.decorator.image.sample(prompt = "test", model = self.tool.definition.id)
 
-    def test_sample_calls_validate_pre_flight(self):
-        self.mock_client.image.sample = Mock(return_value = Mock())
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-            output_image_sizes = [self.image_size],
-        )
-
-        decorator.image.sample(prompt = "test", model = "grok-imagine-image")
-
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
-            configured_tool,
-            input_image_sizes = None,
-            output_image_sizes = [self.image_size],
-        )
-
-    def test_sample_releases_db_session_after_preflight_and_before_provider_call(self):
-        events = []
-        self.mock_spending_service.validate_pre_flight.side_effect = lambda *args, **kwargs: events.append("preflight")
-        self.mock_rollback_db_session.side_effect = lambda: events.append("rollback")
-        self.mock_client.image.sample = Mock(
-            side_effect = lambda *args, **kwargs: events.append("provider") or Mock(),
-        )
-
-        def track_image_model(**kwargs):
-            events.append("accounting")
-            return stubs.domain.usage_record(total_cost_credits = 2.0)
-
-        self.mock_tracking_service.track_image_model.side_effect = track_image_model
-
-        self.decorator.image.sample(prompt = "test", model = "grok-imagine-image")
-
-        self.assertEqual(events, ["preflight", "rollback", "provider", "accounting"])
+        self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.client.image.requests, [])
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
+        self.assertEqual(self.di.user_repo.get(self.user.id), user)
 
     def test_sample_failure_tracks_without_deduction(self):
-        self.mock_client.image.sample = Mock(side_effect = RuntimeError("API error"))
+        error = ExternalServiceError("API error", UNEXPECTED_ERROR)
+        self.client.image.responses.append(error)
 
-        with self.assertRaises(RuntimeError):
-            self.decorator.image.sample(prompt = "test", model = "grok-imagine-image")
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.decorator.image.sample(prompt = "test", model = self.tool.definition.id)
 
-        self.mock_tracking_service.track_image_model.assert_called_once()
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertTrue(call_args.kwargs["is_failed"])
-        self.mock_spending_service.deduct.assert_not_called()
-
-    def test_other_image_methods_pass_through(self):
-        self.mock_client.image.list_models = Mock(return_value = ["model1"])
-
-        result = self.decorator.image.list_models()
-
-        self.assertEqual(result, ["model1"])
-        self.mock_tracking_service.track_image_model.assert_not_called()
-
-    def test_client_attributes_pass_through(self):
-        self.mock_client.some_attribute = "test_value"
-
-        result = self.decorator.some_attribute
-
-        self.assertEqual(result, "test_value")
+        self.assertIs(raised.exception, error)
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertTrue(record.is_failed)
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_sample_passes_arguments_correctly(self):
-        self.mock_client.image.sample = Mock(return_value = Mock())
+        self.client.image.responses.append(stubs.external.x_ai_image_response())
 
         self.decorator.image.sample(
-            prompt = "a robot",
-            model = "grok-imagine-image",
-            aspect_ratio = "16:9",
-            resolution = "2k",
-            image_format = "base64",
+            prompt = "a robot", model = "grok-imagine-image", aspect_ratio = "16:9", resolution = "2k", image_format = "base64",
         )
 
-        self.mock_client.image.sample.assert_called_once_with(
-            prompt = "a robot",
-            model = "grok-imagine-image",
-            aspect_ratio = "16:9",
-            resolution = "2k",
-            image_format = "base64",
-        )
+        self.assertEqual(self.client.image.requests, [{
+            "prompt": "a robot",
+            "model": "grok-imagine-image",
+            "aspect_ratio": "16:9",
+            "resolution": "2k",
+            "image_format": "base64",
+        }])
 
     def test_no_output_image_sizes(self):
-        configured_tool = stubs.domain.configured_tool(purpose = ToolType.images_gen)
-        decorator = XAIUsageTrackingDecorator(
-            wrapped_client = self.mock_client,
-            tracking_service = self.mock_tracking_service,
-            spending_service = self.mock_spending_service,
-            configured_tool = configured_tool,
-            rollback_db_session = self.mock_rollback_db_session,
-        )
-        self.mock_client.image.sample = Mock(return_value = Mock())
+        self.client.image.responses.append(stubs.external.x_ai_image_response())
+        decorator = self.di.x_ai_client(self.tool)
 
-        decorator.image.sample(prompt = "test", model = "grok-imagine-image")
+        decorator.image.sample(prompt = "test", model = self.tool.definition.id)
 
-        call_args = self.mock_tracking_service.track_image_model.call_args
-        self.assertIsNone(call_args.kwargs["output_image_sizes"])
-        self.mock_spending_service.validate_pre_flight.assert_called_once_with(
-            configured_tool,
-            input_image_sizes = None,
-            output_image_sizes = None,
+        record, = self.di.usage_record_repo.get_by_user(self.user.id)
+        self.assertIsNone(record.output_image_sizes)
+        self.assertEqual(record.model_cost_credits, 0)
+        self.assertAlmostEqual(
+            self.di.user_repo.get(self.user.id).credit_balance,
+            self.user.credit_balance - record.total_cost_credits,
         )
-        self.mock_spending_service.deduct.assert_called_once_with(configured_tool, 2.0)

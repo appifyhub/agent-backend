@@ -1,508 +1,375 @@
-import unittest
-from datetime import datetime
-from unittest.mock import MagicMock, Mock, patch
+from dataclasses import replace
+from datetime import datetime, timedelta
+from json import loads
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
+from uuid import UUID, uuid4
 
-import stubs
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.runnables import Runnable
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_url_shortener import FakeUrlShortener
+from langchain_core.messages import HumanMessage, ToolMessage
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
-from features.chat.chat_progress_notifier import ChatProgressNotifier
-from features.chat.command_processor import CommandProcessor
-from features.chat.llm_tools.llm_tool_library import LLMToolLibrary
+from features.chat.membership.chat_membership_service import ChatMembershipService
+from features.chat.message.chat_message_repo import ChatMessageRepository
+from features.external_tools.configured_tool import ConfiguredTool
+from features.external_tools.external_tool_library import GPT_5_6_SOL
 from features.integrations.integrations import resolve_agent_user
-from util.error_codes import UNEXPECTED_ERROR, WAITLIST_ACCOUNT_NOT_ACTIVE, WAITLIST_INVITED_POLICIES_REQUIRED
+from features.users.user_repo import UserRepository
+from util.config import config
 from util.errors import AuthorizationError
 
 
-class ChatAgentTest(unittest.TestCase):
+class ChatAgentTest(TestCase):
 
-    mock_di: DI
+    di: DI
     agent: ChatAgent
+    tool: ConfiguredTool | None
+    cutoff_sent_at: datetime
+    members: ChatMembershipService
+    messages: ChatMessageRepository
+    users: UserRepository
+    model: FakeChatModel
+    api: FakeTelegramBotAPI
 
     def setUp(self):
-        user = stubs.domain.user(
-            telegram_chat_id = "test_chat_id",
-            is_invited_to_start = False,
-        )
-        chat_config = stubs.domain.chat_config(
-            is_private = False,
-            reply_chance_percent = 50,
-        )
-
-        # Create mock DI with all necessary dependencies
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker = user
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat = chat_config
-        # noinspection PyPropertyAccess
-        self.mock_di.require_invoker_chat = MagicMock(return_value = chat_config)
-        # noinspection PyPropertyAccess
-        self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
-        # noinspection PyPropertyAccess
-        self.mock_di.command_processor = Mock(spec = CommandProcessor)
-        # noinspection PyPropertyAccess
-        self.mock_di.authorization_service = Mock()
-        self.mock_di.authorization_service.require_user_is_chat_ready.return_value = user
-        # noinspection PyPropertyAccess
-        self.mock_di.llm_tool_library = Mock(spec = LLMToolLibrary)
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_membership_service = Mock()
-        membership = stubs.domain.chat_membership(
-            user_id = user.id,
-            chat_id = chat_config.chat_id,
-            max_output_tokens = 500,
-        )
-        self.mock_di.chat_membership_service.get.return_value = membership
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_progress_notifier = Mock(return_value = Mock(spec = ChatProgressNotifier))
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_langchain_model = Mock(return_value = Mock(spec = BaseChatModel))
-
-        # setup platform SDK and settings controller for error routing
-        self.mock_platform_sdk = Mock()
-        self.mock_di.platform_bot_sdk = Mock(return_value = self.mock_platform_sdk)
-        settings_link = stubs.api.settings_link_response()
-        self.mock_di.settings_controller = Mock()
-        self.mock_di.settings_controller.create_settings_link = Mock(return_value = settings_link)
-
-        # setup method return values
-        self.mock_di.llm_tool_library.bind_tools.return_value = Mock(spec = Runnable)
-        # noinspection PyPropertyAccess
-        self.mock_di.llm_tool_library.tool_names = ["test_tool"]
-
-        configured_tool = stubs.domain.configured_tool()
-        self.cutoff_sent_at = datetime.now()
-
-        # configure message and attachment fetching used in ChatAgent.__init__
-        latest_message = stubs.domain.chat_message(
+        self.tool = domain.configured_tool(definition = GPT_5_6_SOL)
+        self.di = self.enterContext(di_for_tests())
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool, max_tokens = 500))
+        shortener = cast(FakeUrlShortener, self.di.url_shortener("https://example.com/settings"))
+        shortener.short_url = "https://example.com/settings"
+        self.api = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.cutoff_sent_at = datetime(2026, 1, 15, 12)
+        self.messages = self.di.chat_message_repo
+        self.users = self.di.user_repo
+        self.members = self.di.chat_membership_service
+        user = domain.user(telegram_chat_id = "test_chat_id", is_invited_to_start = False)
+        chat = domain.chat_config(is_private = False, reply_chance_percent = 100)
+        self.di.inject_invoker(user)
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(chat))
+        self.di.chat_config_repo.save(domain.chat_config(chat_id = uuid4(), external_id = "test_chat_id"))
+        self.users.save(user)
+        self.members.save(domain.chat_membership(user_id = user.id, chat_id = chat.chat_id, max_output_tokens = 500))
+        self.messages.save(domain.chat_message(
             message_id = "msg_123",
             sent_at = self.cutoff_sent_at,
             text = "Test message",
-        )
-        self.mock_di.chat_message_repo.get_latest_by_chat.return_value = [latest_message]
-        self.mock_di.chat_attachment_repo.get_all_by_message.return_value = []
-        self.mock_di.user_repo.get.return_value = None
-        self.mock_di.domain_langchain_mapper.map_to_langchain.return_value = HumanMessage("Test message")
+            ingestion_order = 7,
+        ))
+        self.agent = self.__create_agent()
 
-        self.agent = ChatAgent(
-            trigger_message_text = "Test message",
+    def __create_agent(self, trigger_text: str = "Test message", explicitly_addressed: bool = False) -> ChatAgent:
+        return self.di.chat_agent(
+            trigger_message_text = trigger_text,
             trigger_message_id = "msg_123",
-            configured_tool = configured_tool,
-            di = self.mock_di,
+            configured_tool = self.tool,
             cutoff_sent_at = self.cutoff_sent_at,
             cutoff_ingestion_order = 7,
-            explicitly_addressed = False,
-        )
-        # reset so per-test assertions don't count the init call
-        self.mock_di.chat_message_repo.get_latest_by_chat.reset_mock()
-
-    def test_init_fetches_invoker_membership(self):
-        self.mock_di.chat_membership_service.get.assert_called_once_with(
-            self.mock_di.invoker.id,
-            self.mock_di.invoker_chat.chat_id,
+            explicitly_addressed = explicitly_addressed,
         )
 
-    def test_init_does_not_fetch_chat_attachments_from_repository(self):
-        self.mock_di.chat_attachment_repo.get_all_by_message.assert_not_called()
+    def test_init_rejects_invoker_without_membership(self):
+        self.di.inject_invoker(domain.user(id = UUID(int = 99)))
+
+        with self.assertRaises(AuthorizationError):
+            self.__create_agent()
 
     def test_process_commands_no_api_key(self):
-        # Create bot without configured_tool
-        bot_no_key = ChatAgent(
-            trigger_message_text = "Test message",
-            trigger_message_id = "msg_123",
-            configured_tool = None,
-            di = self.mock_di,
-            cutoff_sent_at = self.cutoff_sent_at,
-            cutoff_ingestion_order = 7,
-            explicitly_addressed = False,
-        )
+        self.tool = None
+        agent = self.__create_agent()
 
-        self.mock_di.command_processor.execute.return_value = CommandProcessor.Result(
-            "ignored",
-            None,
-            None,
-        )
-        result = bot_no_key.process_commands()
+        result = agent.process_commands()
+
         self.assertFalse(result.is_handled)
         self.assertIsNone(result.reply)
+        self.assertEqual(self.model.prompts, [])
 
     def test_process_commands_failed(self):
-        self.mock_di.command_processor.execute.return_value = CommandProcessor.Result(
-            "failed",
-            "Failed to process command.",
-            UNEXPECTED_ERROR,
-        )
-        result = self.agent.process_commands()
+        result = self.__create_agent(trigger_text = "/start@bot@extra").process_commands()
+
         self.assertTrue(result.is_handled)
-        self.assertIsNotNone(result.reply)
         self.assertEqual(result.reply.content, "🤯")
-        self.mock_platform_sdk.send_text_message.assert_called_once()
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertIn("Failed to process command.", self.api.get_sent_messages("test_chat_id")[0]["text"])
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings", "⚙️")],
+        )
 
     def test_process_commands_success(self):
-        self.mock_di.command_processor.execute.return_value = CommandProcessor.Result(
-            "success",
-            None,
-            None,
-        )
-        result = self.agent.process_commands()
+        result = self.__create_agent(trigger_text = "/help").process_commands()
+
         self.assertTrue(result.is_handled)
         self.assertIsNone(result.reply)
+        self.assertEqual(self.model.prompts, [])
 
     def test_should_reply_private_chat(self):
-        self.mock_di.invoker_chat.is_private = True
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__trigger_message_text = "Hello"
+        self.di.invoker_chat.is_private = True
+        self.di.invoker_chat.reply_chance_percent = 0
 
         self.assertTrue(self.agent.should_reply())
 
     def test_should_reply_explicitly_addressed(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__explicitly_addressed = True
+        self.di.invoker_chat.reply_chance_percent = 0
+        agent = self.__create_agent(explicitly_addressed = True)
 
-        self.assertTrue(self.agent.should_reply())
+        self.assertTrue(agent.should_reply())
 
     def test_should_not_reply_when_bot_mention_is_only_quoted(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-
-        agent_username = resolve_agent_user(ChatConfigDB.ChatType.telegram).telegram_username
-        for quote_prefix in [">>", ">>>>"]:
+        self.di.invoker_chat.reply_chance_percent = 0
+        username = resolve_agent_user(ChatConfigDB.ChatType.telegram).telegram_username
+        for quote_prefix in (">>", ">>>>"):
             with self.subTest(quote_prefix = quote_prefix):
-                self.agent._ChatAgent__trigger_message_text = f"{quote_prefix} Hello @{agent_username}\n\nI agree"
+                agent = self.__create_agent(trigger_text = f"{quote_prefix} Hello @{username}\n\nI agree")
 
-                self.assertFalse(self.agent.should_reply())
+                self.assertFalse(agent.should_reply())
 
     def test_should_reply_with_aggregated_addressing_after_quote(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__explicitly_addressed = True
+        self.di.invoker_chat.reply_chance_percent = 0
+        agent = self.__create_agent(trigger_text = ">> Quoted message\n\nHello", explicitly_addressed = True)
 
-        self.assertTrue(self.agent.should_reply())
+        self.assertTrue(agent.should_reply())
 
-    @patch("random.randint")
-    def test_should_reply_random_chance(self, mock_randint):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 50
-        self.agent._ChatAgent__trigger_message_text = "Hello"
-
-        mock_randint.return_value = 25
-        self.assertTrue(self.agent.should_reply())
-
-        mock_randint.return_value = 75
-        self.assertFalse(self.agent.should_reply())
+    def test_should_reply_random_chance(self):
+        self.di.invoker_chat.reply_chance_percent = 50
+        # random sampling is a system dependency, not an application decision
+        with patch("random.randint", return_value = 25):
+            self.assertTrue(self.agent.should_reply())
+        with patch("random.randint", return_value = 75):
+            self.assertFalse(self.agent.should_reply())
 
     def test_is_dispatchable_rejects_empty_message(self):
-        self.mock_di.invoker_chat.is_private = True
-        self.mock_di.invoker_chat.reply_chance_percent = 100
-        self.agent._ChatAgent__trigger_message_text = " "
+        agent = self.__create_agent(trigger_text = " ")
 
-        self.assertFalse(self.agent._ChatAgent__is_dispatchable())
+        self.assertIsNone(agent.execute())
+        self.assertEqual(self.model.prompts, [])
 
     def test_should_not_reply_zero_chance(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__trigger_message_text = "Hello"
+        self.di.invoker_chat.reply_chance_percent = 0
 
         self.assertFalse(self.agent.should_reply())
 
-    def test_should_not_reply_100_chance(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 100
-        self.agent._ChatAgent__trigger_message_text = "Hello"
-
+    def test_should_reply_100_chance(self):
         self.assertTrue(self.agent.should_reply())
 
     def test_should_reply_group_chat(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.title = "Group Chat"
-        self.mock_di.invoker_chat.reply_chance_percent = 100
-        self.agent._ChatAgent__trigger_message_text = "Hello"
+        self.di.invoker_chat.title = "Group Chat"
 
         self.assertTrue(self.agent.should_reply())
 
-    # noinspection PyUnresolvedReferences
     def test_is_dispatchable_rejects_self_authored(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 100
-        self.agent._ChatAgent__trigger_message_text = "Hello"
-        agent_username = resolve_agent_user(ChatConfigDB.ChatType.telegram).telegram_username
-        self.mock_di.invoker.telegram_username = agent_username
+        self.di.invoker.telegram_username = resolve_agent_user(ChatConfigDB.ChatType.telegram).telegram_username
 
-        self.assertFalse(self.agent._ChatAgent__is_dispatchable())
+        self.assertIsNone(self.agent.execute())
+        self.assertEqual(self.model.prompts, [])
 
-    # noinspection PyUnresolvedReferences
     def test_is_dispatchable_accepts_other_user(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 100
-        self.agent._ChatAgent__trigger_message_text = "Hello"
-        self.mock_di.invoker.telegram_username = "other_user"
+        self.di.invoker.telegram_username = "other_user"
+        self.model.responses.append(external.ai_message(content = "Reply"))
 
-        self.assertTrue(self.agent._ChatAgent__is_dispatchable())
+        self.assertEqual(self.agent.execute().content, "Reply")
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_no_reply_needed(self, mock_should_reply):
-        mock_should_reply.return_value = False
-        result = self.agent.execute()
-        self.assertIsNone(result)
+    def test_execute_no_reply_needed(self):
+        self.di.invoker_chat.reply_chance_percent = 0
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_no_api_key(self, mock_should_reply):
-        mock_should_reply.return_value = True
+        self.assertIsNone(self.agent.execute())
+        self.assertEqual(self.model.prompts, [])
 
-        # Create a new bot instance without configured_tool (simulating no API key)
-        bot_no_key = ChatAgent(
-            trigger_message_text = "Test message",
-            trigger_message_id = "msg_123",
-            configured_tool = None,
-            di = self.mock_di,
-            cutoff_sent_at = self.cutoff_sent_at,
-            cutoff_ingestion_order = 7,
-            explicitly_addressed = False,
-        )
+    def test_execute_no_api_key(self):
+        self.tool = None
+        agent = self.__create_agent()
 
-        result = bot_no_key.execute()
+        result = agent.execute()
+
         self.assertEqual(result.content, "🤯")
-        self.mock_platform_sdk.send_text_message.assert_called_once()
-        self.assertIn("Not configured", self.mock_platform_sdk.send_text_message.call_args[0][1])
+        self.assertIn("Not configured", self.api.get_sent_messages("test_chat_id")[0]["text"])
+        self.assertEqual(self.model.prompts, [])
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_llm_response(self, mock_should_reply):
-        mock_should_reply.return_value = True
-
-        # Mock the tools_model invoke to return the final response
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = AIMessage("LLM response")
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+    def test_execute_llm_response(self):
+        self.model.responses.append(external.ai_message(content = "LLM response"))
 
         result = self.agent.execute()
+
         self.assertEqual(result.content, "LLM response")
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_removes_attachment_placeholder_from_llm_response(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = AIMessage("Here you go\n\n📎 [ a1 (image/png) ]\n\nDone")
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+    def test_execute_removes_attachment_placeholder_from_llm_response(self):
+        self.model.responses.append(external.ai_message(content = "Here you go\n\n📎 [ a1 (image/png) ]\n\nDone"))
+
+        self.assertEqual(self.agent.execute().content, "Here you go\n\nDone")
+
+    def test_execute_removes_attachment_placeholder_only_llm_response(self):
+        self.model.responses.append(external.ai_message(content = "📎 [ a1 (image/png) ]"))
+
+        self.assertEqual(self.agent.execute().content, "")
+
+    def test_execute_removes_attachment_placeholder_from_llm_content_blocks(self):
+        self.model.responses.append(external.ai_message(content = [
+            {"type": "text", "text": "Here\n📎 [ a1 (image/png) ]"},
+            "📎 [ a2 ]",
+            {"type": "thinking", "thinking": "internal"},
+        ]))
 
         result = self.agent.execute()
 
-        self.assertEqual(result.content, "Here you go\n\nDone")
+        self.assertEqual(result.content, [
+            {"type": "text", "text": "Here"},
+            {"type": "thinking", "thinking": "internal"},
+        ])
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_removes_attachment_placeholder_only_llm_response(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = AIMessage("📎 [ a1 (image/png) ]")
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
-
-        result = self.agent.execute()
-
-        self.assertEqual(result.content, "")
-
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_removes_attachment_placeholder_from_llm_content_blocks(
-        self,
-        mock_should_reply,
-    ):
-        mock_should_reply.return_value = True
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = AIMessage(
-            content = [
-                {"type": "text", "text": "Here\n📎 [ a1 (image/png) ]"},
-                "📎 [ a2 ]",
-                {"type": "thinking", "thinking": "internal"},
-            ],
-        )
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+    def test_execute_tool_call(self):
+        self.model.responses.extend([
+            external.ai_message(content = "", tool_calls = [{"id": "1", "name": "get_version", "args": {}}]),
+            external.ai_message(content = "Final response"),
+        ])
 
         result = self.agent.execute()
 
-        self.assertEqual(
-            result.content,
-            [
-                {"type": "text", "text": "Here"},
-                {"type": "thinking", "thinking": "internal"},
-            ],
-        )
-
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_tool_call(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        tool_call = {"id": "1", "name": "test_tool", "args": {}}
-
-        # Create AI messages with tool_calls attribute
-        ai_with_tools = AIMessage(content = "", tool_calls = [tool_call])
-        ai_final = AIMessage("Final response")
-
-        # Mock the tools_model to return first tool calls, then final response
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.side_effect = [ai_with_tools, ai_final]
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
-        self.mock_di.llm_tool_library.invoke.return_value = "Tool result"
-
-        result = self.agent.execute()
         self.assertEqual(result.content, "Final response")
+        tool_messages = [message for message in self.model.prompts[1] if isinstance(message, ToolMessage)]
+        self.assertEqual([message.tool_call_id for message in tool_messages], ["1"])
+        self.assertEqual(loads(tool_messages[0].content)["service_version"], f"v{config.version}")
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_exception(self, mock_should_reply):
-        mock_should_reply.return_value = True
-
-        # Mock the tools_model to raise an exception
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.side_effect = Exception("Test error")
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
+    def test_execute_exception(self):
+        self.model.responses.append(OSError("Test error"))
 
         result = self.agent.execute()
+
         self.assertEqual(result.content, "🤯")
-        self.mock_platform_sdk.send_text_message.assert_called_once()
-        self.assertIn("Test error", self.mock_platform_sdk.send_text_message.call_args[0][1])
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertIn("Test error", self.api.get_sent_messages("test_chat_id")[0]["text"])
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings", "⚙️")],
+        )
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_max_iterations_exceeded(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        self.agent._ChatAgent__max_iterations = 2
+    def test_execute_max_iterations_exceeded(self):
+        membership = self.members.get(self.di.invoker.id, self.di.invoker_chat.chat_id)
+        self.members.save(replace(membership, max_iterations = 2))
+        agent = self.__create_agent()
+        self.model.responses.extend([
+            external.ai_message(content = "", tool_calls = [{"id": "1", "name": "get_version", "args": {}}]),
+            external.ai_message(content = "", tool_calls = [{"id": "2", "name": "get_version", "args": {}}]),
+        ])
 
-        # Create AI messages with tool_calls to simulate continued iterations
-        tool_call = {"id": "1", "name": "test_tool", "args": {}}
-        ai_with_tools = AIMessage(content = "", tool_calls = [tool_call])
+        result = agent.execute()
 
-        # Make the LLM always return messages with tool calls to continue iterations
-        mock_tools_model = Mock()
-        mock_tools_model.invoke.return_value = ai_with_tools
-        self.mock_di.llm_tool_library.bind_tools.return_value = mock_tools_model
-        self.mock_di.llm_tool_library.invoke.return_value = "Tool result"
-
-        result = self.agent.execute()
-
-        # error is routed to private chat, originating chat gets emoji only
-        self.assertIsInstance(result, AIMessage)
         self.assertEqual(result.content, "⚠️")
-        self.mock_platform_sdk.send_text_message.assert_called_once()
-        sent_text = self.mock_platform_sdk.send_text_message.call_args[0][1]
-        self.assertIn("Reached max iterations", sent_text)
-        self.assertIn("2", sent_text)
+        self.assertIn("Reached max iterations (2)", self.api.get_sent_messages("test_chat_id")[0]["text"])
+        self.assertEqual(len(self.model.prompts), 2)
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_waitlist_guard_blocks_unknown_commands(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
-            "Waitlisted account is not active yet",
-            WAITLIST_ACCOUNT_NOT_ACTIVE,
-        )
+    def test_execute_waitlist_guard_blocks_unknown_commands(self):
+        self.di.invoker.is_on_waitlist = True
 
         result = self.agent.execute()
-        self.assertIsNotNone(result)
-        self.assertEqual(result.content, "🔒")
-        self.assertIn("waitlist", self.mock_platform_sdk.send_text_message.call_args[0][1].lower())
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_execute_policy_guard_blocks_active_user_without_policy(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
-            "Accept policies in /settings first.",
-            WAITLIST_INVITED_POLICIES_REQUIRED,
-        )
+        self.assertEqual(result.content, "🔒")
+        self.assertIn("waitlist", self.api.get_sent_messages("test_chat_id")[0]["text"].lower())
+        self.assertEqual(self.model.prompts, [])
+
+    def test_execute_policy_guard_blocks_active_user_without_policy(self):
+        self.di.invoker.are_policies_accepted = False
 
         result = self.agent.execute()
-        self.assertIsNotNone(result)
+
         self.assertEqual(result.content, "🔒")
-        self.assertIn("policies", self.mock_platform_sdk.send_text_message.call_args[0][1].lower())
+        self.assertIn("policies", self.api.get_sent_messages("test_chat_id")[0]["text"].lower())
+        self.assertEqual(self.model.prompts, [])
 
     def test_init_bounds_history_to_claimed_cutoff(self):
-        self.mock_di.chat_message_repo.get_latest_by_chat.reset_mock()
-        configured_tool = stubs.domain.configured_tool()
-
-        ChatAgent(
-            trigger_message_text = "Test message",
-            trigger_message_id = "msg_123",
-            configured_tool = configured_tool,
-            di = self.mock_di,
-            cutoff_sent_at = self.cutoff_sent_at,
-            cutoff_ingestion_order = 7,
-            explicitly_addressed = True,
+        self.messages.save(domain.chat_message(
+            message_id = "earlier",
+            text = "Earlier",
+            sent_at = self.cutoff_sent_at - timedelta(seconds = 1),
+            ingestion_order = 6,
+        ))
+        self.messages.save(
+            domain.chat_message(message_id = "later", text = "Later", sent_at = self.cutoff_sent_at, ingestion_order = 8),
         )
+        membership = self.members.get(self.di.invoker.id, self.di.invoker_chat.chat_id)
+        self.members.save(replace(membership, max_chat_history_depth = 1))
+        agent = self.__create_agent(explicitly_addressed = True)
+        self.model.responses.append(external.ai_message(content = "Reply"))
 
-        self.mock_di.chat_message_repo.get_latest_by_chat.assert_called_once_with(
-            chat_id = self.mock_di.invoker_chat.chat_id,
-            limit = 30,
-            cutoff_sent_at = self.cutoff_sent_at,
-            cutoff_ingestion_order = 7,
-        )
+        agent.execute()
+
+        history = [message.content for message in self.model.prompts[0] if isinstance(message, HumanMessage)]
+        self.assertEqual(len(history), 1)
+        self.assertIn("Test message", history[0])
+        self.assertNotIn("Earlier", history[0])
+        self.assertNotIn("Later", history[0])
 
     def test_should_reply_to_explicitly_addressed_group_burst(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__explicitly_addressed = True
+        self.di.invoker_chat.reply_chance_percent = 0
 
-        self.assertTrue(self.agent.should_reply())
+        self.assertTrue(self.__create_agent(explicitly_addressed = True).should_reply())
 
     def test_should_not_reply_to_unaddressed_zero_chance_group_burst(self):
-        self.mock_di.invoker_chat.is_private = False
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__explicitly_addressed = False
+        self.di.invoker_chat.reply_chance_percent = 0
 
-        self.assertFalse(self.agent.should_reply())
+        self.assertFalse(self.__create_agent().should_reply())
 
     def test_should_reply_to_private_burst_without_explicit_address(self):
-        self.mock_di.invoker_chat.is_private = True
-        self.mock_di.invoker_chat.reply_chance_percent = 0
-        self.agent._ChatAgent__explicitly_addressed = False
+        self.di.invoker_chat.is_private = True
+        self.di.invoker_chat.reply_chance_percent = 0
 
-        self.assertTrue(self.agent.should_reply())
+        self.assertTrue(self.__create_agent().should_reply())
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_error_routes_to_private_chat_with_settings_link(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
-            "Some auth error",
-            WAITLIST_ACCOUNT_NOT_ACTIVE,
-        )
+    def test_error_routes_to_private_chat_with_settings_link(self):
+        self.di.invoker.is_on_waitlist = True
 
         result = self.agent.execute()
+
         self.assertEqual(result.content, "🔒")
-        sent_text = self.mock_platform_sdk.send_text_message.call_args[0][1]
-        sent_chat = self.mock_platform_sdk.send_text_message.call_args[0][0]
-        self.assertEqual(sent_chat, "test_chat_id")
+        sent_text = self.api.get_sent_messages("test_chat_id")[0]["text"]
         self.assertIn("🔒", sent_text)
-        self.assertIn("Some auth error", sent_text)
-        self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            "test_chat_id",
-            "https://example.com/settings",
+        self.assertIn("The waitlist is not open yet", sent_text)
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings", "⚙️")],
         )
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_error_falls_back_to_inline_when_no_private_chat(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        self.mock_di.invoker.telegram_chat_id = None
-        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
-            "Some auth error",
-            WAITLIST_ACCOUNT_NOT_ACTIVE,
-        )
+    def test_error_falls_back_to_inline_when_no_private_chat(self):
+        self.di.invoker.telegram_chat_id = None
+        self.di.invoker.is_on_waitlist = True
 
         result = self.agent.execute()
-        self.assertIn("Some auth error", result.content)
-        self.assertIn("Check settings", result.content)
-        self.mock_platform_sdk.send_text_message.assert_not_called()
-        self.mock_platform_sdk.send_button_link.assert_not_called()
 
-    @patch("features.chat.chat_agent.ChatAgent.should_reply")
-    def test_error_routing_swallows_private_chat_delivery_failure(self, mock_should_reply):
-        mock_should_reply.return_value = True
-        self.mock_platform_sdk.send_text_message.side_effect = Exception("Network error")
-        self.mock_di.authorization_service.require_user_is_chat_ready.side_effect = AuthorizationError(
-            "Some auth error",
-            WAITLIST_ACCOUNT_NOT_ACTIVE,
+        self.assertIn("The waitlist is not open yet", result.content)
+        self.assertIn("Check settings", result.content)
+        self.assertEqual(self.api.get_sent_messages("test_chat_id"), [])
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
         )
 
+    def test_error_routing_swallows_private_chat_delivery_failure(self):
+        self.api.delivery_errors["test_chat_id"] = OSError("Network error")
+        self.di.invoker.is_on_waitlist = True
+
         result = self.agent.execute()
-        self.assertIn("Some auth error", result.content)
+
+        self.assertIn("The waitlist is not open yet", result.content)
         self.assertIn("Check settings", result.content)
-        self.mock_platform_sdk.send_button_link.assert_not_called()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
+        )

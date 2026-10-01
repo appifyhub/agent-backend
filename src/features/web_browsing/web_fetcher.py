@@ -3,7 +3,6 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-import requests
 from requests.exceptions import RequestException, Timeout
 
 from di.di import DI
@@ -14,6 +13,7 @@ from features.web_browsing.twitter_utils import resolve_tweet_id
 from features.web_browsing.uri_cleanup import simplify_url
 from util import log
 from util.config import config
+from util.http_client import HTTPClient
 
 DEFAULT_HEADERS = {"User-Agent": config.user_agent}
 CACHE_PREFIX = "web-fetcher"
@@ -37,6 +37,7 @@ class WebFetcher:
     __cache_ttl_json: timedelta
     __force: bool
     __tweet_fetcher: TwitterStatusFetcher | None
+    __http_client: HTTPClient
     __di: DI
 
     def __init__(
@@ -53,6 +54,7 @@ class WebFetcher:
     ):
         self.url = url
         self.__di = di
+        self.__http_client = di.http_client()
         self.html = None
         self.json = None
         self.__made_request = False
@@ -64,7 +66,7 @@ class WebFetcher:
         self.__cache_ttl_html = cache_ttl_html or DEFAULT_CACHE_TTL_HTML
         self.__cache_ttl_json = cache_ttl_json or DEFAULT_CACHE_TTL_JSON
         self.__force = force
-        self.__tweet_id = resolve_tweet_id(self.url)
+        self.__tweet_id = resolve_tweet_id(self.url, http_client = self.__http_client)
         if self.__tweet_id:
             log.t(f"Resolved tweet ID: {self.__tweet_id}")
             x_api_tool = di.tool_choice_resolver.require_tool(
@@ -121,7 +123,7 @@ class WebFetcher:
                     self.html = f"<html><body>\n<p>\n{response_text}\n</p>\n</body></html>"
                 else:
                     # run a standard request for a web page
-                    response = requests.get(
+                    response = self.__http_client.get(
                         self.url,
                         headers = self.__headers,
                         params = self.__params,
@@ -182,7 +184,7 @@ class WebFetcher:
                     response_text = self.__tweet_fetcher.execute()
                     self.json = {"content": response_text}
                 else:
-                    response = requests.get(
+                    response = self.__http_client.get(
                         self.url,
                         headers = self.__headers,
                         params = self.__params,

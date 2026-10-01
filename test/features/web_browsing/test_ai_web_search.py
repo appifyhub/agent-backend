@@ -1,201 +1,158 @@
-import unittest
-from unittest.mock import Mock, patch
+from typing import cast
+from unittest import TestCase
 
-import stubs
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_google_ai_client import FakeGoogleAIClient
+from fakes.fake_x_ai_client import FakeXAIClient
 from langchain_core.messages import AIMessage
+from stubs import domain, external
+from util.di_utils import di_for_tests
+from xai_sdk.proto import chat_pb2
 
 from di.di import DI
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import GEMINI_FLASH_LATEST, GROK_4_3, SONAR
 from features.external_tools.external_tool_provider_library import ANTHROPIC
-from features.web_browsing.ai_web_search import AIWebSearch
+from util.error_codes import EXTERNAL_EMPTY_RESPONSE, UNSUPPORTED_PROVIDER
 from util.errors import ConfigurationError, ExternalServiceError
 
 
-def _make_di() -> DI:
-    di = Mock(spec = DI)
-    di.invoker_chat = Mock()
-    return di
+class AIWebSearchPerplexityTest(TestCase):
 
-
-class AIWebSearchPerplexityTest(unittest.TestCase):
+    di: DI
+    tool: ConfiguredTool
+    model: FakeChatModel
 
     def setUp(self):
-        self.di = _make_di()
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(domain.user())
+        self.di.inject_invoker_chat(domain.chat_config())
+        self.tool = domain.configured_tool(definition = SONAR, purpose = ToolType.search)
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool, max_tokens = 500))
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_perplexity", return_value = "\n\nSources:\n- [x](http://s)")
-    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
-    def test_perplexity_path_returns_ai_message_with_sources(self, mock_resolvers, mock_sources):
-        mock_resolvers.sentient_web_search.return_value = "system prompt"
-        configured_tool = stubs.domain.configured_tool(definition = SONAR, purpose = ToolType.search)
-        mock_llm = Mock()
-        mock_llm.invoke.return_value = AIMessage(content = "answer text", additional_kwargs = {})
-        self.di.chat_langchain_model.return_value = mock_llm
+    def test_perplexity_path_returns_ai_message_with_sources(self):
+        self.model.responses.append(external.ai_message(
+            content = "answer text",
+            additional_kwargs = {"search_results": [external.perplexity_search_result()]},
+        ))
 
-        result = AIWebSearch("query", configured_tool, self.di).execute()
+        result = self.di.ai_web_search("query", self.tool).execute()
 
         self.assertIsInstance(result, AIMessage)
-        self.assertIn("answer text", result.content)
-        self.assertIn("Sources:", result.content)
+        self.assertEqual(result.content, "answer text\n\nSources:\n- [example.com](https://example.com/short)")
+        messages, = self.model.prompts
+        self.assertEqual(messages[0].type, "system")
+        self.assertTrue(messages[0].content)
+        self.assertEqual(messages[1].type, "human")
+        self.assertEqual(messages[1].content, "query")
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_perplexity", return_value = "")
-    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
-    def test_perplexity_raises_on_empty_content(self, mock_resolvers, mock_sources):
-        mock_resolvers.sentient_web_search.return_value = "system prompt"
-        configured_tool = stubs.domain.configured_tool(definition = SONAR, purpose = ToolType.search)
-        mock_llm = Mock()
-        mock_llm.invoke.return_value = AIMessage(content = "", additional_kwargs = {})
-        self.di.chat_langchain_model.return_value = mock_llm
+    def test_perplexity_raises_on_empty_content(self):
+        self.model.responses.append(external.ai_message(content = ""))
 
-        with self.assertRaises(ExternalServiceError):
-            AIWebSearch("query", configured_tool, self.di).execute()
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.di.ai_web_search("query", self.tool).execute()
+
+        self.assertEqual(raised.exception.error_code, EXTERNAL_EMPTY_RESPONSE)
 
 
-class AIWebSearchGoogleTest(unittest.TestCase):
+class AIWebSearchGoogleTest(TestCase):
+
+    di: DI
+    tool: ConfiguredTool
+    client: FakeGoogleAIClient
 
     def setUp(self):
-        self.di = _make_di()
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(domain.user())
+        self.tool = domain.configured_tool(definition = GEMINI_FLASH_LATEST, purpose = ToolType.search)
+        self.client = cast(FakeGoogleAIClient, self.di.base_google_ai_client(self.tool.token.get_secret_value()))
 
-    def _make_response(self, text: str = "google answer", query_count: int = 2) -> Mock:
-        response = Mock()
-        response.text = text
-        candidate = Mock()
-        candidate.content = Mock()
-        candidate.content.parts = [Mock()]
-        grounding = Mock()
-        grounding.web_search_queries = ["q"] * query_count
-        grounding.grounding_chunks = []
-        candidate.grounding_metadata = grounding
-        response.candidates = [candidate]
-        return response
+    def test_google_path_returns_ai_message_with_sources(self):
+        self.client.models.responses.append(external.google_grounding_response(
+            grounding_chunks = [external.google_grounding_chunk()],
+        ))
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_google", return_value = "\n\nSources:\n- [x](http://s)")
-    def test_google_path_returns_ai_message_with_sources(self, mock_sources):
-        configured_tool = stubs.domain.configured_tool(definition = GEMINI_FLASH_LATEST, purpose = ToolType.search)
-        response = self._make_response()
-        mock_client = Mock()
-        mock_client.models.generate_content.return_value = response
-        self.di.google_search_client.return_value = mock_client
-
-        result = AIWebSearch("query", configured_tool, self.di).execute()
+        result = self.di.ai_web_search("query", self.tool).execute()
 
         self.assertIsInstance(result, AIMessage)
-        self.assertIn("google answer", result.content)
-        self.assertIn("Sources:", result.content)
+        self.assertEqual(result.content, "Google answer\n\nSources:\n- [example.com](https://example.com/short)")
+        request, = self.client.models.requests
+        self.assertEqual(request["model"], self.tool.definition.id)
+        self.assertEqual(request["contents"], "query")
+        tool, = request["config"].tools
+        self.assertIsNotNone(tool.google_search)
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_google", return_value = "")
-    def test_google_uses_search_client(self, mock_sources):
-        configured_tool = stubs.domain.configured_tool(definition = GEMINI_FLASH_LATEST, purpose = ToolType.search)
-        response = self._make_response()
-        mock_client = Mock()
-        mock_client.models.generate_content.return_value = response
-        self.di.google_search_client.return_value = mock_client
+    def test_google_raises_on_no_candidates(self):
+        self.client.models.responses.append(external.google_grounding_response(candidates = []))
 
-        AIWebSearch("query", configured_tool, self.di).execute()
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.di.ai_web_search("query", self.tool).execute()
 
-        self.di.google_search_client.assert_called_once_with(configured_tool)
+        self.assertEqual(raised.exception.error_code, EXTERNAL_EMPTY_RESPONSE)
+        self.assertIn("No candidates", str(raised.exception))
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_google", return_value = "")
-    def test_google_raises_on_no_candidates(self, mock_sources):
-        configured_tool = stubs.domain.configured_tool(definition = GEMINI_FLASH_LATEST, purpose = ToolType.search)
-        response = Mock()
-        response.candidates = []
-        mock_client = Mock()
-        mock_client.models.generate_content.return_value = response
-        self.di.google_search_client.return_value = mock_client
+    def test_google_raises_on_empty_answer(self):
+        self.client.models.responses.append(external.google_grounding_response(text = ""))
 
-        with self.assertRaises(ExternalServiceError):
-            AIWebSearch("query", configured_tool, self.di).execute()
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.di.ai_web_search("query", self.tool).execute()
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_google", return_value = "")
-    def test_google_raises_on_empty_answer(self, mock_sources):
-        configured_tool = stubs.domain.configured_tool(definition = GEMINI_FLASH_LATEST, purpose = ToolType.search)
-        response = self._make_response(text = "")
-        mock_client = Mock()
-        mock_client.models.generate_content.return_value = response
-        self.di.google_search_client.return_value = mock_client
-
-        with self.assertRaises(ExternalServiceError):
-            AIWebSearch("query", configured_tool, self.di).execute()
+        self.assertEqual(raised.exception.error_code, EXTERNAL_EMPTY_RESPONSE)
+        self.assertIn("empty answer", str(raised.exception))
 
 
-class AIWebSearchXAITest(unittest.TestCase):
+class AIWebSearchXAITest(TestCase):
+
+    di: DI
+    tool: ConfiguredTool
+    client: FakeXAIClient
 
     def setUp(self):
-        self.di = _make_di()
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(domain.user())
+        self.di.inject_invoker_chat(domain.chat_config())
+        self.tool = domain.configured_tool(definition = GROK_4_3, purpose = ToolType.search)
+        self.client = cast(FakeXAIClient, self.di.base_x_ai_client(self.tool))
 
-    def _make_client(self, content: str = "xai answer") -> Mock:
-        response = Mock()
-        response.content = content
-        response.citations = []
-        response.inline_citations = []
-        mock_chat = Mock()
-        mock_chat.sample.return_value = response
-        mock_client = Mock()
-        mock_client.chat.create.return_value = mock_chat
-        self.di.x_ai_client.return_value = mock_client
-        return mock_client
+    def test_xai_path_uses_both_search_tools(self):
+        self.client.chat.responses.append(external.x_ai_chat_response(citations = ["https://example.com/page"]))
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_xai", return_value = "\n\nSources:\n- [x](http://s)")
-    @patch("features.web_browsing.ai_web_search.x_search", return_value = "x-search-tool")
-    @patch("features.web_browsing.ai_web_search.web_search", return_value = "web-search-tool")
-    @patch("features.web_browsing.ai_web_search.user", return_value = "user-message")
-    @patch("features.web_browsing.ai_web_search.system", return_value = "system-message")
-    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
-    def test_xai_path_uses_both_search_tools(
-        self,
-        mock_resolvers,
-        mock_system,
-        mock_user,
-        mock_web_search,
-        mock_x_search,
-        mock_sources,
-    ):
-        mock_resolvers.sentient_web_search.return_value = "system prompt"
-        configured_tool = stubs.domain.configured_tool(definition = GROK_4_3, purpose = ToolType.search)
-        mock_client = self._make_client()
-
-        result = AIWebSearch("query", configured_tool, self.di).execute()
+        result = self.di.ai_web_search("query", self.tool).execute()
 
         self.assertIsInstance(result, AIMessage)
-        self.assertIn("xai answer", result.content)
-        mock_client.chat.create.assert_called_once()
-        call_kwargs = mock_client.chat.create.call_args.kwargs
-        self.assertEqual(call_kwargs["model"], configured_tool.definition.id)
-        self.assertEqual(call_kwargs["messages"], ["system-message", "user-message"])
-        self.assertEqual(call_kwargs["tools"], ["web-search-tool", "x-search-tool"])
-        self.assertEqual(call_kwargs["include"], ["inline_citations"])
+        self.assertEqual(result.content, "xAI answer\n\nSources:\n- [example.com](https://example.com/short)")
+        request, = self.client.chat.requests
+        self.assertEqual(request["model"], self.tool.definition.id)
+        self.assertEqual(len(request["messages"]), 2)
+        self.assertEqual(request["messages"][0].role, chat_pb2.MessageRole.ROLE_SYSTEM)
+        self.assertTrue(request["messages"][0].content[0].text)
+        self.assertEqual(request["messages"][1].role, chat_pb2.MessageRole.ROLE_USER)
+        self.assertEqual(request["messages"][1].content[0].text, "query")
+        web_tool, x_tool = request["tools"]
+        self.assertTrue(web_tool.HasField("web_search"))
+        self.assertTrue(x_tool.HasField("x_search"))
+        self.assertEqual(request["include"], ["inline_citations"])
 
-    @patch("features.web_browsing.ai_web_search.format_sources_from_xai", return_value = "")
-    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
-    def test_xai_uses_xai_client(self, mock_resolvers, mock_sources):
-        mock_resolvers.sentient_web_search.return_value = "system prompt"
-        configured_tool = stubs.domain.configured_tool(definition = GROK_4_3, purpose = ToolType.search)
-        self._make_client()
+    def test_xai_raises_on_empty_answer(self):
+        self.client.chat.responses.append(external.x_ai_chat_response(content = ""))
 
-        AIWebSearch("query", configured_tool, self.di).execute()
+        with self.assertRaises(ExternalServiceError) as raised:
+            self.di.ai_web_search("query", self.tool).execute()
 
-        self.di.x_ai_client.assert_called_once()
-        self.assertEqual(self.di.x_ai_client.call_args.args[0], configured_tool)
-
-    @patch("features.web_browsing.ai_web_search.format_sources_from_xai", return_value = "")
-    @patch("features.web_browsing.ai_web_search.prompt_resolvers")
-    def test_xai_raises_on_empty_answer(self, mock_resolvers, mock_sources):
-        mock_resolvers.sentient_web_search.return_value = "system prompt"
-        configured_tool = stubs.domain.configured_tool(definition = GROK_4_3, purpose = ToolType.search)
-        self._make_client(content = "")
-
-        with self.assertRaises(ExternalServiceError):
-            AIWebSearch("query", configured_tool, self.di).execute()
+        self.assertEqual(raised.exception.error_code, EXTERNAL_EMPTY_RESPONSE)
 
 
-class AIWebSearchProviderBranchingTest(unittest.TestCase):
+class AIWebSearchProviderBranchingTest(TestCase):
 
     def test_unsupported_provider_raises_configuration_error(self):
-        definition = stubs.domain.external_tool(
-            provider = ANTHROPIC,
-            types = [ToolType.search],
+        di = self.enterContext(di_for_tests())
+        configured = domain.configured_tool(
+            definition = domain.external_tool(provider = ANTHROPIC, types = [ToolType.search]),
+            purpose = ToolType.search,
         )
-        configured = stubs.domain.configured_tool(definition = definition, purpose = ToolType.search)
-        with self.assertRaises(ConfigurationError):
-            AIWebSearch("q", configured, _make_di()).execute()
+
+        with self.assertRaises(ConfigurationError) as raised:
+            di.ai_web_search("query", configured).execute()
+
+        self.assertEqual(raised.exception.error_code, UNSUPPORTED_PROVIDER)

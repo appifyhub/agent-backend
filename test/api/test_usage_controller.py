@@ -1,410 +1,150 @@
-import unittest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, PropertyMock
+from unittest import TestCase
 from uuid import UUID
 
 import stubs
+from util.di_utils import di_for_tests
 
-from api.authorization_service import AuthorizationService
 from api.usage_controller import UsageController
 from di.di import DI
-from features.accounting.usage.usage_record_repo import UsageRecordRepository
-from util.error_codes import NOT_TARGET_USER
+from features.users.user import User
+from util.error_codes import INVALID_LIMIT, NOT_TARGET_USER
 from util.errors import AuthorizationError, ValidationError
 
 
-class UsageControllerTest(unittest.TestCase):
+class UsageControllerTest(TestCase):
 
-    mock_di: DI
-    mock_authorization_service: AuthorizationService
-    mock_usage_record_repo: UsageRecordRepository
+    di: DI
+    controller: UsageController
+    user: User
+    other: User
 
     def setUp(self):
-        self.mock_di = MagicMock(spec = DI)
-
-        self.mock_authorization_service = MagicMock(spec = AuthorizationService)
-        # noinspection PyPropertyAccess
-        self.mock_di.authorization_service = self.mock_authorization_service
-
-        self.mock_usage_record_repo = MagicMock(spec = UsageRecordRepository)
-        # noinspection PyPropertyAccess
-        self.mock_di.usage_record_repo = self.mock_usage_record_repo
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.other = self.di.user_repo.save(stubs.domain.user(
+            id = UUID("22222222-2222-4222-8222-b22222222222"),
+            telegram_user_id = None, whatsapp_user_id = None, connect_key = "OTHER-USER",
+        ))
+        self.di.inject_invoker(self.user)
+        self.controller = self.di.usage_controller
 
     def test_fetch_usage_records_success(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        record = self.di.usage_record_repo.create(stubs.domain.usage_record())
 
-        records = [
-            stubs.domain.usage_record(user_id = invoker_user.id, payer_id = invoker_user.id),
-        ]
-        self.mock_usage_record_repo.get_by_user.return_value = records
-
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_records(invoker_user.id.hex)
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].user_id, invoker_user.id)
-        self.mock_authorization_service.authorize_for_user.assert_called_once_with(
-            invoker_user, invoker_user.id.hex,
-        )
-        self.mock_usage_record_repo.get_by_user.assert_called_once()
+        self.assertEqual(self.controller.fetch_usage_records(self.user.id.hex), [record])
 
     def test_fetch_usage_records_with_pagination(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        records = self.di.usage_record_repo.create_all([
+            stubs.domain.usage_record(timestamp = datetime(2026, 1, day, tzinfo = timezone.utc))
+            for day in range(1, 6)
+        ])
 
-        records = [
-            stubs.domain.usage_record(
-                user_id = invoker_user.id,
-                payer_id = invoker_user.id,
-                total_cost_credits = i,
-            )
-            for i in range(5)
-        ]
-        self.mock_usage_record_repo.get_by_user.return_value = records[2:4]
+        result = self.controller.fetch_usage_records(self.user.id.hex, skip = 2, limit = 2)
 
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_records(
-            invoker_user.id.hex,
-            skip = 2,
-            limit = 2,
-        )
-
-        self.assertEqual(len(result), 2)
-        self.mock_usage_record_repo.get_by_user.assert_called_once_with(
-            invoker_user.id,
-            skip = 2,
-            limit = 2,
-            start_date = None,
-            end_date = None,
-            exclude_self = False,
-            include_sponsored = False,
-            include_transfers = True,
-            only_transfers = False,
-            tool_id = None,
-            purpose = None,
-            provider_id = None,
-        )
+        self.assertEqual(result, [records[2], records[1]])
 
     def test_fetch_usage_records_with_date_filters(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        records = self.di.usage_record_repo.create_all([
+            stubs.domain.usage_record(timestamp = datetime(2026, 1, day, tzinfo = timezone.utc))
+            for day in (1, 15, 31)
+        ])
 
-        start = datetime(2024, 1, 1, tzinfo = timezone.utc)
-        end = datetime(2024, 12, 31, tzinfo = timezone.utc)
-        records = [
-            stubs.domain.usage_record(user_id = invoker_user.id, payer_id = invoker_user.id),
-        ]
-        self.mock_usage_record_repo.get_by_user.return_value = records
-
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_records(
-            invoker_user.id.hex,
-            start_date = start,
-            end_date = end,
+        result = self.controller.fetch_usage_records(
+            self.user.id.hex,
+            start_date = datetime(2026, 1, 10, tzinfo = timezone.utc),
+            end_date = datetime(2026, 1, 20, tzinfo = timezone.utc),
         )
 
-        self.assertEqual(len(result), 1)
-        self.mock_usage_record_repo.get_by_user.assert_called_once_with(
-            invoker_user.id,
-            skip = 0,
-            limit = 50,
-            start_date = start,
-            end_date = end,
-            exclude_self = False,
-            include_sponsored = False,
-            include_transfers = True,
-            only_transfers = False,
-            tool_id = None,
-            purpose = None,
-            provider_id = None,
-        )
+        self.assertEqual(result, [records[1]])
 
     def test_fetch_usage_records_with_sponsored_flags(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        self.di.usage_record_repo.create(stubs.domain.usage_record())
+        sponsored = self.di.usage_record_repo.create(stubs.domain.usage_record(user_id = self.other.id))
+        self.di.usage_record_repo.create(stubs.domain.usage_record(user_id = self.other.id, payer_id = self.other.id))
 
-        self.mock_usage_record_repo.get_by_user.return_value = []
+        result = self.controller.fetch_usage_records(self.user.id.hex, exclude_self = True, include_sponsored = True)
 
-        controller = UsageController(self.mock_di)
-        controller.fetch_usage_records(
-            invoker_user.id.hex,
-            exclude_self = True,
-            include_sponsored = True,
-        )
-
-        self.mock_usage_record_repo.get_by_user.assert_called_once_with(
-            invoker_user.id,
-            skip = 0,
-            limit = 50,
-            start_date = None,
-            end_date = None,
-            exclude_self = True,
-            include_sponsored = True,
-            include_transfers = True,
-            only_transfers = False,
-            tool_id = None,
-            purpose = None,
-            provider_id = None,
-        )
+        self.assertEqual(result, [sponsored])
 
     def test_fetch_usage_records_empty_result(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
-
-        self.mock_usage_record_repo.get_by_user.return_value = []
-
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_records(invoker_user.id.hex)
-
-        self.assertEqual(len(result), 0)
+        self.assertEqual(self.controller.fetch_usage_records(self.user.id.hex), [])
 
     def test_fetch_usage_records_limit_exceeds_maximum(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
-
-        controller = UsageController(self.mock_di)
-
         with self.assertRaises(ValidationError) as context:
-            controller.fetch_usage_records(invoker_user.id.hex, limit = 101)
+            self.controller.fetch_usage_records(self.user.id.hex, limit = 101)
 
-        self.assertIn("limit cannot exceed 100", str(context.exception))
-        self.mock_authorization_service.authorize_for_user.assert_not_called()
-        self.mock_usage_record_repo.get_by_user.assert_not_called()
+        self.assertEqual(context.exception.error_code, INVALID_LIMIT)
 
     def test_fetch_usage_records_authorization_failure(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        target_user = stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
-
-        self.mock_authorization_service.authorize_for_user.side_effect = AuthorizationError("Unauthorized", NOT_TARGET_USER)
-
-        controller = UsageController(self.mock_di)
-
         with self.assertRaises(AuthorizationError) as context:
-            controller.fetch_usage_records(target_user.id.hex)
+            self.controller.fetch_usage_records(self.other.id.hex)
 
-        self.assertIn("Unauthorized", str(context.exception))
-        self.mock_usage_record_repo.get_by_user.assert_not_called()
+        self.assertEqual(context.exception.error_code, NOT_TARGET_USER)
 
-    def test_fetch_usage_records_for_other_user(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        target_user = stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+    def test_fetch_usage_records_excludes_other_users(self):
+        self.di.usage_record_repo.create(stubs.domain.usage_record(user_id = self.other.id, payer_id = self.other.id))
 
-        self.mock_authorization_service.authorize_for_user.return_value = target_user
-        records = [
-            stubs.domain.usage_record(user_id = target_user.id, payer_id = target_user.id),
-        ]
-        self.mock_usage_record_repo.get_by_user.return_value = records
-
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_records(target_user.id.hex)
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].user_id, target_user.id)
-        self.mock_authorization_service.authorize_for_user.assert_called_once_with(
-            invoker_user, target_user.id.hex,
-        )
+        self.assertEqual(self.controller.fetch_usage_records(self.user.id.hex), [])
 
     def test_fetch_usage_aggregates_success(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        record = self.di.usage_record_repo.create(stubs.domain.usage_record())
 
-        aggregates = stubs.domain.usage_aggregates(
-            total_records = 7,
-            total_cost_credits = 321.5,
-            total_runtime_seconds = 45.25,
-            by_tool = {"tool-alpha": 3},
-            by_purpose = {"purpose-beta": 2},
-            by_provider = {"provider-gamma": 1},
-            all_tools_used = ["tool-alpha"],
-            all_purposes_used = ["purpose-beta"],
-            all_providers_used = ["provider-gamma"],
-        )
-        self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
+        result = self.controller.fetch_usage_aggregates(self.user.id.hex)
 
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_aggregates(invoker_user.id.hex)
-
-        self.assertIs(result, aggregates)
-        self.mock_authorization_service.authorize_for_user.assert_called_once_with(
-            invoker_user, invoker_user.id.hex,
-        )
+        self.assertEqual(result.total_records, 1)
+        self.assertEqual(result.total_cost_credits, record.total_cost_credits)
+        self.assertEqual(result.total_runtime_seconds, record.runtime_seconds)
+        self.assertEqual(result.by_tool[record.tool.id].record_count, 1)
+        self.assertEqual(result.by_purpose[record.tool_purpose.value].record_count, 1)
+        self.assertEqual(result.by_provider[record.tool.provider.id].record_count, 1)
+        self.assertEqual([tool.id for tool in result.all_tools_used], [record.tool.id])
+        self.assertEqual(result.all_purposes_used, [record.tool_purpose.value])
+        self.assertEqual([provider.id for provider in result.all_providers_used], [record.tool.provider.id])
 
     def test_fetch_usage_aggregates_with_date_filters(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        self.di.usage_record_repo.create_all([
+            stubs.domain.usage_record(
+                timestamp = datetime(2026, 1, day, tzinfo = timezone.utc), total_cost_credits = float(day),
+            )
+            for day in (1, 15, 31)
+        ])
 
-        start = datetime(2024, 1, 1, tzinfo = timezone.utc)
-        end = datetime(2024, 12, 31, tzinfo = timezone.utc)
-        aggregates = stubs.domain.usage_aggregates(
-            total_records = 3,
-            total_cost_credits = 44.5,
-            total_runtime_seconds = 12.25,
-            by_tool = {"date-tool": 3},
-            by_purpose = {"date-purpose": 2},
-            by_provider = {"date-provider": 1},
-            all_tools_used = ["date-tool"],
-            all_purposes_used = ["date-purpose"],
-            all_providers_used = ["date-provider"],
+        result = self.controller.fetch_usage_aggregates(
+            self.user.id.hex,
+            start_date = datetime(2026, 1, 10, tzinfo = timezone.utc),
+            end_date = datetime(2026, 1, 20, tzinfo = timezone.utc),
         )
-        self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
 
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_aggregates(
-            invoker_user.id.hex,
-            start_date = start,
-            end_date = end,
-        )
-        self.assertIs(result, aggregates)
-
-        self.mock_usage_record_repo.get_aggregates_by_user.assert_called_once_with(
-            invoker_user.id,
-            start_date = start,
-            end_date = end,
-            exclude_self = False,
-            include_sponsored = False,
-            include_transfers = True,
-            only_transfers = False,
-            tool_id = None,
-            purpose = None,
-            provider_id = None,
-        )
+        self.assertEqual(result.total_records, 1)
+        self.assertEqual(result.total_cost_credits, 15.0)
 
     def test_fetch_usage_aggregates_with_sponsored_flags(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
+        self.di.usage_record_repo.create(stubs.domain.usage_record())
+        sponsored = self.di.usage_record_repo.create(stubs.domain.usage_record(user_id = self.other.id))
+        self.di.usage_record_repo.create(stubs.domain.usage_record(user_id = self.other.id, payer_id = self.other.id))
 
-        aggregates = stubs.domain.usage_aggregates(
-            total_records = 4,
-            total_cost_credits = 55.5,
-            total_runtime_seconds = 22.25,
-            by_tool = {"sponsored-tool": 4},
-            by_purpose = {"sponsored-purpose": 3},
-            by_provider = {"sponsored-provider": 2},
-            all_tools_used = ["sponsored-tool"],
-            all_purposes_used = ["sponsored-purpose"],
-            all_providers_used = ["sponsored-provider"],
-        )
-        self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
+        result = self.controller.fetch_usage_aggregates(self.user.id.hex, exclude_self = True, include_sponsored = True)
 
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_aggregates(
-            invoker_user.id.hex,
-            exclude_self = True,
-            include_sponsored = True,
-        )
-        self.assertIs(result, aggregates)
-
-        self.mock_usage_record_repo.get_aggregates_by_user.assert_called_once_with(
-            invoker_user.id,
-            start_date = None,
-            end_date = None,
-            exclude_self = True,
-            include_sponsored = True,
-            include_transfers = True,
-            only_transfers = False,
-            tool_id = None,
-            purpose = None,
-            provider_id = None,
-        )
+        self.assertEqual(result.total_records, 1)
+        self.assertEqual(result.total_cost_credits, sponsored.total_cost_credits)
+        self.assertEqual(result.total_runtime_seconds, sponsored.runtime_seconds)
 
     def test_fetch_usage_aggregates_authorization_failure(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        target_user = stubs.domain.user(
-            id = UUID("87654321-4321-8765-4321-876543218765"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
-
-        self.mock_authorization_service.authorize_for_user.side_effect = AuthorizationError("Unauthorized", NOT_TARGET_USER)
-
-        controller = UsageController(self.mock_di)
-
         with self.assertRaises(AuthorizationError) as context:
-            controller.fetch_usage_aggregates(target_user.id.hex)
+            self.controller.fetch_usage_aggregates(self.other.id.hex)
 
-        self.assertIn("Unauthorized", str(context.exception))
-        self.mock_usage_record_repo.get_aggregates_by_user.assert_not_called()
+        self.assertEqual(context.exception.error_code, NOT_TARGET_USER)
 
     def test_fetch_usage_aggregates_empty_result(self):
-        invoker_user = stubs.domain.user(
-            id = UUID("12345678-1234-5678-1234-567812345678"),
-        )
-        # noinspection PyPropertyAccess
-        type(self.mock_di).invoker = PropertyMock(return_value = invoker_user)
-        self.mock_authorization_service.authorize_for_user.return_value = invoker_user
-
-        aggregates = stubs.domain.usage_aggregates(
-            total_records = 0,
-            total_cost_credits = 0.0,
-            total_runtime_seconds = 0.0,
-            by_tool = {},
-            by_purpose = {},
-            by_provider = {},
-            all_tools_used = [],
-            all_purposes_used = [],
-            all_providers_used = [],
-        )
-        self.mock_usage_record_repo.get_aggregates_by_user.return_value = aggregates
-
-        controller = UsageController(self.mock_di)
-        result = controller.fetch_usage_aggregates(invoker_user.id.hex)
+        result = self.controller.fetch_usage_aggregates(self.user.id.hex)
 
         self.assertEqual(result.total_records, 0)
         self.assertEqual(result.total_cost_credits, 0.0)
         self.assertEqual(result.total_runtime_seconds, 0.0)
-        self.assertEqual(len(result.by_tool), 0)
-        self.assertEqual(len(result.all_tools_used), 0)
+        self.assertEqual(result.by_tool, {})
+        self.assertEqual(result.by_purpose, {})
+        self.assertEqual(result.by_provider, {})
+        self.assertEqual(result.all_tools_used, [])
+        self.assertEqual(result.all_purposes_used, [])
+        self.assertEqual(result.all_providers_used, [])

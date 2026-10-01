@@ -1,412 +1,284 @@
-import unittest
+from dataclasses import replace
 from datetime import datetime
-from unittest.mock import MagicMock
-from uuid import UUID
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
+from uuid import uuid4
 
 import stubs
-from db.sql_util import SQLUtil
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from pydantic import SecretStr
+from util.di_utils import di_for_tests
 
-from api.authorization_service import AuthorizationService
 from di.di import DI
-from features.chat.membership.chat_membership_service import ChatMembershipService
-from features.chat.telegram.sdk.telegram_bot_sdk import TelegramBotSDK
+from features.chat.config.chat_config import ChatConfig
 from features.currencies.asset_alert_service import DATETIME_PRINT_FORMAT, AssetAlertService
 from features.currencies.asset_price import AssetType
-from features.currencies.asset_price_service import AssetPriceService
 from features.currencies.price_alert_repo import PriceAlertRepository
-from features.integrations.platform_bot_sdk import ChatAccess
-from features.sponsorships.sponsorship_repo import SponsorshipRepository
+from features.users.user import User
 from util.error_codes import NOT_CHAT_ADMIN, STOCK_QUOTE_FAILED
 from util.errors import AuthorizationError, ExternalServiceError
 
 
-class AssetAlertServiceTest(unittest.TestCase):
+class AssetAlertServiceTest(TestCase):
 
-    mock_price_alert_repo: PriceAlertRepository
-    mock_asset_price_service: AssetPriceService
+    di: DI
+    user: User
+    chat: ChatConfig
+    service: AssetAlertService
+    repo: PriceAlertRepository
+    http: FakeHTTPClient
+    bot: FakeTelegramBotAPI
+    crypto_url: str = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+    stock_url: str = "https://api.twelvedata.com/quote"
 
     def setUp(self):
-        self.chat_id = UUID(int = 1).hex
-        self.user_id = UUID(int = 1).hex
-        # Create a DI mock and set required properties
-        self.mock_di = MagicMock(spec = DI)
-        self.mock_di.authorization_service = MagicMock()
-        self.mock_di.price_alert_repo = self.mock_price_alert_repo = MagicMock(spec = PriceAlertRepository)
-        self.mock_di.sponsorship_repo = MagicMock(spec = SponsorshipRepository)
-        self.mock_di.telegram_bot_sdk = MagicMock(spec = TelegramBotSDK)
-        self.mock_di.asset_price_service = self.mock_asset_price_service = MagicMock(spec = AssetPriceService)
-        self.mock_asset_price_service.resolve_asset_type.side_effect = AssetPriceService.resolve_asset_type
-        self.mock_asset_price_service.execute.return_value = stubs.domain.asset_price(unit_price = 1.5)
-        user = stubs.domain.user(id = UUID(hex = self.user_id))
-        self.mock_di.invoker = user
-        self.mock_di.authorization_service.validate_user.return_value = user
-        self.mock_di.authorization_service.validate_chat.return_value = stubs.domain.chat_config(
-            chat_id = UUID(hex = self.chat_id),
-            external_id = "test_chat_id",
-                    )
-
-    def _role_checked_service(
-        self,
-        access: ChatAccess,
-        is_private: bool = False,
-        existing_is_admin: bool | None = None,
-    ) -> tuple[AssetAlertService, DI, SQLUtil, object, object]:
-        sql = SQLUtil()
-        self.addCleanup(sql.end_session)
-        user = sql.user_repo().save(stubs.domain.user())
-        chat = sql.chat_config_repo().save(
-            stubs.domain.chat_config(is_private = is_private),
-        )
-        if existing_is_admin is not None:
-            sql.chat_membership_repo().save(
-                stubs.domain.chat_membership(
-                    user_id = user.id,
-                    chat_id = chat.chat_id,
-                    is_admin = existing_is_admin,
-                ),
-            )
-
-        di = MagicMock(spec = DI)
-        di.user_repo = sql.user_repo()
-        di.chat_config_repo = sql.chat_config_repo()
-        di.chat_membership_repo = sql.chat_membership_repo()
-        di.price_alert_repo = sql.price_alert_repo()
-        di.asset_price_service = MagicMock(spec = AssetPriceService)
-        di.asset_price_service.resolve_asset_type.side_effect = AssetPriceService.resolve_asset_type
-        di.asset_price_service.execute.return_value = stubs.domain.asset_price(unit_price = 1.5)
-        di.invoker = user
-        platform_sdk = MagicMock()
-        platform_sdk.resolve_chat_access.return_value = access
-        di.platform_bot_sdk.return_value = platform_sdk
-        di.chat_membership_service = ChatMembershipService(di)
-        di.authorization_service = AuthorizationService(di)
-        return AssetAlertService(chat.chat_id.hex, di), di, sql, user, chat
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.chat = self.di.chat_config_repo.save(stubs.domain.chat_config(is_private = False))
+        self.di.inject_invoker(self.user)
+        self.di.inject_invoker_chat(self.chat)
+        self.service = self.di.asset_alert_service(self.chat.chat_id.hex)
+        self.repo = self.di.price_alert_repo
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.bot = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_administrator()
+        # skip the system delay between provider requests
+        self.enterContext(patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None))
 
     def test_create_alert(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        self.mock_price_alert_repo.save.return_value = stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            owner_id = UUID(hex = self.user_id),
-            last_price = 1.5,
-        )
-        alert = service.create_alert("BTC", "USD", 5)
-        self.assertEqual(alert.chat_id.hex, self.chat_id)
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 1.5),
+        ))
+
+        alert = self.service.create_alert("BTC", "USD", 5)
+
+        self.assertEqual(alert.chat_id, self.chat.chat_id)
+        self.assertEqual(alert.owner_id, self.user.id)
         self.assertEqual(alert.asset_id, "BTC")
         self.assertEqual(alert.currency, "USD")
         self.assertEqual(alert.threshold_percent, 5)
         self.assertEqual(alert.last_price, 1.5)
-        saved = self.mock_price_alert_repo.save.call_args.args[0]
-        self.assertEqual(saved.chat_id, UUID(hex = self.chat_id))
-        self.assertEqual(saved.owner_id, UUID(hex = self.user_id))
+        saved = self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD")
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.chat_id, self.chat.chat_id)
+        self.assertEqual(saved.owner_id, self.user.id)
         self.assertEqual(saved.asset_type, AssetType.crypto)
         self.assertEqual(saved.asset_id, "BTC")
         self.assertEqual(saved.currency, "USD")
         self.assertEqual(saved.threshold_percent, 5)
         self.assertEqual(saved.last_price, 1.5)
-        self.mock_asset_price_service.execute.assert_called_once_with(
-            asset = "BTC",
-            currency = "USD",
-            asset_type = None,
-            force = False,
-        )
 
     def test_create_stock_alert_persists_exchange_qualified_identity(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        self.mock_asset_price_service.execute.return_value = stubs.domain.asset_price(
-            asset = "XNAS:AAPL",
-            asset_type = AssetType.stock,
-            unit_price = 210.5,
-            value = 210.5,
-        )
-        self.mock_price_alert_repo.save.side_effect = lambda alert: alert
+        self.http.responses[self.stock_url].append(stubs.external.http_json_response(stubs.external.stock_quote_response()))
 
-        alert = service.create_alert("AAPL", "USD", 5, "stock")
+        alert = self.service.create_alert("AAPL", "USD", 5, "stock")
 
         self.assertEqual(alert.asset_type, AssetType.stock)
         self.assertEqual(alert.asset_id, "XNAS:AAPL")
         self.assertEqual(alert.last_price, 210.5)
-        saved = self.mock_price_alert_repo.save.call_args.args[0]
+        saved = self.repo.get(self.chat.chat_id, AssetType.stock, "XNAS:AAPL", "USD")
+        self.assertIsNotNone(saved)
         self.assertEqual(saved.asset_type, AssetType.stock)
         self.assertEqual(saved.asset_id, "XNAS:AAPL")
+        self.assertEqual(saved.last_price, 210.5)
 
     def test_admin_can_create_alert(self):
-        service, di, sql, user, chat = self._role_checked_service(ChatAccess.admin)
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 1.5),
+        ))
 
-        alert = service.create_alert("BTC", "USD", 5)
+        alert = self.service.create_alert("BTC", "USD", 5)
 
-        stored = sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD")
+        stored = self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD")
         self.assertIsNotNone(stored)
-        self.assertEqual(alert.owner_id, user.id)
-        self.assertEqual(stored.owner_id, user.id)
+        self.assertEqual(alert.owner_id, self.user.id)
+        self.assertEqual(stored.owner_id, self.user.id)
         self.assertEqual(stored.threshold_percent, 5)
         self.assertEqual(stored.last_price, 1.5)
 
     def test_admin_can_reconfigure_alert(self):
-        service, di, sql, user, chat = self._role_checked_service(ChatAccess.admin)
-        sql.price_alert_repo().save(
-            stubs.domain.price_alert(
-                chat_id = chat.chat_id,
-                owner_id = user.id,
-                last_price = 1.5,
-                last_price_time = datetime(2023, 1, 1, 12, 0, 0),
-            ),
-        )
-        di.asset_price_service.execute.return_value = stubs.domain.asset_price(unit_price = 2.5)
+        self.repo.save(stubs.domain.price_alert(last_price = 1.5, last_price_time = datetime(2023, 1, 1, 12)))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 2.5),
+        ))
 
-        alert = service.create_alert("BTC", "USD", 8)
+        alert = self.service.create_alert("BTC", "USD", 8)
 
-        stored = sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD")
+        stored = self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD")
         self.assertIsNotNone(stored)
         self.assertEqual(alert.threshold_percent, 8)
-        self.assertEqual(stored.owner_id, user.id)
+        self.assertEqual(stored.owner_id, self.user.id)
         self.assertEqual(stored.threshold_percent, 8)
         self.assertEqual(stored.last_price, 2.5)
 
     def test_private_chat_owner_can_create_alert(self):
-        service, di, sql, user, chat = self._role_checked_service(ChatAccess.owner, is_private = True)
+        chat = self.di.chat_config_repo.save(replace(self.chat, is_private = True, external_id = self.user.telegram_chat_id))
+        self.di.inject_invoker_chat(chat)
+        service = self.di.asset_alert_service(chat.chat_id.hex)
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 1.5),
+        ))
 
         service.create_alert("BTC", "USD", 5)
 
-        stored = sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD")
+        stored = self.repo.get(chat.chat_id, AssetType.crypto, "BTC", "USD")
         self.assertIsNotNone(stored)
-        self.assertEqual(stored.owner_id, user.id)
+        self.assertEqual(stored.owner_id, self.user.id)
         self.assertEqual(stored.threshold_percent, 5)
 
     def test_get_all_alerts(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        mock_alerts = [
-            stubs.domain.price_alert(
-                chat_id = UUID(hex = self.chat_id),
-            ),
-            stubs.domain.price_alert(
-                chat_id = UUID(hex = self.chat_id),
-                asset_id = "ETH",
-            ),
-        ]
-        self.mock_price_alert_repo.get_all_by_chat.return_value = mock_alerts
-        alerts = service.get_active_alerts()
+        self.repo.save(stubs.domain.price_alert())
+        self.repo.save(stubs.domain.price_alert(asset_id = "ETH"))
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
+        self.repo.save(stubs.domain.price_alert(chat_id = other_chat.chat_id))
+
+        alerts = self.service.get_active_alerts()
+
         self.assertEqual(len(alerts), 2)
-        self.assertEqual(alerts[0].asset_id, "BTC")
-        self.assertEqual(alerts[1].asset_id, "ETH")
-        self.mock_price_alert_repo.get_all_by_chat.assert_called_once_with(UUID(hex = self.chat_id))
+        self.assertEqual({alert.asset_id for alert in alerts}, {"BTC", "ETH"})
+        self.assertTrue(all(alert.chat_id == self.chat.chat_id for alert in alerts))
 
     def test_get_all_alerts_without_target_chat(self):
-        service = AssetAlertService(None, self.mock_di)
-        self.mock_price_alert_repo.get_all.return_value = []
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
+        self.repo.save(stubs.domain.price_alert())
+        self.repo.save(stubs.domain.price_alert(chat_id = other_chat.chat_id))
+        service = self.di.asset_alert_service(None)
 
         alerts = service.get_active_alerts()
 
-        self.assertEqual(alerts, [])
-        self.mock_price_alert_repo.get_all.assert_called_once()
+        self.assertEqual(len(alerts), 2)
+        self.assertEqual({alert.chat_id for alert in alerts}, {self.chat.chat_id, other_chat.chat_id})
 
     def test_delete_alert(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        mock_deleted_alert = stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            )
-        self.mock_price_alert_repo.delete.return_value = mock_deleted_alert
-        deleted_alert = service.delete_alert("BTC", "USD")
-        assert deleted_alert is not None
-        self.assertEqual(deleted_alert.asset_id, "BTC")
-        self.assertEqual(deleted_alert.currency, "USD")
-        self.mock_price_alert_repo.delete.assert_called_once_with(
-            UUID(hex = self.chat_id),
-            AssetType.crypto,
-            "BTC",
-            "USD",
-        )
+        self.repo.save(stubs.domain.price_alert())
 
-    def test_admin_can_delete_alert(self):
-        service, _, sql, user, chat = self._role_checked_service(ChatAccess.admin)
-        sql.price_alert_repo().save(
-            stubs.domain.price_alert(
-                chat_id = chat.chat_id,
-                owner_id = user.id,
-            ),
-        )
-
-        deleted_alert = service.delete_alert("BTC", "USD")
+        deleted_alert = self.service.delete_alert("BTC", "USD")
 
         self.assertIsNotNone(deleted_alert)
-        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD"))
+        self.assertEqual(deleted_alert.asset_id, "BTC")
+        self.assertEqual(deleted_alert.currency, "USD")
+        self.assertIsNone(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"))
+
+    def test_admin_can_delete_alert(self):
+        self.repo.save(stubs.domain.price_alert())
+
+        deleted_alert = self.service.delete_alert("BTC", "USD")
+
+        self.assertIsNotNone(deleted_alert)
+        self.assertIsNone(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"))
 
     def test_delete_normalized_stock_identity_does_not_fetch_quote(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        stored = stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            asset_type = AssetType.stock,
-            asset_id = "XNAS:AAPL",
-                    )
-        self.mock_price_alert_repo.delete.return_value = stored
+        self.repo.save(stubs.domain.price_alert(asset_type = AssetType.stock, asset_id = "XNAS:AAPL"))
 
-        deleted = service.delete_alert(" xnas:aapl ", " usd ", "stock")
+        deleted = self.service.delete_alert(" xnas:aapl ", " usd ", "stock")
 
         self.assertIsNotNone(deleted)
-        self.mock_price_alert_repo.delete.assert_called_once_with(
-            UUID(hex = self.chat_id),
-            AssetType.stock,
-            "XNAS:AAPL",
-            "USD",
-        )
-        self.mock_asset_price_service.execute.assert_not_called()
+        self.assertEqual(deleted.asset_type, AssetType.stock)
+        self.assertEqual(deleted.asset_id, "XNAS:AAPL")
+        self.assertEqual(deleted.currency, "USD")
+        self.assertIsNone(self.repo.get(self.chat.chat_id, AssetType.stock, "XNAS:AAPL", "USD"))
+        self.assertEqual(self.http.requests, [])
 
     def test_delete_unresolved_stock_forwards_provider_error(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        self.mock_price_alert_repo.delete.return_value = None
-        self.mock_asset_price_service.execute.side_effect = ExternalServiceError(
-            "Specify an exchange",
-            STOCK_QUOTE_FAILED,
-        )
+        self.http.responses[self.stock_url].append(stubs.external.http_json_response(
+            stubs.external.stock_quote_error_response(message = "Specify an exchange"),
+        ))
 
         with self.assertRaises(ExternalServiceError) as context:
-            service.delete_alert("DHER", "EUR", "stock")
+            self.service.delete_alert("DHER", "EUR", "stock")
 
         self.assertEqual(context.exception.error_code, STOCK_QUOTE_FAILED)
-        self.mock_asset_price_service.execute.assert_called_once_with(
-            asset = "DHER",
-            currency = "EUR",
-            asset_type = "stock",
-            force = False,
-        )
 
     def test_member_cannot_create_alert(self):
-        service, di, sql, _, chat = self._role_checked_service(ChatAccess.member)
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
 
         with self.assertRaises(AuthorizationError) as context:
-            service.create_alert("BTC", "USD", 5)
+            self.service.create_alert("BTC", "USD", 5)
 
         self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
-        di.asset_price_service.execute.assert_not_called()
-        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD"))
+        self.assertEqual(self.http.requests, [])
+        self.assertIsNone(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"))
 
     def test_member_cannot_reconfigure_alert(self):
-        service, di, sql, user, chat = self._role_checked_service(ChatAccess.member)
-        original_time = datetime(2023, 1, 1, 12, 0, 0)
-        sql.price_alert_repo().save(
-            stubs.domain.price_alert(
-                chat_id = chat.chat_id,
-                owner_id = user.id,
-            last_price = 1.5,
-                last_price_time = original_time,
-            ),
-        )
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
+        original = self.repo.save(stubs.domain.price_alert(last_price = 1.5, last_price_time = datetime(2023, 1, 1, 12)))
 
         with self.assertRaises(AuthorizationError) as context:
-            service.create_alert("BTC", "USD", 8)
+            self.service.create_alert("BTC", "USD", 8)
 
         self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
-        di.asset_price_service.execute.assert_not_called()
-        stored = sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD")
-        self.assertIsNotNone(stored)
-        self.assertEqual(stored.threshold_percent, 5)
-        self.assertEqual(stored.last_price, 1.5)
-        self.assertEqual(stored.last_price_time, original_time)
+        self.assertEqual(self.http.requests, [])
+        self.assertEqual(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"), original)
 
     def test_member_cannot_delete_alert(self):
-        service, _, sql, user, chat = self._role_checked_service(ChatAccess.member)
-        sql.price_alert_repo().save(
-            stubs.domain.price_alert(
-                chat_id = chat.chat_id,
-                owner_id = user.id,
-            ),
-        )
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
+        original = self.repo.save(stubs.domain.price_alert())
 
         with self.assertRaises(AuthorizationError) as context:
-            service.delete_alert("BTC", "USD")
+            self.service.delete_alert("BTC", "USD")
 
         self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
-        self.assertIsNotNone(sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD"))
+        self.assertEqual(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"), original)
 
     def test_lost_admin_role_cannot_create_alert(self):
-        service, di, sql, user, chat = self._role_checked_service(ChatAccess.member, existing_is_admin = True)
+        self.di.chat_membership_repo.save(stubs.domain.chat_membership(is_admin = True))
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
 
         with self.assertRaises(AuthorizationError) as context:
-            service.create_alert("BTC", "USD", 5)
+            self.service.create_alert("BTC", "USD", 5)
 
         self.assertEqual(context.exception.error_code, NOT_CHAT_ADMIN)
-        di.asset_price_service.execute.assert_not_called()
-        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD"))
-        membership = sql.chat_membership_repo().get(user.id, chat.chat_id)
-        self.assertIsNotNone(membership)
-        self.assertFalse(membership.is_admin)
+        self.assertEqual(self.http.requests, [])
+        self.assertIsNone(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"))
 
     def test_non_participant_cannot_create_alert(self):
-        service, di, sql, _, chat = self._role_checked_service(None)
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member_left()
 
         with self.assertRaises(AuthorizationError):
-            service.create_alert("BTC", "USD", 5)
+            self.service.create_alert("BTC", "USD", 5)
 
-        di.asset_price_service.execute.assert_not_called()
-        self.assertIsNone(sql.price_alert_repo().get(chat.chat_id, AssetType.crypto, "BTC", "USD"))
+        self.assertEqual(self.http.requests, [])
+        self.assertIsNone(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"))
 
     def test_listing_does_not_require_admin_role(self):
-        service, _, sql, user, chat = self._role_checked_service(ChatAccess.member)
-        sql.price_alert_repo().save(
-            stubs.domain.price_alert(
-                chat_id = chat.chat_id,
-                owner_id = user.id,
-            ),
-        )
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
+        self.repo.save(stubs.domain.price_alert())
 
-        alerts = service.get_active_alerts()
+        alerts = self.service.get_active_alerts()
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].asset_id, "BTC")
 
     def test_triggered_alert_refreshes_only_price_state(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        last_price_time = datetime(2023, 1, 1, 12, 0, 0)
-        existing = stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            owner_id = UUID(hex = self.user_id),
-            last_price = 1000,
-            last_price_time = last_price_time,
-        )
-        self.mock_price_alert_repo.get_all_by_chat.return_value = [existing]
-        scoped_di = MagicMock()
-        scoped_di.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(unit_price = 1100)
-        self.mock_di.clone.return_value = scoped_di
+        existing = self.repo.save(stubs.domain.price_alert(last_price = 1000, last_price_time = datetime(2023, 1, 1, 12)))
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 1100),
+        ))
 
-        triggered_alerts = service.get_triggered_alerts()
+        triggered_alerts = self.service.get_triggered_alerts()
 
         self.assertEqual(len(triggered_alerts), 1)
         self.assertEqual(triggered_alerts[0].asset_id, "BTC")
         self.assertEqual(triggered_alerts[0].currency, "USD")
+        self.assertEqual(triggered_alerts[0].old_price, 1000)
+        self.assertEqual(triggered_alerts[0].new_price, 1100)
         self.assertEqual(triggered_alerts[0].price_change_percent, 10)
-        self.assertEqual(triggered_alerts[0].old_price_time, last_price_time.strftime(DATETIME_PRINT_FORMAT))
-        refreshed = self.mock_price_alert_repo.save.call_args.args[0]
-        self.assertEqual(refreshed.chat_id, existing.chat_id)
-        self.assertEqual(refreshed.owner_id, existing.owner_id)
-        self.assertEqual(refreshed.asset_type, existing.asset_type)
-        self.assertEqual(refreshed.asset_id, existing.asset_id)
-        self.assertEqual(refreshed.currency, existing.currency)
-        self.assertEqual(refreshed.threshold_percent, existing.threshold_percent)
-        self.assertEqual(refreshed.last_price, 1100)
+        self.assertEqual(triggered_alerts[0].old_price_time, existing.last_price_time.strftime(DATETIME_PRINT_FORMAT))
+        refreshed = self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD")
+        self.assertIsNotNone(refreshed)
+        self.assertEqual(refreshed, replace(existing, last_price = 1100, last_price_time = refreshed.last_price_time))
         self.assertGreater(refreshed.last_price_time, existing.last_price_time)
-        self.mock_di.authorization_service.validate_chat_admin.assert_not_called()
-        self.mock_di.clone.assert_called_once_with(
-            invoker_id = existing.owner_id.hex,
-            invoker_chat_id = existing.chat_id.hex,
-        )
-        scoped_di.asset_price_service.execute_normalized.assert_called_once_with(
-            asset_id = "BTC",
-            currency = "USD",
-            asset_type = AssetType.crypto,
-            force = False,
-        )
 
     def test_triggered_alert_with_zero_last_price(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        self.mock_price_alert_repo.get_all_by_chat.return_value = [stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            owner_id = UUID(hex = self.user_id),
-            last_price = 0,
-        )]
-        scoped_di = MagicMock()
-        scoped_di.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(unit_price = 1000)
-        self.mock_di.clone.return_value = scoped_di
+        self.repo.save(stubs.domain.price_alert(last_price = 0))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 1000),
+        ))
 
-        triggered_alerts = service.get_triggered_alerts()
+        triggered_alerts = self.service.get_triggered_alerts()
 
         self.assertEqual(len(triggered_alerts), 1)
         self.assertEqual(triggered_alerts[0].asset_id, "BTC")
@@ -414,125 +286,87 @@ class AssetAlertServiceTest(unittest.TestCase):
         self.assertEqual(triggered_alerts[0].price_change_percent, 100000)
 
     def test_alert_below_threshold_is_not_triggered(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        self.mock_price_alert_repo.get_all_by_chat.return_value = [stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            owner_id = UUID(hex = self.user_id),
-            last_price = 1000,
-        )]
-        scoped_di = MagicMock()
-        scoped_di.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(unit_price = 1020)
-        self.mock_di.clone.return_value = scoped_di
+        original = self.repo.save(stubs.domain.price_alert(last_price = 1000))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 1020),
+        ))
 
-        triggered_alerts = service.get_triggered_alerts()
+        triggered_alerts = self.service.get_triggered_alerts()
 
         self.assertEqual(triggered_alerts, [])
-        self.mock_price_alert_repo.save.assert_not_called()
+        self.assertEqual(self.repo.get(self.chat.chat_id, AssetType.crypto, "BTC", "USD"), original)
 
-    def test_equivalent_owner_lookups_are_deduplicated_across_chats(self):
-        service = AssetAlertService(None, self.mock_di)
-        owner_id = UUID(int = 7)
-        alerts = [
-            stubs.domain.price_alert(
-                chat_id = UUID(int = chat_number),
-                owner_id = owner_id,
-                asset_type = AssetType.stock,
-                asset_id = "XNAS:AAPL",
-                last_price = 100,
-            )
-            for chat_number in (10, 11)
-        ]
-        self.mock_price_alert_repo.get_all.return_value = alerts
-        scoped_di = MagicMock()
-        scoped_di.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(
-            asset = "XNAS:AAPL",
-            asset_type = AssetType.stock,
-            unit_price = 110,
-            value = 110,
-        )
-        self.mock_di.clone.return_value = scoped_di
+    def test_equivalent_owner_alerts_across_chats_share_a_quote(self):
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
+        for chat in (self.chat, other_chat):
+            self.repo.save(stubs.domain.price_alert(
+                chat_id = chat.chat_id, asset_type = AssetType.stock, asset_id = "XNAS:AAPL", last_price = 100,
+            ))
+        self.http.responses[self.stock_url].append(stubs.external.http_json_response(
+            stubs.external.stock_quote_response(close = "110"),
+        ))
+        service = self.di.asset_alert_service(None)
 
         triggered_alerts = service.get_triggered_alerts()
 
-        self.assertEqual(len(triggered_alerts), 2)
-        self.mock_di.clone.assert_called_once()
-        scoped_di.asset_price_service.execute_normalized.assert_called_once()
+        self.assertEqual({alert.chat_id for alert in triggered_alerts}, {self.chat.chat_id, other_chat.chat_id})
+        self.assertEqual([alert.new_price for alert in triggered_alerts], [110, 110])
+        self.assertEqual([url for url, _ in self.http.requests], [self.stock_url])
 
     def test_same_lookup_for_different_owners_uses_each_owner_scope(self):
-        service = AssetAlertService(None, self.mock_di)
-        alerts = [
-            stubs.domain.price_alert(
-                chat_id = UUID(int = owner_number + 10),
-                owner_id = UUID(int = owner_number),
-                asset_type = AssetType.stock,
-                asset_id = "XNAS:AAPL",
-                last_price = 100,
-            )
-            for owner_number in (1, 2)
-        ]
-        self.mock_price_alert_repo.get_all.return_value = alerts
-        first_scope = MagicMock()
-        second_scope = MagicMock()
-        first_scope.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(unit_price = 102)
-        second_scope.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(unit_price = 102)
-        self.mock_di.clone.side_effect = [first_scope, second_scope]
+        other_user = self.di.user_repo.save(stubs.domain.user(
+            id = uuid4(), telegram_user_id = None, whatsapp_user_id = None, connect_key = "OTHER-OWNER",
+            twelve_data_api_key = SecretStr("other-owner-key"),
+        ))
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
+        for user, chat in ((self.user, self.chat), (other_user, other_chat)):
+            self.repo.save(stubs.domain.price_alert(
+                chat_id = chat.chat_id, owner_id = user.id,
+                asset_type = AssetType.stock, asset_id = "XNAS:AAPL", last_price = 100,
+            ))
+            self.http.responses[self.stock_url].append(stubs.external.http_json_response(
+                stubs.external.stock_quote_response(close = "102"),
+            ))
+        service = self.di.asset_alert_service(None)
 
         triggered_alerts = service.get_triggered_alerts()
 
         self.assertEqual(triggered_alerts, [])
-        self.assertEqual(self.mock_di.clone.call_count, 2)
-        self.assertEqual(first_scope.asset_price_service.execute_normalized.call_count, 1)
-        self.assertEqual(second_scope.asset_price_service.execute_normalized.call_count, 1)
+        self.assertCountEqual(
+            [kwargs["headers"]["Authorization"] for _, kwargs in self.http.requests],
+            ["apikey test-twelve-data-key", "apikey other-owner-key"],
+        )
 
     def test_price_fetch_failure_skips_alert(self):
-        service = AssetAlertService(self.chat_id, self.mock_di)
-        self.mock_price_alert_repo.get_all_by_chat.return_value = [stubs.domain.price_alert(
-            chat_id = UUID(hex = self.chat_id),
-            owner_id = UUID(hex = self.user_id),
-            last_price = 1000,
-        )]
-        scoped_di = MagicMock()
-        scoped_di.asset_price_service.execute_normalized.side_effect = ExternalServiceError(
-            "Price unavailable",
-            STOCK_QUOTE_FAILED,
-        )
-        self.mock_di.clone.return_value = scoped_di
+        original = self.repo.save(stubs.domain.price_alert(asset_type = AssetType.stock, asset_id = "XNAS:AAPL"))
+        self.http.responses[self.stock_url].append(stubs.external.http_json_response(stubs.external.stock_quote_error_response()))
 
-        triggered_alerts = service.get_triggered_alerts()
+        triggered_alerts = self.service.get_triggered_alerts()
 
         self.assertEqual(triggered_alerts, [])
-        self.mock_price_alert_repo.save.assert_not_called()
+        self.assertEqual(self.repo.get(self.chat.chat_id, AssetType.stock, "XNAS:AAPL", "USD"), original)
+        self.assertEqual([url for url, _ in self.http.requests], [self.stock_url])
 
-    def test_failed_lookup_is_deduplicated_and_distinct_alert_continues(self):
-        service = AssetAlertService(None, self.mock_di)
-        owner_id = UUID(int = 7)
+    def test_failed_shared_quote_leaves_alerts_unchanged_and_distinct_alert_continues(self):
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
         failed_alerts = [
-            stubs.domain.price_alert(
-                chat_id = UUID(int = chat_number),
-                owner_id = owner_id,
-                asset_type = AssetType.stock,
-                asset_id = "XNAS:AAPL",
-                last_price = 100,
-            )
-            for chat_number in (10, 11)
+            self.repo.save(stubs.domain.price_alert(
+                chat_id = chat.chat_id, asset_type = AssetType.stock, asset_id = "XNAS:AAPL", last_price = 100,
+            ))
+            for chat in (self.chat, other_chat)
         ]
-        successful_alert = stubs.domain.price_alert(
-            chat_id = UUID(int = 12),
-            owner_id = owner_id,
-            last_price = 100,
-        )
-        self.mock_price_alert_repo.get_all.return_value = [*failed_alerts, successful_alert]
-        failed_scope = MagicMock()
-        failed_scope.asset_price_service.execute_normalized.side_effect = ExternalServiceError(
-            "Price unavailable",
-            STOCK_QUOTE_FAILED,
-        )
-        successful_scope = MagicMock()
-        successful_scope.asset_price_service.execute_normalized.return_value = stubs.domain.asset_price(unit_price = 110)
-        self.mock_di.clone.side_effect = [failed_scope, successful_scope]
+        self.repo.save(stubs.domain.price_alert(last_price = 100))
+        self.http.responses[self.stock_url].append(stubs.external.http_json_response(stubs.external.stock_quote_error_response()))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 110),
+        ))
+        service = self.di.asset_alert_service(None)
 
         triggered_alerts = service.get_triggered_alerts()
 
         self.assertEqual(len(triggered_alerts), 1)
         self.assertEqual(triggered_alerts[0].asset_id, "BTC")
-        self.assertEqual(self.mock_di.clone.call_count, 2)
+        self.assertEqual(triggered_alerts[0].new_price, 110)
+        self.assertCountEqual([url for url, _ in self.http.requests], [self.stock_url, self.crypto_url])
+        for alert in failed_alerts:
+            self.assertEqual(self.repo.get(alert.chat_id, alert.asset_type, alert.asset_id, alert.currency), alert)
