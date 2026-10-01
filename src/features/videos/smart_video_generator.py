@@ -6,7 +6,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
-from db.sql import get_detached_session
 from di.di import DI
 from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.chat.attachment.chat_attachment import ChatAttachment
@@ -131,8 +130,9 @@ def _run_video_worker(
     media_mode: ChatConfigDB.MediaMode,
 ) -> None:
     try:
-        with get_detached_session() as db:
-            worker_di = DI(db, invoker_id.hex, invoker_chat_id.hex)
+        worker_di = DI(invoker_id = invoker_id.hex, invoker_chat_id = invoker_chat_id.hex)
+        with worker_di.new_session() as db:
+            worker_di.inject_db_session(db)
 
             # generation releases its preflight transaction before polling, but accounting acquires a new one
             video_url = worker_di.simple_video_generator(configured_video_gen_tool, parameters).execute()
@@ -152,8 +152,9 @@ def _run_video_worker(
                   else ExternalServiceError(f"Unexpected video generation or delivery failure: {e}", VIDEO_GENERATION_FAILED)
         try:
             # we should notify the user about this failure
-            with get_detached_session() as db:
-                notification_di = DI(db, invoker_id.hex, invoker_chat_id.hex)
+            notification_di = DI(invoker_id = invoker_id.hex, invoker_chat_id = invoker_chat_id.hex)
+            with notification_di.new_session() as db:
+                notification_di.inject_db_session(db)
                 configured_copywriter_tool = notification_di.tool_choice_resolver.require_tool(
                     purpose = SysAnnouncementsService.TOOL_TYPE,
                     default_tool = default_tool_for(SysAnnouncementsService.TOOL_TYPE),

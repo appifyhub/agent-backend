@@ -1,8 +1,8 @@
 import unittest
-from unittest.mock import patch
 
 from pydantic import SecretStr
 
+from util.config import config
 from util.errors import (
     AuthenticationError,
     AuthorizationError,
@@ -38,11 +38,11 @@ class ServiceErrorTest(unittest.TestCase):
         self.assertEqual(str(error), error.to_log_string())
 
     def test_to_log_string_scrubs_secrets(self):
+        self.addCleanup(setattr, config, "api_key", config.api_key)
+        config.api_key = SecretStr("abc123secret")
         error = ServiceError("Token abc123secret leaked", error_code = 42, emoji = "🫖")
 
-        with patch("util.config.config") as mock_config:
-            mock_config.all_secrets.return_value = [SecretStr("abc123secret")]
-            result = error.to_log_string()
+        result = error.to_log_string()
 
         self.assertNotIn("abc123secret", result)
         self.assertIn("****", result)

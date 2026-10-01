@@ -1,20 +1,24 @@
-import json
-import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
+from json import dumps, loads
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
-import requests
-import requests_mock
-import stubs
-from pydantic import SecretStr
-from requests_mock import Mocker
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_http_client import FakeHTTPClient
+from requests.exceptions import HTTPError
+from stubs import domain, external
+from util.di_utils import di_for_tests
 
 from di.di import DI
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import GPT_5_5, X_READ_POST
 from features.tools_cache.tools_cache import ToolsCache
-from features.tools_cache.tools_cache_repo import ToolsCacheRepository
 from features.web_browsing.twitter_status_fetcher import (
+    CACHE_PREFIX,
+    CACHE_PREFIX_STRUCTURED,
+    CACHE_TTL,
     TweetData,
     TweetLinkPreview,
     TweetMediaItem,
@@ -24,360 +28,168 @@ from features.web_browsing.twitter_status_fetcher import (
 from util.config import config
 
 
-class TwitterStatusFetcherTest(unittest.TestCase):
+class TwitterStatusFetcherTest(TestCase):
 
-    mock_di: DI
+    di: DI
+    tweet_id: str
+    api_url: str
+    x_api_tool: ConfiguredTool
+    http: FakeHTTPClient
+    model: FakeChatModel
+    fetcher: TwitterStatusFetcher
 
     def setUp(self):
         self.tweet_id = "123456789"
         self.api_url = f"https://api.x.com/2/tweets/{self.tweet_id}"
-        config.web_timeout_s = 0
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(domain.user())
+        self.di.inject_invoker_chat(domain.chat_config())
+        self.x_api_tool = domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
+        vision_tool = domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(vision_tool, max_tokens = 500))
+        self.fetcher = self.di.twitter_status_fetcher(self.tweet_id, self.x_api_tool, vision_tool)
+        # skip the system sleep used to space real API requests
+        self.enterContext(patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None))
 
-        # Set up DI container
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.tools_cache_repo = MagicMock(spec = ToolsCacheRepository)
-        self.mock_di.tools_cache_repo.save.return_value = None
-        self.mock_di.computer_vision_analyzer = MagicMock()
+    def test_execute_cache_hit(self):
+        cached = self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, self.tweet_id),
+            value = "This is cached tweet content",
+        ))
 
-        # Mock invoker and chat for usage tracking
-        self.mock_di.invoker = stubs.domain.user()
-        self.mock_di.require_invoker_chat = MagicMock(return_value = stubs.domain.chat_config())
+        result = self.fetcher.execute()
 
-        # Mock tracked_http_get to return a mock that delegates to requests.get
-        mock_http_client = MagicMock()
-        mock_http_client.get = requests.get
-        self.mock_di.tracked_http_get = MagicMock(return_value = mock_http_client)
+        self.assertEqual(result, cached.value)
+        self.assertEqual(self.di.tools_cache_repo.get(cached.key), cached)
+        self.assertEqual(self.http.requests, [])
+        self.assertEqual(self.model.prompts, [])
 
-    # noinspection PyUnusedLocal
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_execute_cache_hit(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(value = "This is cached tweet content")
-
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.execute()
-        self.assertEqual(result, "This is cached tweet content")
-
-    # noinspection PyUnusedLocal
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_execute_expired_cache_refreshes(self, m: Mocker, mock_sleep):
-        expired = stubs.domain.tools_cache(
+    def test_execute_expired_cache_refreshes(self):
+        expired = self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, self.tweet_id),
             expires_at = datetime.now() - timedelta(seconds = 1),
-        )
-        self.mock_di.tools_cache_repo.get.side_effect = [expired, None]
-        m.get(
-            self.api_url,
-            json = {
-                "data": {"text": "Fresh tweet content", "lang": "en"},
-                "includes": {"users": [{"username": "testuser", "name": "Test User"}]},
-            },
-        )
+        ))
+        payload = external.x_tweet_response(data = {"text": "Fresh tweet content", "lang": "en"})
+        self.http.responses[self.api_url].append(external.http_json_response(payload))
 
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.execute()
+        result = self.fetcher.execute()
 
         self.assertIn("Fresh tweet content", result)
-        self.assertEqual(self.mock_di.tools_cache_repo.save.call_count, 2)
+        refreshed = self.di.tools_cache_repo.get(expired.key)
+        self.assertEqual(refreshed.value, result)
+        self.assertFalse(refreshed.is_expired())
+        raw = self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX_STRUCTURED, self.tweet_id))
+        self.assertEqual(loads(raw.value), payload)
 
-    # noinspection PyUnusedLocal
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_execute_cache_miss(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_repo.get.return_value = None
+    def test_execute_cache_miss(self):
+        payload = external.x_tweet_response()
+        self.http.responses[self.api_url].append(external.http_json_response(payload))
+        started_at = datetime.now()
 
-        # Mock the X API v2 response
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Test tweet content",
-                    "lang": "en",
-                    "author_id": "123",
-                },
-                "includes": {
-                    "users": [
-                        {
-                            "id": "123",
-                            "username": "testuser",
-                            "name": "Test User",
-                            "description": "Test bio",
-                        },
-                    ],
-                },
-            },
-        )
+        result = self.fetcher.execute()
 
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.execute()
         self.assertIn("@testuser (Test User)", result)
         self.assertIn("Test tweet content", result)
         self.assertIn("@testuser's bio:", result)
+        text_cache = self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX, self.tweet_id))
+        raw_cache = self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX_STRUCTURED, self.tweet_id))
+        self.assertEqual(text_cache.value, result)
+        self.assertEqual(loads(raw_cache.value), payload)
+        for cached in (text_cache, raw_cache):
+            self.assertGreaterEqual(cached.expires_at, started_at + CACHE_TTL)
+            self.assertLessEqual(cached.expires_at, datetime.now() + CACHE_TTL)
 
-    # noinspection PyUnusedLocal
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_execute_api_error(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_repo.get.return_value = None
+    def test_execute_api_error(self):
+        self.http.responses[self.api_url].append(external.http_response(status_code = 500))
 
-        # Mock API error response
-        m.get(self.api_url, status_code = 500)
+        with self.assertRaises(HTTPError) as raised:
+            self.fetcher.execute()
 
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        with self.assertRaises(requests.exceptions.HTTPError):
-            fetcher.execute()
+        self.assertEqual(raised.exception.response.status_code, 500)
+        self.assertIsNone(self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX, self.tweet_id)))
+        self.assertIsNone(self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX_STRUCTURED, self.tweet_id)))
 
-    # noinspection PyUnusedLocal
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_api_call_parameters(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_repo.get.return_value = None
+    def test_api_call_parameters(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response()))
 
-        # Mock the X API v2 response
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Test tweet content",
-                    "lang": "en",
-                    "author_id": "123",
-                },
-                "includes": {
-                    "users": [
-                        {
-                            "id": "123",
-                            "username": "testuser",
-                            "name": "Test User",
-                            "description": "Test bio",
-                        },
-                    ],
-                },
-            },
-        )
+        self.fetcher.execute()
 
-        x_api_tool = stubs.domain.configured_tool(
-            definition = X_READ_POST,
-            token = SecretStr("test_x_bearer_token"),
-            purpose = ToolType.api_twitter,
-        )
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        fetcher.execute()
-
-        # Verify API was called with correct parameters
-        self.assertEqual(len(m.request_history), 1)
-        request = m.request_history[0]
-        self.assertEqual(request.method, "GET")
-        self.assertIn("123456789", request.url)
-        self.assertIn("Bearer test_x_bearer_token", request.headers.get("Authorization", ""))
+        url, options = self.http.requests[0]
+        self.assertEqual(len(self.http.requests), 1)
+        self.assertEqual(url, self.api_url)
+        self.assertEqual(options["headers"]["Authorization"], f"Bearer {self.x_api_tool.token.get_secret_value()}")
+        self.assertEqual(options["timeout"], config.web_timeout_s)
         self.assertEqual(
-            set(request.qs["media.fields"][0].split(",")),
+            set(options["params"]["media.fields"].split(",")),
             {"url", "type", "preview_image_url", "variants", "duration_ms", "width", "height", "alt_text"},
         )
 
-    # noinspection PyUnusedLocal
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_resolve_photo_contents(self, m: Mocker, mock_sleep):
-        self.mock_di.tools_cache_repo.get.return_value = None
+    def test_resolve_photo_contents(self):
+        self.model.responses.append(external.ai_message(content = "Photo description"))
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            includes = {"media": [{"type": "photo", "url": "https://example.com/photo.jpg"}]},
+        )))
 
-        # Mock computer vision analyzer
-        mock_analyzer_instance = MagicMock()
-        mock_analyzer_instance.execute.return_value = "Photo description"
-        self.mock_di.computer_vision_analyzer.return_value = mock_analyzer_instance
+        result = self.fetcher.execute()
 
-        # Mock the X API v2 response with photo
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Test tweet content",
-                    "lang": "en",
-                    "author_id": "123",
-                    "attachments": {
-                        "media_keys": ["3_123"],
-                    },
-                },
-                "includes": {
-                    "users": [
-                        {
-                            "id": "123",
-                            "username": "testuser",
-                            "name": "Test User",
-                            "description": "Test bio",
-                        },
-                    ],
-                    "media": [
-                        {
-                            "media_key": "3_123",
-                            "type": "photo",
-                            "url": "https://example.com/photo.jpg",
-                        },
-                    ],
-                },
-            },
-        )
+        self.assertIn("Photo [1]: https://example.com/photo.jpg\nPhoto description", result)
 
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.execute()
+    def test_format_tweet_content_handles_missing_data(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {"lang": "en", "author_id": "123"},
+            includes = {"users": [{"id": "123", "username": "testuser"}]},
+        )))
 
-        self.assertIn("Photo description", result)
-        # noinspection PyUnresolvedReferences
-        self.mock_di.computer_vision_analyzer.assert_called_once()
-        self.assertEqual(self.mock_di.computer_vision_analyzer.call_args.kwargs["image_mime_types"], ["image/jpeg"])
-        self.assertEqual(self.mock_di.computer_vision_analyzer.call_args.kwargs["image_urls"], ["https://example.com/photo.jpg"])
+        result = self.fetcher.execute()
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_format_tweet_content_handles_missing_data(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-
-        # Mock X API v2 response with missing data
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "lang": "en",
-                    "author_id": "123",
-                },
-                "includes": {
-                    "users": [
-                        {
-                            "id": "123",
-                            "username": "testuser",
-                        },
-                    ],
-                },
-            },
-        )
-
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.execute()
-
-        # Should handle missing data gracefully
         self.assertIn("@testuser (<Anonymous>)", result)
         self.assertIn("@testuser's bio: \"<No user bio>\"", result)
         self.assertIn("<No text posted>", result)
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_returns_typed_data(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Structured tweet text",
-                    "lang": "en",
-                    "created_at": "2026-05-04T14:13:00.000Z",
-                    "author_id": "123",
-                },
-                "includes": {
-                    "users": [
-                        {
-                            "id": "123",
-                            "username": "structuser",
-                            "name": "Structured User",
-                            "description": "A bio",
-                            "profile_image_url": "https://pbs.twimg.com/profile_images/1/photo_normal.jpg",
-                        },
-                    ],
-                    "media": [
-                        {
-                            "type": "photo",
-                            "url": "https://pbs.twimg.com/media/photo.jpg",
-                            "preview_image_url": None,
-                        },
-                        {
-                            "type": "animated_gif",
-                            "url": None,
-                            "preview_image_url": "https://pbs.twimg.com/media/gif_preview.jpg",
-                            "variants": [
-                                {
-                                    "url": "https://video.twimg.com/gif.mp4",
-                                    "content_type": "video/mp4",
-                                },
-                            ],
-                            "width": 640,
-                            "height": 360,
-                        },
-                        {
-                            "type": "video",
-                            "url": None,
-                            "preview_image_url": "https://pbs.twimg.com/media/video_preview.jpg",
-                            "variants": [
-                                {
-                                    "url": "https://video.twimg.com/video-low.mp4",
-                                    "content_type": "video/mp4",
-                                    "bit_rate": 256000,
-                                },
-                            ],
-                            "duration_ms": 12345,
-                            "width": 1920,
-                            "height": 1080,
-                            "alt_text": "A test video",
-                        },
-                    ],
-                },
+    def test_as_structured_returns_typed_data(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "Structured tweet text",
+                "lang": "en",
+                "created_at": "2026-05-04T14:13:00.000Z",
+                "author_id": "123",
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+            includes = {
+                "users": [{
+                    "id": "123",
+                    "username": "structuser",
+                    "name": "Structured User",
+                    "description": "A bio",
+                    "profile_image_url": "https://pbs.twimg.com/profile_images/1/photo_normal.jpg",
+                }],
+                "media": [
+                    {"type": "photo", "url": "https://pbs.twimg.com/media/photo.jpg"},
+                    {
+                        "type": "animated_gif",
+                        "preview_image_url": "https://pbs.twimg.com/media/gif_preview.jpg",
+                        "variants": [{"url": "https://video.twimg.com/gif.mp4", "content_type": "video/mp4"}],
+                        "width": 640,
+                        "height": 360,
+                    },
+                    {
+                        "type": "video",
+                        "preview_image_url": "https://pbs.twimg.com/media/video_preview.jpg",
+                        "variants": [{
+                            "url": "https://video.twimg.com/video-low.mp4",
+                            "content_type": "video/mp4",
+                            "bit_rate": 256000,
+                        }],
+                        "duration_ms": 12345,
+                        "width": 1920,
+                        "height": 1080,
+                        "alt_text": "A test video",
+                    },
+                ],
+            },
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertIsInstance(result, TweetData)
         self.assertEqual(result.user.handle, "structuser")
@@ -405,316 +217,162 @@ class TwitterStatusFetcherTest(unittest.TestCase):
         self.assertEqual(result.media[2].height, 1080)
         self.assertEqual(result.media[2].alt_text, "A test video")
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_parses_cached_media_variants(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = stubs.domain.tools_cache(
-            value = json.dumps({
-                "data": {"text": "Cached video"},
-                "includes": {
-                    "users": [{"username": "cached"}],
-                    "media": [
-                        {
-                            "type": "video",
-                            "preview_image_url": "https://pbs.twimg.com/media/preview.jpg",
-                            "variants": [
-                                {
-                                    "url": "https://video.twimg.com/cached.mp4",
-                                    "content_type": "video/mp4",
-                                    "bit_rate": 512000,
-                                },
-                            ],
-                        },
-                    ],
-                },
-            }),
+    def test_as_structured_parses_cached_media_variants(self):
+        payload = external.x_tweet_response(
+            data = {"text": "Cached video"},
+            includes = {
+                "users": [{"username": "cached"}],
+                "media": [{
+                    "type": "video",
+                    "preview_image_url": "https://pbs.twimg.com/media/preview.jpg",
+                    "variants": [{
+                        "url": "https://video.twimg.com/cached.mp4",
+                        "content_type": "video/mp4",
+                        "bit_rate": 512000,
+                    }],
+                }],
+            },
         )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
+        self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX_STRUCTURED, self.tweet_id),
+            value = dumps(payload),
+        ))
 
-        result = fetcher.as_structured()
+        result = self.fetcher.as_structured()
 
         self.assertEqual(result.media[0].variants[0].url, "https://video.twimg.com/cached.mp4")
-        self.assertEqual(len(m.request_history), 0)
+        self.assertEqual(self.http.requests, [])
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_uses_structured_cache_prefix(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {"data": {"text": "Test", "lang": "en"}, "includes": {"users": [{"username": "u"}]}},
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        fetcher.as_structured()
+    def test_as_structured_uses_structured_cache_prefix(self):
+        text_cache = self.di.tools_cache_repo.save(domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, self.tweet_id),
+            value = "Rendered tweet text",
+        ))
+        payload = external.x_tweet_response()
+        self.http.responses[self.api_url].append(external.http_json_response(payload))
 
-        expected_key = ToolsCache.create_key("twitter-status-fetcher-json", self.tweet_id)
-        self.mock_di.tools_cache_repo.get.assert_called_once_with(expected_key)
+        result = self.fetcher.as_structured()
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_does_not_invoke_cv(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {"text": "Tweet", "lang": "en"},
-                "includes": {
-                    "users": [{"username": "u", "name": "U"}],
-                    "media": [{"type": "photo", "url": "https://pbs.twimg.com/media/photo.jpg"}],
-                },
+        self.assertEqual(result.text, payload["data"]["text"])
+        raw_cache = self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX_STRUCTURED, self.tweet_id))
+        self.assertEqual(loads(raw_cache.value), payload)
+        self.assertEqual(self.di.tools_cache_repo.get(text_cache.key), text_cache)
+
+    def test_as_structured_does_not_invoke_cv(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            includes = {"media": [{"type": "photo", "url": "https://pbs.twimg.com/media/photo.jpg"}]},
+        )))
+
+        result = self.fetcher.as_structured()
+
+        self.assertEqual(result.media[0].url, "https://pbs.twimg.com/media/photo.jpg")
+        self.assertEqual(self.model.prompts, [])
+
+    def test_as_structured_extracts_quoted_tweet_id(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "Check this out https://t.co/abc123",
+                "entities": {"urls": [{
+                    "url": "https://t.co/abc123",
+                    "expanded_url": "https://x.com/someone/status/9876543210",
+                }]},
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        fetcher.as_structured()
+        )))
 
-        # noinspection PyUnresolvedReferences
-        self.mock_di.computer_vision_analyzer.assert_not_called()
-
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_extracts_quoted_tweet_id(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Check this out https://t.co/abc123",
-                    "lang": "en",
-                    "entities": {
-                        "urls": [
-                            {
-                                "url": "https://t.co/abc123",
-                                "expanded_url": "https://x.com/someone/status/9876543210",
-                            },
-                        ],
-                    },
-                },
-                "includes": {"users": [{"username": "poster"}]},
-            },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+        result = self.fetcher.as_structured()
 
         self.assertEqual(result.quoted_tweet_id, "9876543210")
         self.assertNotIn("https://t.co/abc123", result.text)
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_no_quoted_tweet_for_self_media(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "My photo https://t.co/xyz",
-                    "lang": "en",
-                    "entities": {
-                        "urls": [
-                            {
-                                "url": "https://t.co/xyz",
-                                "expanded_url": f"https://x.com/me/status/{self.tweet_id}/photo/1",
-                            },
-                        ],
-                    },
-                },
-                "includes": {"users": [{"username": "me"}]},
+    def test_as_structured_no_quoted_tweet_for_self_media(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "My photo https://t.co/xyz",
+                "entities": {"urls": [{
+                    "url": "https://t.co/xyz",
+                    "expanded_url": f"https://x.com/me/status/{self.tweet_id}/photo/1",
+                }]},
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertIsNone(result.quoted_tweet_id)
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_extracts_link_previews(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Read this https://t.co/link1",
-                    "lang": "en",
-                    "entities": {
-                        "urls": [
-                            {
-                                "url": "https://t.co/link1",
-                                "expanded_url": "https://www.example.com/article",
-                                "title": "Great Article",
-                                "description": "A deep dive",
-                                "images": [{"url": "https://example.com/og.jpg"}],
-                            },
-                        ],
-                    },
-                },
-                "includes": {"users": [{"username": "poster"}]},
+    def test_as_structured_extracts_link_previews(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "Read this https://t.co/link1",
+                "entities": {"urls": [{
+                    "url": "https://t.co/link1",
+                    "expanded_url": "https://www.example.com/article",
+                    "title": "Great Article",
+                    "description": "A deep dive",
+                    "images": [{"url": "https://example.com/og.jpg"}],
+                }]},
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertEqual(len(result.link_previews), 1)
-        lp = result.link_previews[0]
-        self.assertIsInstance(lp, TweetLinkPreview)
-        self.assertEqual(lp.title, "Great Article")
-        self.assertEqual(lp.description, "A deep dive")
-        self.assertEqual(lp.domain, "example.com")
-        self.assertEqual(lp.og_image_url, "https://example.com/og.jpg")
+        preview = result.link_previews[0]
+        self.assertIsInstance(preview, TweetLinkPreview)
+        self.assertEqual(preview.title, "Great Article")
+        self.assertEqual(preview.description, "A deep dive")
+        self.assertEqual(preview.domain, "example.com")
+        self.assertEqual(preview.og_image_url, "https://example.com/og.jpg")
         self.assertNotIn("https://t.co/link1", result.text)
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_unescapes_html_entities(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "AT&amp;T &lt;3 Tom &amp; Jerry",
-                    "lang": "en",
-                },
-                "includes": {"users": [{"username": "poster"}]},
-            },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+    def test_as_structured_unescapes_html_entities(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {"text": "AT&amp;T &lt;3 Tom &amp; Jerry"},
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertEqual(result.text, "AT&T <3 Tom & Jerry")
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_referenced_tweets_quoted(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Quoting this",
-                    "lang": "en",
-                    "referenced_tweets": [{"type": "quoted", "id": "111222333"}],
-                },
-                "includes": {"users": [{"username": "quoter"}]},
+    def test_as_structured_referenced_tweets_quoted(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "Quoting this",
+                "referenced_tweets": [{"type": "quoted", "id": "111222333"}],
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertEqual(result.quoted_tweet_id, "111222333")
         self.assertFalse(result.is_reply)
         self.assertIsNone(result.replied_to_tweet_id)
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_referenced_tweets_reply(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Replying here",
-                    "lang": "en",
-                    "referenced_tweets": [{"type": "replied_to", "id": "444555666"}],
-                },
-                "includes": {"users": [{"username": "replier"}]},
+    def test_as_structured_referenced_tweets_reply(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "Replying here",
+                "referenced_tweets": [{"type": "replied_to", "id": "444555666"}],
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertTrue(result.is_reply)
         self.assertEqual(result.replied_to_tweet_id, "444555666")
         self.assertIsNone(result.quoted_tweet_id)
 
-    @requests_mock.Mocker()
-    @patch("features.web_browsing.twitter_status_fetcher.sleep", return_value = None)
-    def test_as_structured_referenced_tweets_both(self, m: Mocker, _):
-        self.mock_di.tools_cache_repo.get.return_value = None
-        m.get(
-            self.api_url,
-            json = {
-                "data": {
-                    "text": "Reply with quote",
-                    "lang": "en",
-                    "referenced_tweets": [
-                        {"type": "replied_to", "id": "444555666"},
-                        {"type": "quoted", "id": "777888999"},
-                    ],
-                },
-                "includes": {"users": [{"username": "both"}]},
+    def test_as_structured_referenced_tweets_both(self):
+        self.http.responses[self.api_url].append(external.http_json_response(external.x_tweet_response(
+            data = {
+                "text": "Reply with quote",
+                "referenced_tweets": [
+                    {"type": "replied_to", "id": "444555666"},
+                    {"type": "quoted", "id": "777888999"},
+                ],
             },
-        )
-        x_api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
-        fetcher = TwitterStatusFetcher(
-            tweet_id = self.tweet_id,
-            x_api_tool = x_api_tool,
-            vision_tool = vision_tool,
-            di = self.mock_di,
-        )
-        result = fetcher.as_structured()
+        )))
+
+        result = self.fetcher.as_structured()
 
         self.assertTrue(result.is_reply)
         self.assertEqual(result.replied_to_tweet_id, "444555666")

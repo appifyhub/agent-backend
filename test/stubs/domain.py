@@ -70,6 +70,7 @@ from features.social_cards.social_card_models import (
     SocialPost,
     SocialPostRenderAssets,
 )
+from features.social_cards.theme import ThemeColors
 from features.sponsorships.sponsorship import Sponsorship
 from features.tools_cache.tools_cache import ToolsCache
 from features.users.user import User
@@ -692,6 +693,11 @@ def resolved_token(**overrides: Any) -> ResolvedToken:
         "uses_credits": False,
     }
     return ResolvedToken(**(defaults | overrides))
+
+
+def theme_colors(**overrides: Any) -> ThemeColors:
+    defaults = {"gradient_start": "#251A3D", "gradient_end": "#040b19", "text_color": "#ffffff"}
+    return ThemeColors(**(defaults | overrides))
 
 
 def social_platform_brand(**overrides: Any) -> SocialPlatformBrand:

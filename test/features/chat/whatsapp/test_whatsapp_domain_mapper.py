@@ -9,6 +9,8 @@ from features.users.user_remote_data import UserRemoteData
 
 class WhatsAppDomainMapperTest(unittest.TestCase):
 
+    mapper: WhatsAppDomainMapper
+
     def setUp(self):
         self.mapper = WhatsAppDomainMapper()
 

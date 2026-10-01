@@ -1,57 +1,32 @@
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta
-from itertools import count
 from uuid import NAMESPACE_URL, uuid5
 
 import stubs
-from db.sql_util import SQLUtil
-from sqlalchemy import Connection, event
+from util.di_utils import di_for_tests
 
-from db.model.chat_message import ChatMessageDB
+from di.di import DI
 from features.chat.message.chat_message_repo import ChatMessageRepository
-
-_ingestion_order = count(1)
-
-
-def _assign_sqlite_ingestion_order(
-    _mapper,
-    connection: Connection,
-    target: ChatMessageDB,
-) -> None:
-    if connection.dialect.name != "sqlite" or target.ingestion_order is not None:
-        return
-    target.ingestion_order = next(_ingestion_order)
-
-
-def setUpModule() -> None:
-    event.listen(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
-
-
-def tearDownModule() -> None:
-    event.remove(ChatMessageDB, "before_insert", _assign_sqlite_ingestion_order)
 
 
 class ChatMessageRepositoryTest(unittest.TestCase):
 
-    sql: SQLUtil
+    di: DI
     repo: ChatMessageRepository
 
     def setUp(self):
-        self.sql = SQLUtil()
-        self.repo = self.sql.chat_message_repo()
-
-    def tearDown(self):
-        self.sql.end_session()
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.chat_message_repo
 
     def test_save_inserts_complete_message(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
             ),
         )
-        author = self.sql.user_repo().save(
+        author = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid5(NAMESPACE_URL, "user:1"),
                 telegram_user_id = 1,
@@ -74,13 +49,13 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNotNone(result.ingestion_order)
 
     def test_get_uses_composite_identity(self):
-        first_chat = self.sql.chat_config_repo().save(
+        first_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
             ),
         )
-        second_chat = self.sql.chat_config_repo().save(
+        second_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat2"),
                 external_id = "chat2",
@@ -109,7 +84,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertEqual(self.repo.get(second_chat.chat_id, "same"), second)
 
     def test_get_returns_none_when_missing(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -119,7 +94,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repo.get(chat.chat_id, "missing"))
 
     def test_get_all_applies_pagination(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -150,13 +125,13 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertEqual(result[0].message_id, "message2")
 
     def test_get_latest_by_chat_orders_and_paginates(self):
-        first_chat = self.sql.chat_config_repo().save(
+        first_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
             ),
         )
-        second_chat = self.sql.chat_config_repo().save(
+        second_chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat2"),
                 external_id = "chat2",
@@ -190,7 +165,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertEqual([message.message_id for message in result], ["message2", "message1"])
 
     def test_get_latest_by_chat_excludes_temporary_messages_by_default(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -224,7 +199,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertEqual([message.message_id for message in result], ["message1"])
 
     def test_get_latest_by_chat_can_include_temporary_messages(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -261,7 +236,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         )
 
     def test_get_latest_by_chat_keeps_prefixed_non_temporary_messages(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -282,7 +257,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertEqual([message.message_id for message in result], ["outgoing-abc123"])
 
     def test_get_latest_by_chat_filters_temporary_messages_before_pagination(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -326,13 +301,13 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertEqual([message.message_id for message in result], ["message2", "message1"])
 
     def test_save_exactly_replaces_non_identity_fields_from_independent_snapshot(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
             ),
         )
-        first_author = self.sql.user_repo().save(
+        first_author = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid5(NAMESPACE_URL, "user:1"),
                 telegram_user_id = 1,
@@ -340,7 +315,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
                 connect_key = "TEST-USER-1",
             ),
         )
-        second_author = self.sql.user_repo().save(
+        second_author = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid5(NAMESPACE_URL, "user:2"),
                 telegram_user_id = 2,
@@ -377,13 +352,13 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertNotEqual(result.is_temporary, original_snapshot.is_temporary)
 
     def test_save_can_clear_optional_author(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
             ),
         )
-        author = self.sql.user_repo().save(
+        author = self.di.user_repo.save(
             stubs.domain.user(
                 id = uuid5(NAMESPACE_URL, "user:1"),
                 telegram_user_id = 1,
@@ -406,7 +381,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNone(result.author_id)
 
     def test_delete_returns_deleted_message(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -428,7 +403,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repo.get(chat.chat_id, "message1"))
 
     def test_delete_returns_none_when_missing(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -438,7 +413,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repo.delete(chat.chat_id, "missing"))
 
     def test_delete_older_than_uses_strict_cutoff(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",
@@ -484,7 +459,7 @@ class ChatMessageRepositoryTest(unittest.TestCase):
         self.assertIsNotNone(self.repo.get(chat.chat_id, "new"))
 
     def test_equal_timestamps_use_ingestion_order_for_history_cutoff(self):
-        chat = self.sql.chat_config_repo().save(
+        chat = self.di.chat_config_repo.save(
             stubs.domain.chat_config(
                 chat_id = uuid5(NAMESPACE_URL, "chat:chat1"),
                 external_id = "chat1",

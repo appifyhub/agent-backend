@@ -1,241 +1,197 @@
-import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
-from uuid import UUID
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
 
-import requests_mock
 import stubs
-from requests_mock.mocker import Mocker
+from fakes.fake_http_client import FakeHTTPClient
+from util.di_utils import di_for_tests
 
 from di.di import DI
-from features.currencies.exchange_rate_fetcher import CACHE_TTL, ExchangeRateFetcher
+from features.currencies.exchange_rate_fetcher import CACHE_PREFIX, CACHE_TTL, ExchangeRateFetcher
 from features.tools_cache.tools_cache import ToolsCache
-from features.tools_cache.tools_cache_repo import ToolsCacheRepository
-from features.web_browsing.web_fetcher import WebFetcher
-from util.config import config
 from util.errors import ValidationError
 
 
-class ExchangeRateFetcherTest(unittest.TestCase):
+class ExchangeRateFetcherTest(TestCase):
 
-    mock_cache_repo: ToolsCacheRepository
+    di: DI
+    fetcher: ExchangeRateFetcher
+    http: FakeHTTPClient
+    fiat_url: str = "https://currency-converter5.p.rapidapi.com/currency/convert"
+    crypto_url: str = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 
     def setUp(self):
-        config.web_timeout_s = 1
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user()))
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config()))
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.fetcher = self.di.exchange_rate_fetcher
+        # skip only the system delay used to space live provider requests
+        self.enterContext(patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None))
 
-        self.mock_di = MagicMock(spec = DI)
+    def test_execute_same_currency(self):
+        result = self.fetcher.execute("USD", "USD", 100)
 
-        # Mock chat for usage tracking
-        mock_chat = MagicMock()
-        mock_chat.chat_id = UUID(int = 2)
-        self.mock_di.require_invoker_chat = MagicMock(return_value = mock_chat)
-
-        self.mock_di.tools_cache_repo = self.mock_cache_repo = MagicMock(spec = ToolsCacheRepository)
-        self.mock_di.access_token_resolver = MagicMock()
-
-        # Mock web_fetcher to return a mock WebFetcher instance
-        self.mock_web_fetcher = MagicMock(spec = WebFetcher)
-        self.mock_di.web_fetcher.return_value = self.mock_web_fetcher
-
-        # Mock tracked_web_fetcher to return the same mock WebFetcher instance
-        self.mock_di.tracked_web_fetcher.return_value = self.mock_web_fetcher
-
-        # Mock access token resolver
-        self.mock_di.access_token_resolver.require_access_token_for_tool.return_value.get_secret_value.return_value = "test_token"
-
-        self.mock_cache_repo.get.return_value = None
-
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @requests_mock.Mocker()
-    def test_execute_same_currency(self, m: Mocker, mock_sleep):
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        result = fetcher.execute("USD", "USD", 100)
         self.assertEqual(result, {"from": "USD", "to": "USD", "rate": 1.0, "amount": 100, "value": 100})
+        self.assertEqual(self.http.requests, [])
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_fiat_conversion_rate")
-    def test_execute_fiat_to_fiat(self, mock_get_fiat, mock_sleep):
-        mock_get_fiat.return_value = 0.85
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        result = fetcher.execute("USD", "EUR", 100)
+    def test_execute_fiat_to_fiat(self):
+        self.http.responses[self.fiat_url].append(stubs.external.http_json_response(stubs.external.fiat_exchange_response()))
+
+        result = self.fetcher.execute("USD", "EUR", 100)
+
         self.assertEqual(result, {"from": "USD", "to": "EUR", "rate": 0.85, "amount": 100, "value": 85})
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_crypto_conversion_rate")
-    def test_execute_crypto_to_crypto(self, mock_get_crypto, mock_sleep):
-        mock_get_crypto.return_value = 15.5
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        result = fetcher.execute("BTC", "ETH", 1)
+    def test_execute_crypto_to_crypto(self):
+        self.http.responses[self.crypto_url].extend([
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response(price = 31_000)),
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response(symbol = "ETH", price = 2_000)),
+        ])
+
+        result = self.fetcher.execute("BTC", "ETH", 1)
+
         self.assertEqual(result, {"from": "BTC", "to": "ETH", "rate": 15.5, "amount": 1, "value": 15.5})
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_fiat_conversion_rate")
-    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_crypto_conversion_rate")
-    def test_execute_fiat_to_crypto(self, mock_get_crypto, mock_get_fiat, mock_sleep):
-        mock_get_fiat.return_value = 1.2  # EUR to USD
-        mock_get_crypto.return_value = 0.000025  # USD to BTC (1 BTC = 40,000 USD)
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        result = fetcher.execute("EUR", "BTC", 1000000)  # 1 million EUR
-        expected_rate = 1.2 * 0.000025
-        expected_result = {"from": "EUR", "to": "BTC", "rate": expected_rate, "amount": 1000000, "value": 30}
-        self.assertEqual(result, expected_result)
+    def test_execute_fiat_to_crypto(self):
+        self.http.responses[self.fiat_url].append(stubs.external.http_json_response(
+            stubs.external.fiat_exchange_response(currency = "USD", rate = 1.2),
+        ))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(stubs.external.crypto_exchange_response()))
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_fiat_conversion_rate")
-    @patch("features.currencies.exchange_rate_fetcher.ExchangeRateFetcher.get_crypto_conversion_rate")
-    def test_execute_force_propagates_through_every_conversion_leg(self, mock_get_crypto, mock_get_fiat, mock_sleep):
-        mock_get_fiat.return_value = 1.2
-        mock_get_crypto.return_value = 0.000025
-        fetcher = ExchangeRateFetcher(self.mock_di)
+        result = self.fetcher.execute("EUR", "BTC", 1_000_000)
 
-        fetcher.execute("EUR", "BTC", force = True)
+        self.assertEqual(result, {"from": "EUR", "to": "BTC", "rate": 1.2 * 0.000025, "amount": 1_000_000, "value": 30})
 
-        mock_get_fiat.assert_called_once_with("EUR", "USD", force = True)
-        mock_get_crypto.assert_called_once_with("USD", "BTC", force = True)
+    def test_execute_force_propagates_through_every_conversion_leg(self):
+        self.http.responses[self.fiat_url].extend([
+            stubs.external.http_json_response(stubs.external.fiat_exchange_response(currency = "USD", rate = 1)),
+            stubs.external.http_json_response(stubs.external.fiat_exchange_response(currency = "USD", rate = 1.2)),
+        ])
+        self.http.responses[self.crypto_url].extend([
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response(price = 25_000)),
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response()),
+        ])
+        self.assertEqual(self.fetcher.execute("EUR", "BTC")["rate"], 1 / 25_000)
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_execute_unsupported_currency(self, mock_sleep):
-        fetcher = ExchangeRateFetcher(self.mock_di)
+        result = self.fetcher.execute("EUR", "BTC", force = True)
+
+        self.assertAlmostEqual(result["rate"], 0.00003)
+        self.assertEqual([url for url, _ in self.http.requests], [self.fiat_url, self.crypto_url] * 2)
+
+    def test_execute_unsupported_currency(self):
         with self.assertRaises(ValidationError):
-            fetcher.execute("USD", "UNSUPPORTED", 100)
+            self.fetcher.execute("USD", "UNSUPPORTED", 100)
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @requests_mock.Mocker()
-    def test_get_crypto_conversion_rate_cache_hit(self, m: Mocker, mock_sleep):
-        cached_rate = "1.5"
-        self.mock_cache_repo.get.return_value = stubs.domain.tools_cache(
-            value = cached_rate,
+        self.assertEqual(self.http.requests, [])
+
+    def test_get_crypto_conversion_rate_cache_hit(self):
+        self.di.tools_cache_repo.save(stubs.domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, "BTC-ETH"),
+            value = "1.5",
             expires_at = datetime.now() + CACHE_TTL,
-        )
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_crypto_conversion_rate("BTC", "ETH")
-        self.assertEqual(rate, float(cached_rate))
-        # noinspection PyUnresolvedReferences
-        m.assert_not_called()
+        ))
 
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_get_crypto_conversion_rate_force_bypasses_cache(self, mock_sleep):
-        self.mock_cache_repo.get.return_value = None
-        self.mock_web_fetcher.fetch_json.return_value = {"data": {"BTC": {"quote": {"USD": {"price": 40000}}}}}
-        fetcher = ExchangeRateFetcher(self.mock_di)
+        rate = self.fetcher.get_crypto_conversion_rate("BTC", "ETH")
 
-        rate = fetcher.get_crypto_conversion_rate("BTC", "USD", force = True)
+        self.assertEqual(rate, 1.5)
+        self.assertEqual(self.http.requests, [])
 
-        self.assertEqual(rate, 40000)
-        self.mock_cache_repo.get.assert_not_called()
-        self.mock_di.tracked_web_fetcher.assert_called_once()
-        self.assertTrue(self.mock_di.tracked_web_fetcher.call_args.kwargs["force"])
+    def test_get_crypto_conversion_rate_force_bypasses_cache(self):
+        self.http.responses[self.crypto_url].extend([
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response(price = 25_000)),
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response()),
+        ])
+        self.assertEqual(self.fetcher.get_crypto_conversion_rate("BTC", "USD"), 25_000)
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @requests_mock.Mocker()
-    def test_get_crypto_conversion_rate_inverse_cache_hit(self, m: Mocker, mock_sleep):
-        cached_rate = "1.5"
-        self.mock_cache_repo.get.side_effect = [
-            None,
-            stubs.domain.tools_cache(
-                value = cached_rate,
-                expires_at = datetime.now() + CACHE_TTL,
-            ),
-        ]
+        rate = self.fetcher.get_crypto_conversion_rate("BTC", "USD", force = True)
 
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_crypto_conversion_rate("BTC", "ETH")
+        self.assertEqual(rate, 40_000)
+        self.assertEqual(len(self.http.requests), 2)
+        self.assertEqual(self.fetcher.get_crypto_conversion_rate("BTC", "USD"), rate)
+        self.assertEqual(len(self.http.requests), 2)
 
-        self.assertEqual(rate, 1 / float(cached_rate))
-        self.assertEqual(self.mock_cache_repo.get.call_count, 2)
-        # noinspection PyUnresolvedReferences
-        m.assert_not_called()
+    def test_get_crypto_conversion_rate_inverse_cache_hit(self):
+        self.di.tools_cache_repo.save(stubs.domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, "ETH-BTC"),
+            value = "1.5",
+            expires_at = datetime.now() + CACHE_TTL,
+        ))
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_get_crypto_conversion_rate_cache_miss_crypto_to_crypto(self, mock_sleep):
-        self.mock_cache_repo.get.return_value = None
-        self.mock_web_fetcher.fetch_json.side_effect = [
-            {"data": {"BTC": {"quote": {"USD": {"price": 40000}}}}},
-            {"data": {"ETH": {"quote": {"USD": {"price": 2000}}}}},
-        ]
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_crypto_conversion_rate("BTC", "ETH")
-        self.assertEqual(rate, 20)  # 40000 / 2000 = 20
-        # noinspection PyUnresolvedReferences
-        self.mock_cache_repo.save.assert_called_once()
-        saved_entry = self.mock_cache_repo.save.call_args.args[0]
-        self.assertIsInstance(saved_entry, ToolsCache)
+        rate = self.fetcher.get_crypto_conversion_rate("BTC", "ETH")
+
+        self.assertEqual(rate, 1 / 1.5)
+        self.assertEqual(self.http.requests, [])
+
+    def test_get_crypto_conversion_rate_cache_miss_crypto_to_crypto(self):
+        self.http.responses[self.crypto_url].extend([
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response()),
+            stubs.external.http_json_response(stubs.external.crypto_exchange_response(symbol = "ETH", price = 2_000)),
+        ])
+        before = datetime.now()
+
+        rate = self.fetcher.get_crypto_conversion_rate("BTC", "ETH")
+
+        self.assertEqual(rate, 20)
+        saved_entry = self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX, "BTC-ETH"))
         self.assertEqual(saved_entry.value, "20.0")
         self.assertFalse(saved_entry.is_expired())
-        expected_expiration = datetime.now() + timedelta(minutes = 9)
-        self.assertAlmostEqual(saved_entry.expires_at.timestamp(), expected_expiration.timestamp(), delta = 1)
+        self.assertGreaterEqual(saved_entry.expires_at, before + CACHE_TTL)
+        self.assertLessEqual(saved_entry.expires_at, datetime.now() + CACHE_TTL)
+        self.assertEqual([options["params"]["symbol"] for _, options in self.http.requests], ["BTC", "ETH"])
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_get_crypto_conversion_rate_cache_miss_crypto_to_usd(self, mock_sleep):
-        self.mock_cache_repo.get.return_value = None
-        self.mock_web_fetcher.fetch_json.return_value = {"data": {"BTC": {"quote": {"USD": {"price": 40000}}}}}
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_crypto_conversion_rate("BTC", "USD")
-        self.assertEqual(rate, 40000)
-        # noinspection PyUnresolvedReferences
-        self.mock_cache_repo.save.assert_called_once()
+    def test_get_crypto_conversion_rate_cache_miss_crypto_to_usd(self):
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(stubs.external.crypto_exchange_response()))
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    @requests_mock.Mocker()
-    def test_get_fiat_conversion_rate_cache_hit(self, m: Mocker, mock_sleep):
-        cached_rate = "1.5"
-        self.mock_cache_repo.get.return_value = stubs.domain.tools_cache(
-            value = cached_rate,
+        rate = self.fetcher.get_crypto_conversion_rate("BTC", "USD")
+
+        self.assertEqual(rate, 40_000)
+        self.assertEqual(self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX, "BTC-USD")).value, "40000.0")
+
+    def test_get_fiat_conversion_rate_cache_hit(self):
+        self.di.tools_cache_repo.save(stubs.domain.tools_cache(
+            key = ToolsCache.create_key(CACHE_PREFIX, "USD-EUR"),
+            value = "1.5",
             expires_at = datetime.now() + CACHE_TTL,
-        )
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_fiat_conversion_rate("USD", "EUR")
-        self.assertEqual(rate, float(cached_rate))
-        # noinspection PyUnresolvedReferences
-        m.assert_not_called()
+        ))
 
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_get_fiat_conversion_rate_force_bypasses_cache(self, mock_sleep):
-        self.mock_cache_repo.get.return_value = None
-        self.mock_web_fetcher.fetch_json.return_value = {"rates": {"EUR": {"rate_for_amount": "0.85"}}}
-        fetcher = ExchangeRateFetcher(self.mock_di)
+        rate = self.fetcher.get_fiat_conversion_rate("USD", "EUR")
 
-        rate = fetcher.get_fiat_conversion_rate("USD", "EUR", force = True)
+        self.assertEqual(rate, 1.5)
+        self.assertEqual(self.http.requests, [])
 
-        self.assertEqual(rate, 0.85)
-        self.mock_cache_repo.get.assert_not_called()
-        self.mock_di.tracked_web_fetcher.assert_called_once()
-        self.assertTrue(self.mock_di.tracked_web_fetcher.call_args.kwargs["force"])
+    def test_get_fiat_conversion_rate_force_bypasses_cache(self):
+        self.http.responses[self.fiat_url].extend([
+            stubs.external.http_json_response(stubs.external.fiat_exchange_response(rate = 0.7)),
+            stubs.external.http_json_response(stubs.external.fiat_exchange_response()),
+        ])
+        self.assertEqual(self.fetcher.get_fiat_conversion_rate("USD", "EUR"), 0.7)
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_get_fiat_conversion_rate_expired_cache_miss(self, mock_sleep):
-        expired = stubs.domain.tools_cache(
-            expires_at = datetime.now() - timedelta(seconds = 1),
-        )
-        self.mock_cache_repo.get.side_effect = [expired, None]
-        self.mock_web_fetcher.fetch_json.return_value = {"rates": {"EUR": {"rate_for_amount": "0.85"}}}
-
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_fiat_conversion_rate("USD", "EUR")
+        rate = self.fetcher.get_fiat_conversion_rate("USD", "EUR", force = True)
 
         self.assertEqual(rate, 0.85)
-        self.assertEqual(self.mock_cache_repo.get.call_count, 2)
-        self.mock_cache_repo.save.assert_called_once()
+        self.assertEqual(len(self.http.requests), 2)
+        self.assertEqual(self.fetcher.get_fiat_conversion_rate("USD", "EUR"), rate)
+        self.assertEqual(len(self.http.requests), 2)
 
-    # noinspection PyUnusedLocal
-    @patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None)
-    def test_get_fiat_conversion_rate_cache_miss(self, mock_sleep):
-        self.mock_cache_repo.get.return_value = None
-        self.mock_web_fetcher.fetch_json.return_value = {"rates": {"EUR": {"rate_for_amount": "0.85"}}}
-        fetcher = ExchangeRateFetcher(self.mock_di)
-        rate = fetcher.get_fiat_conversion_rate("USD", "EUR")
+    def test_get_fiat_conversion_rate_expired_cache_miss(self):
+        key = ToolsCache.create_key(CACHE_PREFIX, "USD-EUR")
+        self.di.tools_cache_repo.save(stubs.domain.tools_cache(
+            key = key, value = "0.7", expires_at = datetime.now() - timedelta(seconds = 1),
+        ))
+        self.http.responses[self.fiat_url].append(stubs.external.http_json_response(stubs.external.fiat_exchange_response()))
+
+        rate = self.fetcher.get_fiat_conversion_rate("USD", "EUR")
+
         self.assertEqual(rate, 0.85)
-        # noinspection PyUnresolvedReferences
-        self.mock_cache_repo.save.assert_called_once()
+        entry = self.di.tools_cache_repo.get(key)
+        self.assertEqual(entry.value, "0.85")
+        self.assertFalse(entry.is_expired())
+
+    def test_get_fiat_conversion_rate_cache_miss(self):
+        self.http.responses[self.fiat_url].append(stubs.external.http_json_response(stubs.external.fiat_exchange_response()))
+
+        rate = self.fetcher.get_fiat_conversion_rate("USD", "EUR")
+
+        self.assertEqual(rate, 0.85)
+        self.assertEqual(self.di.tools_cache_repo.get(ToolsCache.create_key(CACHE_PREFIX, "USD-EUR")).value, "0.85")

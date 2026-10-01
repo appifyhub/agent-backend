@@ -1,62 +1,79 @@
-import unittest
-from unittest.mock import MagicMock, patch
+from unittest import TestCase
 
 import stubs
+from util.di_utils import di_for_tests
 
 from api.gumroad_controller import GumroadController
 from di.di import DI
-from features.accounting.purchases.purchase_service import PurchaseService
+from features.users.user import User
+from util.config import config
+from util.error_codes import UNAUTHORIZED_SELLER
 from util.errors import AuthorizationError
 
 
-class GumroadControllerTest(unittest.TestCase):
+class GumroadControllerTest(TestCase):
 
-    mock_purchase_service: PurchaseService
+    di: DI
+    user: User
     controller: GumroadController
 
     def setUp(self):
-        mock_di = MagicMock(spec = DI)
-        self.mock_purchase_service = MagicMock(spec = PurchaseService)
-        mock_di.purchase_service = self.mock_purchase_service
-        self.controller = GumroadController(mock_di)
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.controller = self.di.gumroad_controller
+        product = stubs.domain.configured_product(id = "product-789")
+        self.addCleanup(setattr, config, "products", config.products)
+        config.products = {product.id: product}
 
-    @patch("api.gumroad_controller.config")
-    def test_handle_ping_success(self, mock_config):
-        mock_config.gumroad_seller_id_check = False
-        payload = stubs.api.gumroad_ping_payload()
-
-        self.controller.handle_ping(payload)
-
-        self.mock_purchase_service.record_purchase.assert_called_once_with(payload)
-
-    @patch("api.gumroad_controller.config")
-    def test_handle_ping_with_seller_id_check_disabled(self, mock_config):
-        mock_config.gumroad_seller_id_check = False
-        payload = stubs.api.gumroad_ping_payload(seller_id = "wrong-seller")
+    def test_handle_ping_success(self):
+        self.addCleanup(setattr, config, "gumroad_seller_id_check", config.gumroad_seller_id_check)
+        config.gumroad_seller_id_check = False
+        payload = stubs.api.gumroad_ping_payload(url_params = {"user_id": self.user.id.hex})
 
         self.controller.handle_ping(payload)
 
-        self.mock_purchase_service.record_purchase.assert_called_once_with(payload)
+        records = self.di.purchase_service.get_by_user(self.user.id)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].sale_id, payload.sale_id)
+        self.assertEqual(records[0].seller_id, payload.seller_id)
 
-    @patch("api.gumroad_controller.config")
-    def test_handle_ping_with_seller_id_check_valid(self, mock_config):
-        mock_config.gumroad_seller_id_check = True
-        mock_config.gumroad_seller_id = "seller-123"
-        payload = stubs.api.gumroad_ping_payload()
+    def test_handle_ping_with_seller_id_check_disabled(self):
+        self.addCleanup(setattr, config, "gumroad_seller_id_check", config.gumroad_seller_id_check)
+        config.gumroad_seller_id_check = False
+        payload = stubs.api.gumroad_ping_payload(seller_id = "wrong-seller", url_params = {"user_id": self.user.id.hex})
 
         self.controller.handle_ping(payload)
 
-        self.mock_purchase_service.record_purchase.assert_called_once_with(payload)
+        records = self.di.purchase_service.get_by_user(self.user.id)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].sale_id, payload.sale_id)
+        self.assertEqual(records[0].seller_id, payload.seller_id)
 
-    @patch("api.gumroad_controller.config")
-    def test_handle_ping_with_seller_id_check_invalid(self, mock_config):
-        mock_config.gumroad_seller_id_check = True
-        mock_config.gumroad_seller_id = "seller-123"
-        payload = stubs.api.gumroad_ping_payload(seller_id = "wrong-seller")
+    def test_handle_ping_with_seller_id_check_valid(self):
+        self.addCleanup(setattr, config, "gumroad_seller_id_check", config.gumroad_seller_id_check)
+        config.gumroad_seller_id_check = True
+        self.addCleanup(setattr, config, "gumroad_seller_id", config.gumroad_seller_id)
+        config.gumroad_seller_id = "seller-123"
+        payload = stubs.api.gumroad_ping_payload(url_params = {"user_id": self.user.id.hex})
+
+        self.controller.handle_ping(payload)
+
+        records = self.di.purchase_service.get_by_user(self.user.id)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].sale_id, payload.sale_id)
+        self.assertEqual(records[0].seller_id, payload.seller_id)
+
+    def test_handle_ping_with_seller_id_check_invalid(self):
+        self.addCleanup(setattr, config, "gumroad_seller_id_check", config.gumroad_seller_id_check)
+        config.gumroad_seller_id_check = True
+        self.addCleanup(setattr, config, "gumroad_seller_id", config.gumroad_seller_id)
+        config.gumroad_seller_id = "seller-123"
+        payload = stubs.api.gumroad_ping_payload(seller_id = "wrong-seller", url_params = {"user_id": self.user.id.hex})
 
         with self.assertRaises(AuthorizationError) as context:
             self.controller.handle_ping(payload)
 
         self.assertIn("Unauthorized seller ID", str(context.exception))
         self.assertIn("wrong-seller", str(context.exception))
-        self.mock_purchase_service.record_purchase.assert_not_called()
+        self.assertEqual(context.exception.error_code, UNAUTHORIZED_SELLER)
+        self.assertEqual(self.di.purchase_service.get_by_user(self.user.id), [])

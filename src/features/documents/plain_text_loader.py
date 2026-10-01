@@ -1,10 +1,10 @@
-import requests
 from langchain_core.documents import Document
 
 from features.web_browsing.web_fetcher import DEFAULT_HEADERS
 from util import log
 from util.error_codes import ATTACHMENT_PROCESSING_FAILED, DOCUMENT_SEARCH_FAILED
 from util.errors import ExternalServiceError
+from util.http_client import HTTPClient
 
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
@@ -13,15 +13,17 @@ class PlainTextLoader:
 
     __job_id: str
     __document_url: str
+    __http_client: HTTPClient
 
-    def __init__(self, job_id: str, document_url: str):
+    def __init__(self, job_id: str, document_url: str, http_client: HTTPClient):
         self.__job_id = job_id
         self.__document_url = document_url
+        self.__http_client = http_client
 
     def load(self) -> list[Document]:
         log.t(f"Loading plain-text document for job '{self.__job_id}'")
         try:
-            raw_bytes = requests.get(self.__document_url, headers = DEFAULT_HEADERS).content
+            raw_bytes = self.__http_client.get(self.__document_url, headers = DEFAULT_HEADERS).content
             if len(raw_bytes) > MAX_FILE_SIZE_BYTES:
                 raise ExternalServiceError(
                     f"File too large for processing (>{MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB)",

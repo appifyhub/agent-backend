@@ -1,3 +1,5 @@
+from base64 import b64encode
+from json import dumps
 from typing import Any
 
 from api.auth import PublicAttachmentTokenClaims
@@ -162,9 +164,20 @@ def chat_settings_response(**overrides: Any) -> ChatSettingsResponse:
     return ChatSettingsResponse(**(defaults | overrides))
 
 
-def release_output_payload(**overrides: Any) -> ReleaseOutputPayload:
+def release_output_payload(
+    latest_version: str = "1.0.0",
+    new_target_version: str = "1.0.1",
+    release_notes: str = "notes",
+    **overrides: Any,
+) -> ReleaseOutputPayload:
+    release_output = {
+        "latest_version": latest_version,
+        "new_target_version": new_target_version,
+        "release_quality": "stable",
+        "release_notes_b64": b64encode(release_notes.encode()).decode(),
+    }
     defaults = {
-        "release_output_b64": "eyJyZWxlYXNlIjoidGVzdCJ9",
+        "release_output_b64": b64encode(dumps(release_output).encode()).decode(),
     }
     return ReleaseOutputPayload(**(defaults | overrides))
 
@@ -225,3 +238,11 @@ def gumroad_ping_payload(**overrides: Any) -> GumroadPingPayload:
         "refunded": False,
     }
     return GumroadPingPayload(**(defaults | overrides))
+
+
+def jwt_claims(**overrides: Any) -> dict[str, Any]:
+    defaults = {
+        "sub": "11111111111141118111a11111111111",
+        "platform": "telegram",
+    }
+    return defaults | overrides

@@ -53,10 +53,10 @@ opentelemetry-instrumentation-httpx = "*"
 
 [dev-packages]
 pytest = "*"
-requests-mock = "*"
 ruff = "*"
 pre-commit = "*"
 the-agent = {path = ".", editable = true}
+pytest-xdist = "*"
 
 [requires]
 # Python 3.12: keep in sync with pyproject.toml

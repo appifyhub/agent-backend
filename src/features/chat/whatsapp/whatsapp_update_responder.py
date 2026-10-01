@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
 
-from db.sql import get_detached_session
 from di.di import DI
 from features.chat.command_processor import is_known_command
 from features.chat.message_burst import ScheduledChatMessageBurst
@@ -21,31 +20,22 @@ async def respond_to_update(update: Update) -> bool:
     outcome = await asyncio.to_thread(_ingest_update, update)
     if not outcome.scheduled_bursts:
         return outcome.processed
-    results = await asyncio.gather(*(
-        _process_scheduled_burst(scheduled)
-        for scheduled in outcome.scheduled_bursts
-    ))
+    results = await asyncio.gather(*(_process_scheduled_burst(scheduled) for scheduled in outcome.scheduled_bursts))
     return outcome.processed or any(results)
 
 
-async def _process_scheduled_burst(
-    scheduled: ScheduledChatMessageBurst,
-) -> bool:
-    di = DI(
-        invoker_id = scheduled.author_id.hex,
-        invoker_chat_id = scheduled.chat_id.hex,
-    )
-    return await di.message_burst_service.process_after_quiet_period(
-        scheduled = scheduled,
-    )
+async def _process_scheduled_burst(scheduled: ScheduledChatMessageBurst) -> bool:
+    di = DI(invoker_id = scheduled.author_id.hex, invoker_chat_id = scheduled.chat_id.hex)
+    return await di.message_burst_service.process_after_quiet_period(scheduled = scheduled)
 
 
 def _ingest_update(update: Update) -> _IngressOutcome:
     if config.log_whatsapp_update:
         log.t(f"Received a WhatsApp update: `{update}`")
 
-    with get_detached_session() as db:
-        di = DI(db)
+    di = DI()
+    with di.new_session() as db:
+        di.inject_db_session(db)
         try:
             # store and map to domain models (throws in case of error)
             resolved_domain_data_all = di.whatsapp_chat_inbound_service.ingest_update(update)

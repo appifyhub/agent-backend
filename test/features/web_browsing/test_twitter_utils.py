@@ -1,20 +1,26 @@
-import unittest
-from unittest.mock import MagicMock, patch
+from typing import cast
+from unittest import TestCase
+
+from fakes.fake_http_client import FakeHTTPClient
+from stubs import external
+from util.di_utils import di_for_tests
 
 from features.web_browsing.twitter_utils import resolve_tweet_id
 from util.config import config
 
 
-class TwitterUtilsTest(unittest.TestCase):
+class TwitterUtilsTest(TestCase):
+
+    http: FakeHTTPClient
 
     def setUp(self):
-        config.web_timeout_s = 0
+        di = self.enterContext(di_for_tests())
+        self.http = cast(FakeHTTPClient, di.http_client())
 
-    @patch("requests.get")
-    def test_detect_tweet_id(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.url = "https://twitter.com/username/status/123456789"
-        mock_get.return_value = mock_response
+    def test_detect_tweet_id(self):
+        self.http.responses["https://t.co/abcdefg"].append(external.http_response(
+            url = "https://twitter.com/username/status/123456789",
+        ))
         test_cases = [
             ("https://twitter.com/username/status/123456789", "123456789"),
             ("https://x.com/username/status/123456789", "123456789"),
@@ -24,5 +30,6 @@ class TwitterUtilsTest(unittest.TestCase):
         ]
         for url, expected_id in test_cases:
             with self.subTest(url = url):
-                self.assertEqual(resolve_tweet_id(url), expected_id)
-        mock_get.assert_called_once_with("https://t.co/abcdefg", timeout = config.web_timeout_s)
+                self.assertEqual(resolve_tweet_id(url, http_client = self.http), expected_id)
+
+        self.assertEqual(self.http.requests, [("https://t.co/abcdefg", {"timeout": config.web_timeout_s})])

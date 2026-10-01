@@ -1,10 +1,12 @@
 import unittest
-from unittest.mock import MagicMock, Mock
+from typing import cast
+from uuid import uuid4
 
 import stubs
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_url_shortener import FakeUrlShortener
+from util.di_utils import di_for_tests
 
-from api.settings_controller import SettingsController
-from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.command_processor import (
     COMMAND_CONNECT,
@@ -14,54 +16,25 @@ from features.chat.command_processor import (
     CommandProcessor,
     is_known_command,
 )
-from features.connect.profile_connect_service import ProfileConnectService
 from features.integrations.integrations import resolve_agent_user
-from features.integrations.platform_bot_sdk import PlatformBotSDK
-from features.sponsorships.sponsorship_service import SponsorshipService
 from util.error_codes import UNEXPECTED_ERROR
+from util.errors import ExternalServiceError
 
 
 class CommandProcessorTest(unittest.TestCase):
 
-    mock_di: DI
+    di: DI
     processor: CommandProcessor
+    api: FakeTelegramBotAPI
 
     def setUp(self):
-        user = stubs.domain.user(
-            telegram_chat_id = "test_chat_id",
-        )
-        chat = stubs.domain.chat_config()
-
-        # Create mock DI with all required dependencies
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker = user
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat = chat
-        # noinspection PyPropertyAccess
-        self.mock_di.invoker_chat_type = ChatConfigDB.ChatType.telegram
-        # noinspection PyPropertyAccess
-        self.mock_di.require_invoker_chat_type = MagicMock(return_value = ChatConfigDB.ChatType.telegram)
-
-        # noinspection PyPropertyAccess
-        self.mock_di.sponsorship_service = Mock(spec = SponsorshipService)
-        # noinspection PyPropertyAccess
-        self.mock_di.profile_connect_service = Mock(spec = ProfileConnectService)
-        # noinspection PyPropertyAccess
-        self.mock_di.settings_controller = Mock(spec = SettingsController)
-        # noinspection PyPropertyAccess
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        self.mock_di.platform_bot_sdk = Mock(return_value = mock_platform_sdk)
-        self.mock_platform_sdk = mock_platform_sdk
-
-        # Setup default return values
-        self.mock_di.sponsorship_service.accept_sponsorship.return_value = False
-        self.mock_di.settings_controller.create_settings_link.return_value = stubs.api.settings_link_response(
-            settings_link = "https://example.com/settings?token=abc123",
-        )
-        self.mock_di.settings_controller.create_help_link.return_value = "https://example.com/features?token=abc123"
-
-        self.processor = CommandProcessor(self.mock_di)
+        self.di = self.enterContext(di_for_tests())
+        shortener = cast(FakeUrlShortener, self.di.url_shortener("https://example.com/settings"))
+        shortener.short_url = "https://example.com/settings?token=abc123"
+        self.api = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user(telegram_chat_id = "test_chat_id")))
+        self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config(external_id = "test_chat_id")))
+        self.processor = self.di.command_processor
 
     def test_empty_input(self):
         result = self.processor.execute("")
@@ -110,195 +83,267 @@ class CommandProcessorTest(unittest.TestCase):
     def test_start_command_no_sponsorship(self):
         result = self.processor.execute(f"/{COMMAND_START}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.sponsorship_service.accept_sponsorship.assert_called_once_with(self.mock_di.invoker)
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.mock_di.invoker.telegram_chat_id,
-            "https://example.com/settings?token=abc123",
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
         )
 
     def test_start_command_with_sponsorship(self):
-        self.mock_di.sponsorship_service.accept_sponsorship.return_value = True
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user(
+            telegram_chat_id = "test_chat_id",
+            open_ai_key = None,
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            replicate_key = None,
+            rapid_api_key = None,
+            coinmarketcap_key = None,
+            twelve_data_api_key = None,
+            x_key = None,
+            x_ai_key = None,
+        )))
+        sponsorship = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = uuid4(), receiver_id = self.di.invoker.id, accepted_at = None,
+        ))
 
         result = self.processor.execute(f"/{COMMAND_START}")
-        self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.sponsorship_service.accept_sponsorship.assert_called_once_with(self.mock_di.invoker)
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_not_called()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_not_called()
 
-    def test_settings_command(self):
-        result = self.processor.execute(f"/{COMMAND_SETTINGS}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.sponsorship_service.accept_sponsorship.assert_not_called()
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.mock_di.invoker.telegram_chat_id,
-            "https://example.com/settings?token=abc123",
+        self.assertIsNotNone(self.di.sponsorship_repo.get(sponsorship.sponsor_id, sponsorship.receiver_id).accepted_at)
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
         )
 
+    def test_settings_command(self):
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user(
+            telegram_chat_id = "test_chat_id",
+            open_ai_key = None,
+            anthropic_key = None,
+            google_ai_key = None,
+            perplexity_key = None,
+            replicate_key = None,
+            rapid_api_key = None,
+            coinmarketcap_key = None,
+            twelve_data_api_key = None,
+            x_key = None,
+            x_ai_key = None,
+        )))
+        sponsorship = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
+            sponsor_id = uuid4(), receiver_id = self.di.invoker.id, accepted_at = None,
+        ))
+        result = self.processor.execute(f"/{COMMAND_SETTINGS}")
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
+        self.assertIsNone(self.di.sponsorship_repo.get(sponsorship.sponsor_id, sponsorship.receiver_id).accepted_at)
+
     def test_start_command_with_bot_tag(self):
-        bot_tag = resolve_agent_user(self.mock_di.invoker_chat_type).telegram_username
+        bot_tag = resolve_agent_user(self.di.invoker_chat_type).telegram_username
         result = self.processor.execute(f"/{COMMAND_START}@{bot_tag}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
 
     def test_settings_command_with_bot_tag(self):
-        bot_tag = resolve_agent_user(self.mock_di.invoker_chat_type).telegram_username
+        bot_tag = resolve_agent_user(self.di.invoker_chat_type).telegram_username
         result = self.processor.execute(f"/{COMMAND_SETTINGS}@{bot_tag}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
 
     def test_wrong_bot_tagged(self):
         result = self.processor.execute(f"/{COMMAND_START}@wrong_bot")
         self.assertEqual(result.status, "ignored")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_not_called()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_not_called()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
+        )
 
     def test_unknown_command(self):
         result = self.processor.execute("/unknown_command")
         self.assertEqual(result.status, "ignored")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_not_called()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_not_called()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
+        )
 
     def test_start_command_with_arguments_ignored(self):
         result = self.processor.execute(f"/{COMMAND_START} some extra arguments")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
 
     def test_settings_command_with_arguments_ignored(self):
         result = self.processor.execute(f"/{COMMAND_SETTINGS} some extra arguments")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
 
     def test_exception_in_settings_controller(self):
-        self.mock_di.settings_controller.create_settings_link.side_effect = Exception("Settings error")
+        self.di.invoker.telegram_user_id = None
 
         result = self.processor.execute(f"/{COMMAND_START}")
+
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.error_message, "Failed to process command.")
         self.assertEqual(result.error_code, UNEXPECTED_ERROR)
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
+        )
 
     def test_exception_in_telegram_sdk(self):
-        self.mock_platform_sdk.send_button_link.side_effect = Exception("Telegram error")
+        self.api.delivery_errors[self.di.invoker.telegram_chat_id] = ExternalServiceError("Telegram error", UNEXPECTED_ERROR)
 
         result = self.processor.execute(f"/{COMMAND_START}")
+
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.error_message, "Failed to process command.")
         self.assertEqual(result.error_code, UNEXPECTED_ERROR)
-
-    def test_exception_in_sponsorship_service(self):
-        self.mock_di.sponsorship_service.accept_sponsorship.side_effect = Exception("Sponsorship error")
-
-        result = self.processor.execute(f"/{COMMAND_START}")
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.error_message, "Failed to process command.")
-        self.assertEqual(result.error_code, UNEXPECTED_ERROR)
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
+        )
 
     def test_help_command(self):
         result = self.processor.execute(f"/{COMMAND_HELP}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_help_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.mock_di.invoker.telegram_chat_id,
-            "https://example.com/features?token=abc123",
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
         )
 
     def test_help_command_with_bot_tag(self):
-        bot_tag = resolve_agent_user(self.mock_di.invoker_chat_type).telegram_username
+        bot_tag = resolve_agent_user(self.di.invoker_chat_type).telegram_username
         result = self.processor.execute(f"/{COMMAND_HELP}@{bot_tag}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_help_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
 
     def test_help_command_with_arguments_ignored(self):
         result = self.processor.execute(f"/{COMMAND_HELP} some extra arguments")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_help_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )
 
     def test_exception_in_help_link_creation(self):
-        self.mock_di.settings_controller.create_help_link.side_effect = Exception("Help link error")
+        self.di.invoker.telegram_user_id = None
 
         result = self.processor.execute(f"/{COMMAND_HELP}")
+
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.error_message, "Failed to process command.")
         self.assertEqual(result.error_code, UNEXPECTED_ERROR)
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
+        )
 
     def test_connect_command_no_key_provided(self):
         result = self.processor.execute(f"/{COMMAND_CONNECT}")
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once_with(
-            self.mock_di.invoker.telegram_chat_id,
-            "https://example.com/settings?token=abc123",
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
         )
 
     def test_connect_command_successful(self):
-        # Mock the Result enum on the service
-        self.mock_di.profile_connect_service.Result = ProfileConnectService.Result
-        self.mock_di.profile_connect_service.connect_profiles.return_value = (
-            ProfileConnectService.Result.success,
-            "Profiles connected successfully!",
-        )
+        self.di.user_repo.save(stubs.domain.user(
+            id = uuid4(),
+            connect_key = "ABCD-EFGH-JKLM",
+            telegram_user_id = None,
+            telegram_username = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = "other-whatsapp-user",
+        ))
 
-        result = self.processor.execute(f"/{COMMAND_CONNECT} ABCD-EFGH-JKLM")
+        result = self.processor.execute(f"/{COMMAND_CONNECT} abcd-efgh-jklm")
+
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.profile_connect_service.connect_profiles.assert_called_once_with(
-            self.mock_di.invoker,
-            "ABCD-EFGH-JKLM",
-        )
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_text_message.assert_called_once_with(
-            self.mock_di.invoker.telegram_chat_id,
-            "✅",
+        self.assertEqual([message["text"] for message in self.api.get_sent_messages("test_chat_id") if "text" in message], ["✅"])
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [],
         )
 
     def test_connect_command_invalid_key(self):
-        self.mock_di.profile_connect_service.connect_profiles.return_value = (
-            ProfileConnectService.Result.failure,
-            "Invalid connect key",
-        )
-
         result = self.processor.execute(f"/{COMMAND_CONNECT} INVALID-KEY")
+
         self.assertEqual(result.status, "success")
-        # noinspection PyUnresolvedReferences
-        self.mock_di.profile_connect_service.connect_profiles.assert_called_once()
-        # Should send settings link instead
-        # noinspection PyUnresolvedReferences
-        self.mock_di.settings_controller.create_settings_link.assert_called_once()
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_sdk.send_button_link.assert_called_once()
+        self.assertEqual(
+            [message["text"] for message in self.api.get_sent_messages("test_chat_id") if "text" in message],
+            ["Invalid connect key. Please check the key and try again."],
+        )
+        self.assertEqual(
+            [
+                (message["link_url"], message["button_text"])
+                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
+            ],
+            [("https://example.com/settings?token=abc123", "⚙️")],
+        )

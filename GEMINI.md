@@ -4,13 +4,28 @@
 
 ### Python
 
-In Python, I want you to use the latest type syntax (`type | None`) instead of `Optional`. I also want you to use a single space (`=`) around the equals sign (`=`) in function argument calls. It's important to use double quotation marks (`"`) instead of single quotations (`'`). And finally, we want to always use trailing commas in multi-line function declarations and calls. Always run tests with `pipenv run pytest -v`; never write `unittest.main()` manually. Never mock or manually construct data, database, domain, or API model objects in tests; add or update the corresponding factory in `test/stubs/` and use the stub instead. Never use inline imports inside of functions (use file header even in tests), and always use `from ... import ...` syntax at the top of the file.
+- Use `type | None` instead of `Optional`, double quotes instead of single quotes, a single space around `=` in call arguments, and trailing commas in multiline declarations and calls.
+- Declare every `self` attribute at class level with its type, including attributes assigned in `__init__` or `setUp`. Initialize fresh mutable state per instance or test; class-level declarations are not shared mutable instances.
+- Keep imports at the file header, including in tests, using `from ... import ...`; prefer module-qualified calls for ambiguous names such as `asyncio.run`. Never use inline imports except for production DI’s lazy provider imports that avoid cycles. Add `TYPE_CHECKING` imports only for annotations that use them.
+- Do not change working code without a concrete need. Avoid single-use abstractions, unnecessary files, and helpers that only forward another call. Keep a local default constant with its owning implementation, and dependency-specific options on their factories rather than the DI constructor.
+
+### Testing
+
+Construct DI-managed subjects with `self.di = self.enterContext(di_for_tests())` in `setUp`, or `with di_for_tests() as di:`. The helper provides real repositories on isolated SQLite, temporary local storage, shared offline fakes, and cleanup even after setup/test failure. Pure functions need no DI. See `test/util/di_utils.py` for interception and resource-lifetime details.
+
+- Never mock or manually construct data, database, domain, API, or vendor model objects in tests; add or update the corresponding factory in `test/stubs/` and use it. Override only fields relevant to the scenario.
+- Keep the subject and suitable collaborators real; do not introduce fakes or production changes merely for tests. Stay in the tested layer and assume dependencies work. Assert through public APIs/repository getters, never SQL or session internals through a repository. Use a test-only fake getter or omit an unobservable case.
+- Reuse existing DI fakes and registrations; add only necessary external behavior in `test/fakes/fake_*.py`. Keep adapters and usage decorators real. Configure the shared HTTP fake for GET/POST; direct `requests` calls are already forwarded, and unconfigured requests fail offline. Never mock owned behavior; justify each unavoidable system/external patch.
+- Preserve session ownership and keep background work offline. Use fresh session scopes for workers, propagate interceptor policy without retaining request sessions, and finish workers before environment cleanup. Do not add fake sessions, model catalogs, or competing repository factories.
+- Change public config properties directly and restore only changed state locally. Register `self.addCleanup(setattr, config, "web_retries", config.web_retries)` before `config.web_retries = 0`; likewise restore changed dictionaries, environment, or singleton state. No config wrappers or global reset fixtures; DI does not reset config.
+- Test behavior, not routine construction or every DI provider. Add DI coverage only for a new production behavior with a concrete failure risk. Match tests to production subjects, reuse existing modules, and ask before creating new test files.
+- Always run tests offline with `pipenv run pytest -v`; never write `unittest.main()` manually. Workers are automatic (`-n 0` for serial, `-n 2` for a fixed count). Run required Ruff/spacing checks. Deliver coherent module milestones, stop for review, and briefly report what finished and what comes next.
 
 ### Comments
 
 - For new code, avoid comments unless the logic is genuinely complex or the block is long
 - When editing existing code, prefer updating comments over deleting them
-- Comments should start with a lowercase letter, except in documentation or where grammar requires it
+- Start short ordinary comments with lowercase, except where grammar requires otherwise. Use normal sentence-case pydoc docstrings for multiline explanations. Explain unusual concurrency/resource ownership where needed; avoid trivial comments.
 
 ## Error Handling
 

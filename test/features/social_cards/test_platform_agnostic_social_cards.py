@@ -1,6 +1,6 @@
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Generator
 
 import pytest
 import stubs
@@ -18,10 +18,8 @@ from features.social_cards.card_layout import (
 from features.social_cards.link_preview import prepare_favicon
 from features.social_cards.social_card_models import (
     SocialCardMode,
-    SocialCardTemplateResult,
     SocialMediaKind,
 )
-from features.social_cards.theme import ThemeColors
 from features.social_cards.video_card_timeline import plan_timeline
 from features.videos.video_file_utils import inspect_video, video_meets_constraints
 from util.config import config
@@ -29,17 +27,22 @@ from util.error_codes import INVALID_SOCIAL_CARD_VIDEO_CONFIGURATION, SOCIAL_CAR
 from util.errors import ConfigurationError, ExternalServiceError
 
 
-def _theme() -> ThemeColors:
-    return ThemeColors(
-        gradient_start = "#251A3D",
-        gradient_end = "#040b19",
-        text_color = "#ffffff",
-    )
-
-
-def _write_image(path: Path, size: tuple[int, int] = (100, 100)) -> Path:
-    Image.new("RGB", size, color = (100, 50, 25)).save(path)
-    return path
+@pytest.fixture
+def local_logos(tmp_path: Path) -> Generator[None, None, None]:
+    original_logos = config.logos.copy()
+    original_cache = card_template._LOGO_CACHE.copy()
+    logo_path = tmp_path / "logo.svg"
+    logo_path.write_bytes(stubs.external.svg_bytes())
+    try:
+        for key in {*config.logos, "x-light", "x-dark"}:
+            config.logos[key] = logo_path.as_uri()
+        card_template._LOGO_CACHE.clear()
+        yield
+    finally:
+        config.logos.clear()
+        config.logos.update(original_logos)
+        card_template._LOGO_CACHE.clear()
+        card_template._LOGO_CACHE.update(original_cache)
 
 
 def _run_test_ffmpeg(*arguments: str) -> None:
@@ -167,7 +170,8 @@ def test_dynamic_social_card_contracts_are_platform_neutral() -> None:
     assert result.mode == SocialCardMode.VIDEO
 
 
-def test_card_renderer_writes_png_to_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("local_logos")
+def test_card_renderer_writes_png_to_path(tmp_path: Path) -> None:
     post = stubs.domain.social_post(
         author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
         text = "hello world",
@@ -177,32 +181,25 @@ def test_card_renderer_writes_png_to_path(monkeypatch: pytest.MonkeyPatch, tmp_p
         link_previews = [],
     )
     assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None)
-    captured: dict[str, object] = {}
-
-    def fake_build_svg(**kwargs: object) -> SocialCardTemplateResult:
-        captured.update(kwargs)
-        return stubs.domain.social_card_template_result(width = 100, height = 200)
-
-    monkeypatch.setattr(card_renderer, "build_svg", fake_build_svg)
-    monkeypatch.setattr(card_renderer.resvg_py, "svg_to_bytes", lambda **kwargs: b"png")
-
     output_path = tmp_path / "card.png"
     result = card_renderer.render(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         assets = assets,
         output_path = output_path,
         short_url = post.source_url,
     )
 
-    assert result.width == 100
-    assert output_path.read_bytes() == b"png"
-    assert captured["post"] is post
-    assert captured["assets"] is assets
+    assert "hello world" in result.svg
+    assert result.width > 0
+    assert result.height > 0
+    with Image.open(output_path) as rendered:
+        assert rendered.format == "PNG"
+        assert rendered.size == (result.width, result.height)
 
 
-def test_card_template_consumes_neutral_social_post(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+@pytest.mark.usefixtures("local_logos")
+def test_card_template_consumes_neutral_social_post() -> None:
     post = stubs.domain.social_post(
         author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
         text = "hello world",
@@ -214,7 +211,7 @@ def test_card_template_consumes_neutral_social_post(monkeypatch: pytest.MonkeyPa
 
     result = card_template.build_svg(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         card_width = 800,
         assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
@@ -224,8 +221,8 @@ def test_card_template_consumes_neutral_social_post(monkeypatch: pytest.MonkeyPa
     assert "x.com/milos/status/1" in result.svg
 
 
-def test_titled_post_renders_bold_title_above_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+@pytest.mark.usefixtures("local_logos")
+def test_titled_post_renders_bold_title_above_body() -> None:
     post = stubs.domain.social_post(
         author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
         text = "hello world",
@@ -238,7 +235,7 @@ def test_titled_post_renders_bold_title_above_body(monkeypatch: pytest.MonkeyPat
 
     result = card_template.build_svg(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         card_width = 800,
         assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
@@ -251,8 +248,8 @@ def test_titled_post_renders_bold_title_above_body(monkeypatch: pytest.MonkeyPat
     assert title_index < body_index
 
 
-def test_title_wraps_across_lines(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+@pytest.mark.usefixtures("local_logos")
+def test_title_wraps_across_lines() -> None:
     post = stubs.domain.social_post(
         author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
         text = "hello world",
@@ -265,7 +262,7 @@ def test_title_wraps_across_lines(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = card_template.build_svg(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         card_width = 800,
         assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
@@ -274,8 +271,8 @@ def test_title_wraps_across_lines(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.svg.count(f'font-size="{FONT_SIZE_TITLE}"') > 1
 
 
-def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+@pytest.mark.usefixtures("local_logos")
+def test_title_only_post_reserves_no_body_region() -> None:
     post = stubs.domain.social_post(
         author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
         text = "hello world",
@@ -289,7 +286,7 @@ def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch
 
     result = card_template.build_svg(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         card_width = 800,
         assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
@@ -299,8 +296,8 @@ def test_title_only_post_reserves_no_body_region(monkeypatch: pytest.MonkeyPatch
     assert f'font-size="{FONT_SIZE_BODY}"' not in result.svg
 
 
-def test_untitled_post_renders_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+@pytest.mark.usefixtures("local_logos")
+def test_untitled_post_renders_unchanged() -> None:
     post = stubs.domain.social_post(
         author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
         text = "hello world",
@@ -312,7 +309,7 @@ def test_untitled_post_renders_unchanged(monkeypatch: pytest.MonkeyPatch) -> Non
 
     result = card_template.build_svg(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         card_width = 800,
         assets = stubs.domain.social_post_render_assets(media = [], link_previews = [], avatar_path = None),
         short_url = post.source_url,
@@ -329,26 +326,25 @@ def test_card_width_from_text_includes_title_length() -> None:
     assert card_width_from_text(body, "y" * 200) == 1000
 
 
-def test_card_renderer_resolves_local_image_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        card_template,
-        "_fetch_logo",
-        lambda key: b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4" fill="white"/></svg>',  # ruff: ignore[line-too-long]
-    )
+@pytest.mark.usefixtures("local_logos")
+def test_card_renderer_resolves_local_image_paths(tmp_path: Path) -> None:
     media = stubs.domain.social_media_item()
     link_preview = stubs.domain.social_link_preview(
     )
     favicon_path = prepare_favicon(
-        _write_image(tmp_path / "favicon-source.png"),
+        stubs.external.image_file(tmp_path / "favicon-source.png"),
         tmp_path / "favicon.png",
     )
     assets = stubs.domain.social_post_render_assets(
-        avatar_path = _write_image(tmp_path / "avatar.png"),
-        media = [stubs.domain.social_media_asset(media = media, path = _write_image(tmp_path / "photo.png", (160, 90)))],
+        avatar_path = stubs.external.image_file(tmp_path / "avatar.png"),
+        media = [stubs.domain.social_media_asset(
+            media = media,
+            path = stubs.external.image_file(tmp_path / "photo.png", (160, 90), color = (100, 50, 25)),
+        )],
         link_previews = [
             stubs.domain.social_link_preview_asset(
                 link_preview = link_preview,
-                og_image_path = _write_image(tmp_path / "og-image.png", (300, 200)),
+                og_image_path = stubs.external.image_file(tmp_path / "og-image.png", (300, 200)),
                 favicon_path = favicon_path,
             ),
         ],
@@ -365,7 +361,7 @@ def test_card_renderer_resolves_local_image_paths(monkeypatch: pytest.MonkeyPatc
             media = [],
             link_previews = [],
         ),
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         assets = assets,
         output_path = output_path,
         short_url = "https://short.example/1",
@@ -379,11 +375,8 @@ def test_card_renderer_resolves_local_image_paths(monkeypatch: pytest.MonkeyPatc
         assert rendered.convert("RGB").getpixel(center) == (100, 50, 25)
 
 
-def test_dynamic_media_is_full_width_before_tiled_photos(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(card_template, "_fetch_logo", lambda key: b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+@pytest.mark.usefixtures("local_logos")
+def test_dynamic_media_is_full_width_before_tiled_photos(tmp_path: Path) -> None:
     video_one = stubs.domain.social_media_item(
         kind = SocialMediaKind.VIDEO,
         preview_url = "https://example.com/video-one.jpg",
@@ -407,16 +400,16 @@ def test_dynamic_media_is_full_width_before_tiled_photos(
     post.media = [photo_one, video_one, photo_two, video_two]
     assets = stubs.domain.social_post_render_assets(
         media = [
-            stubs.domain.social_media_asset(media = photo_one, path = _write_image(tmp_path / "photo-one.png")),
-            stubs.domain.social_media_asset(media = video_one, path = _write_image(tmp_path / "video-one.png", (160, 90))),
-            stubs.domain.social_media_asset(media = photo_two, path = _write_image(tmp_path / "photo-two.png")),
-            stubs.domain.social_media_asset(media = video_two, path = _write_image(tmp_path / "video-two.png", (160, 90))),
+            stubs.domain.social_media_asset(media = photo_one, path = stubs.external.image_file(tmp_path / "photo-one.png")),
+            stubs.domain.social_media_asset(media = video_one, path = stubs.external.image_file(tmp_path / "video-one.png", (160, 90))),  # ruff: ignore[line-too-long]
+            stubs.domain.social_media_asset(media = photo_two, path = stubs.external.image_file(tmp_path / "photo-two.png")),
+            stubs.domain.social_media_asset(media = video_two, path = stubs.external.image_file(tmp_path / "video-two.png", (160, 90))),  # ruff: ignore[line-too-long]
         ],
     )
 
     result = card_template.build_svg(
         post = post,
-        theme = _theme(),
+        theme = stubs.domain.theme_colors(),
         card_width = 800,
         assets = assets,
         short_url = post.source_url,
@@ -437,15 +430,12 @@ def test_dynamic_media_is_full_width_before_tiled_photos(
 
 
 def test_video_card_compositor_preserves_audio_freezes_last_frame_and_masks_corners(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 201), color = "yellow").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (200, 201), color = (255, 255, 0))
     output_path = tmp_path / "card.mp4"
-    mask_path = tmp_path / "known-mask.png"
-    monkeypatch.setattr(video_card_compositor, "uuid4", lambda: SimpleNamespace(hex = "known"))
     placement = stubs.domain.social_media_placement(
         media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
         x = 20,
@@ -474,7 +464,7 @@ def test_video_card_compositor_preserves_audio_freezes_last_frame_and_masks_corn
     assert (metadata.width, metadata.height) == (200, 202)
     assert metadata.audio_stream_count == 1
     assert metadata.duration_seconds == pytest.approx(1, abs = 0.1)
-    assert not mask_path.exists()
+    assert list(tmp_path.glob("*-mask.png")) == []
 
     early_frame = _extract_frame(output_path, tmp_path / "early.png", 0.2)
     late_frame = _extract_frame(output_path, tmp_path / "late.png", 0.9)
@@ -494,7 +484,7 @@ def test_video_card_compositor_scales_portrait_video_and_generates_silent_audio(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 240), color = "blue").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (200, 240), color = (0, 0, 255))
     output_path = tmp_path / "card.mp4"
     placement = stubs.domain.social_media_placement(
         media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
@@ -529,14 +519,16 @@ def test_video_card_compositor_scales_portrait_video_and_generates_silent_audio(
 
 
 def test_video_card_compositor_trims_to_configured_duration(
-    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
     tmp_path: Path,
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 200), color = "yellow").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (200, 200), color = (255, 255, 0))
     output_path = tmp_path / "card.mp4"
-    monkeypatch.setattr(config, "social_card_video_max_duration_s", 0.4)
+    original_limit = config.social_card_video_max_duration_s
+    request.addfinalizer(lambda: setattr(config, "social_card_video_max_duration_s", original_limit))
+    config.social_card_video_max_duration_s = 0.4
 
     video_card_compositor.compose(
         static_card_path,
@@ -563,10 +555,12 @@ def test_video_card_compositor_trims_to_configured_duration(
 
 
 def test_video_card_compositor_rejects_invalid_duration_configuration(
-    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(config, "social_card_video_max_duration_s", 0)
+    original_limit = config.social_card_video_max_duration_s
+    request.addfinalizer(lambda: setattr(config, "social_card_video_max_duration_s", original_limit))
+    config.social_card_video_max_duration_s = 0
     output_path = tmp_path / "card.mp4"
 
     with pytest.raises(ConfigurationError) as error:
@@ -586,17 +580,18 @@ def test_video_card_compositor_removes_partial_output_and_mask_after_process_fai
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 200), color = "yellow").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (200, 200), color = (255, 255, 0))
     output_path = tmp_path / "card.mp4"
-    mask_path = tmp_path / "known-mask.png"
-    source_metadata = inspect_video(str(video_sources["landscape"]))
-    monkeypatch.setattr(video_card_compositor, "inspect_video", lambda path: source_metadata)
-    monkeypatch.setattr(video_card_compositor, "uuid4", lambda: SimpleNamespace(hex = "known"))
+
+    run_process = subprocess.run
 
     def fail_process(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if Path(command[0]).name != "ffmpeg":
+            return run_process(command, **kwargs)
         output_path.write_bytes(b"partial")
-        return subprocess.CompletedProcess(command, returncode = 1, stdout = "", stderr = "failed")
+        return stubs.external.process_result(args = command, returncode = 1, stderr = "failed")
 
+    # only fail the FFmpeg process; metadata inspection and composition logic remain real
     monkeypatch.setattr(video_card_compositor.subprocess, "run", fail_process)
 
     with pytest.raises(ExternalServiceError) as error:
@@ -623,7 +618,7 @@ def test_video_card_compositor_removes_partial_output_and_mask_after_process_fai
 
     assert error.value.error_code == SOCIAL_CARD_VIDEO_COMPOSITION_FAILED
     assert not output_path.exists()
-    assert not mask_path.exists()
+    assert list(tmp_path.glob("*-mask.png")) == []
 
 
 def test_video_card_compositor_reports_timeout(
@@ -632,14 +627,17 @@ def test_video_card_compositor_reports_timeout(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 200), color = "yellow").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (200, 200), color = (255, 255, 0))
     output_path = tmp_path / "card.mp4"
-    source_metadata = inspect_video(str(video_sources["landscape"]))
-    monkeypatch.setattr(video_card_compositor, "inspect_video", lambda path: source_metadata)
 
-    def time_out_process(*args: object, **kwargs: object) -> None:
+    run_process = subprocess.run
+
+    def time_out_process(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if Path(command[0]).name != "ffmpeg":
+            return run_process(command, **kwargs)
         raise subprocess.TimeoutExpired(["ffmpeg"], 300)
 
+    # a subprocess timeout cannot be reproduced cheaply with local media
     monkeypatch.setattr(video_card_compositor.subprocess, "run", time_out_process)
 
     with pytest.raises(ExternalServiceError) as error:
@@ -675,15 +673,17 @@ def test_video_card_compositor_rejects_empty_output(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (200, 200), color = "yellow").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (200, 200), color = (255, 255, 0))
     output_path = tmp_path / "card.mp4"
-    source_metadata = inspect_video(str(video_sources["landscape"]))
-    monkeypatch.setattr(video_card_compositor, "inspect_video", lambda path: source_metadata)
-    monkeypatch.setattr(
-        video_card_compositor.subprocess,
-        "run",
-        lambda command, **kwargs: subprocess.CompletedProcess(command, returncode = 0, stdout = "", stderr = ""),
-    )
+    run_process = subprocess.run
+
+    def empty_output(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if Path(command[0]).name != "ffmpeg":
+            return run_process(command, **kwargs)
+        return stubs.external.process_result(args = command)
+
+    # simulate a successful system process that produces no file
+    monkeypatch.setattr(video_card_compositor.subprocess, "run", empty_output)
 
     with pytest.raises(ExternalServiceError) as error:
         video_card_compositor.compose(
@@ -726,7 +726,7 @@ def test_video_card_compositor_plays_videos_sequentially_with_active_audio_only(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    static_card = Image.new("RGB", (160, 220), color = "black")
+    static_card = stubs.external.image_bitmap(size = (160, 220), color = (0, 0, 0))
     static_card.paste("yellow", (20, 20, 120, 100))
     static_card.paste("blue", (20, 120, 120, 200))
     static_card.save(static_card_path)
@@ -779,7 +779,7 @@ def test_video_card_compositor_plays_video_then_gif_with_silent_gif_audio(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    static_card = Image.new("RGB", (160, 220), color = "black")
+    static_card = stubs.external.image_bitmap(size = (160, 220), color = (0, 0, 0))
     static_card.paste("yellow", (20, 20, 120, 100))
     static_card.paste("blue", (20, 120, 120, 200))
     static_card.save(static_card_path)
@@ -831,7 +831,7 @@ def test_video_card_compositor_keeps_gif_only_output_silent(
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    Image.new("RGB", (160, 120), color = "yellow").save(static_card_path)
+    stubs.external.image_file(static_card_path, size = (160, 120), color = (255, 255, 0))
     output_path = tmp_path / "card.mp4"
 
     video_card_compositor.compose(
@@ -860,18 +860,20 @@ def test_video_card_compositor_keeps_gif_only_output_silent(
 
 
 def test_video_card_compositor_truncates_active_item_and_does_not_start_later_items(
-    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
     tmp_path: Path,
     video_sources: dict[str, Path],
 ) -> None:
     static_card_path = tmp_path / "static.png"
-    static_card = Image.new("RGB", (160, 320), color = "black")
+    static_card = stubs.external.image_bitmap(size = (160, 320), color = (0, 0, 0))
     static_card.paste("yellow", (20, 20, 120, 100))
     static_card.paste("blue", (20, 120, 120, 200))
     static_card.paste("magenta", (20, 220, 120, 300))
     static_card.save(static_card_path)
     output_path = tmp_path / "card.mp4"
-    monkeypatch.setattr(config, "social_card_video_max_duration_s", 1.5)
+    original_limit = config.social_card_video_max_duration_s
+    request.addfinalizer(lambda: setattr(config, "social_card_video_max_duration_s", original_limit))
+    config.social_card_video_max_duration_s = 1.5
 
     video_card_compositor.compose(
         static_card_path,

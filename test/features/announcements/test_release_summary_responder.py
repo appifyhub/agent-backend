@@ -1,15 +1,15 @@
-import base64
-import json
-import unittest
-from unittest.mock import Mock, patch
+from typing import cast
+from unittest import TestCase
+from uuid import uuid4
 
 import stubs
-from langchain_core.messages import AIMessage
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from util.di_utils import di_for_tests
 
+from api.model.release_output_payload import ReleaseOutputPayload
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
-
-# noinspection PyProtectedMember
 from features.announcements.release_summary_responder import (
     VersionChangeType,
     _strip_title_formatting,
@@ -17,39 +17,29 @@ from features.announcements.release_summary_responder import (
     is_chat_subscribed,
     respond_with_summary,
 )
-from features.announcements.release_summary_service import ReleaseSummaryService
-from features.chat.config.chat_config_repo import ChatConfigRepository
-from features.external_tools.tool_choice_resolver import ToolChoiceResolver
-from features.integrations.platform_bot_sdk import PlatformBotSDK
-from util.translations_cache import TranslationsCache
-
-RELEASE_OUTPUT_B64 = base64.b64encode(
-    json.dumps(
-        {
-            "latest_version": "1.0.0",
-            "new_target_version": "1.0.1",
-            "release_quality": "stable",
-            "release_notes_b64": base64.b64encode(b"notes").decode(),
-        },
-    ).encode(),
-).decode()
+from features.external_tools.external_tool import ToolType
+from features.external_tools.intelligence_presets import default_tool_for
+from util.config import config
+from util.error_codes import UNEXPECTED_ERROR
+from util.errors import ExternalServiceError
 
 
-class ReleaseSummaryResponderTest(unittest.TestCase):
+class ReleaseSummaryResponderTest(TestCase):
 
-    mock_di: DI
+    di: DI
+    payload: ReleaseOutputPayload
+    model: FakeChatModel
+    bot: FakeTelegramBotAPI
 
     def setUp(self):
-        # Create a DI mock and set required properties
-        self.mock_di = Mock(spec = DI)
-        # noinspection PyPropertyAccess
-        self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
-        # noinspection PyPropertyAccess
-        self.mock_di.translations_cache = TranslationsCache()
-        # noinspection PyPropertyAccess
-        self.mock_di.tool_choice_resolver = Mock(spec = ToolChoiceResolver)
-        # noinspection PyPropertyAccess
-        self.mock_di.release_summary_service = Mock(spec = ReleaseSummaryService)
+        self.addCleanup(setattr, config, "version", config.version)
+        config.version = "1.0.1"
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user()))
+        tool = self.di.tool_choice_resolver.require_tool(ToolType.copywriting, default_tool_for(ToolType.copywriting))
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(tool))
+        self.bot = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        self.payload = stubs.api.release_output_payload()
 
     def test_version_change_type_major(self):
         self.assertEqual(get_version_change_type("1.0.0", "2.0.0"), VersionChangeType.major)
@@ -91,205 +81,144 @@ class ReleaseSummaryResponderTest(unittest.TestCase):
         self.assertTrue(is_chat_subscribed(chat, VersionChangeType.minor))
         self.assertFalse(is_chat_subscribed(chat, VersionChangeType.patch))
 
-    @patch("features.announcements.release_summary_responder.base64.b64decode")
-    def test_decoding_failure(self, mock_b64decode):
-        mock_b64decode.side_effect = Exception("decode error")
+    def test_decoding_failure(self):
         payload = stubs.api.release_output_payload(release_output_b64 = "invalid")
-        result = respond_with_summary(payload, self.mock_di)
+
+        result = respond_with_summary(payload, self.di)
+
         self.assertIn("Failed to decode release notes", result["summary"])
         self.assertEqual(result["summaries_created"], 0)
+        self.assertEqual(self.model.prompts, [])
 
-    @patch("features.announcements.release_summary_responder.config")
-    def test_version_mismatch(self, mock_config):
-        mock_config.version = "1.0.0"
-        release_output_json = {
-            "latest_version": "1.0.0",
-            "new_target_version": "1.0.1",
-            "release_quality": "stable",
-            "release_notes_b64": base64.b64encode(b"notes").decode(),
-        }
-        payload = stubs.api.release_output_payload(
-            release_output_b64 = base64.b64encode(json.dumps(release_output_json).encode()).decode(),
-                  )
-        result = respond_with_summary(payload, self.mock_di)
+    def test_version_mismatch(self):
+        config.version = "1.0.0"
+
+        result = respond_with_summary(self.payload, self.di)
+
         self.assertIn("Skipping release processing", result["summary"])
         self.assertIn("1.0.0", result["summary"])
         self.assertIn("1.0.1", result["summary"])
         self.assertEqual(result["summaries_created"], 0)
         self.assertEqual(result["chats_notified"], 0)
         self.assertTrue(result["should_retry"])
+        self.assertEqual(self.model.prompts, [])
 
-    @patch("features.announcements.release_summary_responder.config")
-    def test_version_match(self, mock_config):
-        mock_config.version = "1.0.1"
-        mock_configured_tool = Mock()
-        self.mock_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
-        mock_summary_service = Mock(spec = ReleaseSummaryService)
-        mock_summary_service.execute.return_value = Mock(content = "Test summary")
-        self.mock_di.release_summary_service.return_value = mock_summary_service
-        self.mock_di.chat_config_repo.get_all.return_value = []
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
+    def test_version_match(self):
+        self.model.responses.append(stubs.external.ai_message(content = "Test summary"))
+
+        result = respond_with_summary(self.payload, self.di)
+
         self.assertEqual(result["summaries_created"], 1)
-        self.assertNotIn("Skipping", result["summary"])
+        self.assertEqual(result["summary"], "Test summary")
         self.assertFalse(result["should_retry"])
+        self.assertEqual(self.model.prompts[0][-1].content, "notes")
 
-    @patch("features.announcements.release_summary_responder.config")
-    def test_successful_summary(self, mock_config):
-        mock_config.version = "1.0.1"
-        # Mock tool choice resolver and release summary service
-        mock_configured_tool = Mock()
-        self.mock_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
+    def test_successful_summary(self):
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        ))
+        self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "unsubscribed"))
+        self.model.responses.append(stubs.external.ai_message(content = "## Test summary"))
 
-        mock_summary_service = Mock(spec = ReleaseSummaryService)
-        mock_summary_service.execute.return_value = Mock(content = "Test summary")
-        self.mock_di.release_summary_service.return_value = mock_summary_service
+        result = respond_with_summary(self.payload, self.di)
 
-        # Use the real translations cache - it will cache summaries as needed
-
-        # Mock chat config
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(external_id = "1234", release_notifications = ChatConfigDB.ReleaseNotifications.all),
-        ]
-
-        # Mock scoped DI and platform SDK for cloning
-        mock_scoped_di = Mock()
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        mock_scoped_di.platform_bot_sdk = Mock(return_value = mock_platform_sdk)
-        self.mock_di.clone = Mock(return_value = mock_scoped_di)
-
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
+        self.assertEqual(result["summary"], "Test summary")
+        self.assertEqual(result["chats_eligible"], 2)
+        self.assertEqual(result["chats_subscribed"], 1)
+        self.assertEqual(result["chats_unsubscribed"], 1)
         self.assertEqual(result["chats_notified"], 1)
-        # noinspection PyUnresolvedReferences
-        mock_platform_sdk.send_text_message.assert_called_once_with("1234", "Test summary")
+        self.assertEqual(result["summaries_created"], 1)
+        self.assertEqual([message["text"] for message in self.bot.get_sent_messages(chat.external_id)], ["Test summary"])
+        self.assertEqual(self.bot.get_sent_messages("unsubscribed"), [])
 
-    @patch("features.announcements.release_summary_responder.config")
-    def test_multiple_languages(self, mock_config):
-        mock_config.version = "1.0.1"
-        mock_summarizer = Mock(spec = ReleaseSummaryService)
-        mock_summarizer.execute.return_value = AIMessage(content = "Summary")
-        self.mock_di.release_summary_service.return_value = mock_summarizer
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(
-                external_id = "123",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-            stubs.domain.chat_config(
-                external_id = "456",
-                language_name = "Spanish",
-                language_iso_code = "es",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-        ]
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
+    def test_multiple_languages(self):
+        self.di.chat_config_repo.save(stubs.domain.chat_config(
+            external_id = "123", release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        ))
+        self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_id = uuid4(), external_id = "456", language_name = "Spanish", language_iso_code = "es",
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        ))
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "English summary"),
+            stubs.external.ai_message(content = "Spanish summary"),
+        ])
+
+        result = respond_with_summary(self.payload, self.di)
+
         self.assertEqual(result["chats_notified"], 2)
         self.assertEqual(result["summaries_created"], 2)
+        self.assertEqual([message["text"] for message in self.bot.get_sent_messages("123")], ["English summary"])
+        self.assertEqual([message["text"] for message in self.bot.get_sent_messages("456")], ["Spanish summary"])
 
     def test_telegram_send_failure(self):
-        # Mock tool choice resolver and release summary service
-        mock_configured_tool = Mock()
-        self.mock_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        ))
+        self.bot.delivery_errors[chat.external_id] = ExternalServiceError("Delivery failed", UNEXPECTED_ERROR)
+        self.model.responses.append(stubs.external.ai_message(content = "Summary"))
 
-        mock_summary_service = Mock(spec = ReleaseSummaryService)
-        mock_summary_service.execute.return_value = Mock(content = "Summary")
-        self.mock_di.release_summary_service.return_value = mock_summary_service
+        result = respond_with_summary(self.payload, self.di)
 
-        # Use the real translations cache
-
-        # Mock chat config
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(external_id = "1234", release_notifications = ChatConfigDB.ReleaseNotifications.all),
-        ]
-
-        # Mock scoped DI with platform SDK send failure
-        mock_scoped_di = Mock()
-        mock_platform_sdk = Mock(spec = PlatformBotSDK)
-        mock_platform_sdk.send_text_message.side_effect = Exception("fail")
-        mock_scoped_di.platform_bot_sdk = Mock(return_value = mock_platform_sdk)
-        self.mock_di.clone = Mock(return_value = mock_scoped_di)
-
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
+        self.assertEqual(result["chats_subscribed"], 1)
+        self.assertEqual(result["summaries_created"], 1)
         self.assertEqual(result["chats_notified"], 0)
+        self.assertFalse(result["should_retry"])
+        self.assertEqual(self.bot.get_sent_messages(chat.external_id), [])
 
     def test_no_eligible_chats(self):
-        # Mock tool choice resolver and release summary service
-        mock_configured_tool = Mock()
-        self.mock_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
+        self.model.responses.append(stubs.external.ai_message(content = "Summary"))
 
-        mock_summary_service = Mock(spec = ReleaseSummaryService)
-        mock_summary_service.execute.return_value = Mock(content = "Summary")
-        self.mock_di.release_summary_service.return_value = mock_summary_service
+        result = respond_with_summary(self.payload, self.di)
 
-        # Use the real translations cache
-
-        # Mock empty chat config list
-        self.mock_di.chat_config_repo.get_all.return_value = []
-
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
         self.assertEqual(result["chats_eligible"], 0)
+        self.assertEqual(result["chats_notified"], 0)
+        self.assertEqual(result["summaries_created"], 1)
+        self.assertEqual(result["summary"], "Summary")
+        self.assertFalse(result["should_retry"])
 
-    @patch("features.announcements.release_summary_responder.config")
-    def test_all_translations(self, mock_config):
-        mock_config.version = "1.0.1"
-        mock_sum = Mock(spec = ReleaseSummaryService)
-        mock_sum.execute.return_value = Mock(content = "Gen summary")
-        self.mock_di.release_summary_service.return_value = mock_sum
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(
-                external_id = "123",
+    def test_all_translations(self):
+        for external_id, language_name, language_iso_code in (
+            ("123", "English", "en"), ("456", "Spanish", "es"), ("789", "Greek", "gr"),
+            ("sss", "Spanish", "es"), ("eee", "English", "en"),
+        ):
+            self.di.chat_config_repo.save(stubs.domain.chat_config(
+                chat_id = uuid4(), external_id = external_id,
+                language_name = language_name, language_iso_code = language_iso_code,
                 release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-            stubs.domain.chat_config(
-                external_id = "456",
-                language_name = "Spanish",
-                language_iso_code = "es",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-            stubs.domain.chat_config(
-                external_id = "789",
-                language_name = "Greek",
-                language_iso_code = "gr",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-            stubs.domain.chat_config(
-                external_id = "sss",
-                language_name = "Spanish",
-                language_iso_code = "es",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-            stubs.domain.chat_config(
-                external_id = "eee",
-                release_notifications = ChatConfigDB.ReleaseNotifications.all,
-            ),
-        ]
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
+            ))
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "English summary"),
+            stubs.external.ai_message(content = "Translated summary"),
+            stubs.external.ai_message(content = "Translated summary"),
+        ])
+
+        result = respond_with_summary(self.payload, self.di)
+
         self.assertEqual(result["chats_eligible"], 5)
         self.assertEqual(result["chats_notified"], 5)
         self.assertEqual(result["summaries_created"], 3)
+        self.assertEqual(len(self.model.prompts), 3)
+        for external_id in ("123", "eee"):
+            self.assertEqual([message["text"] for message in self.bot.get_sent_messages(external_id)], ["English summary"])
+        for external_id in ("456", "789", "sss"):
+            self.assertEqual([message["text"] for message in self.bot.get_sent_messages(external_id)], ["Translated summary"])
 
     def test_summarization_failure(self):
-        # Mock tool choice resolver and failing release summary service
-        mock_configured_tool = Mock()
-        self.mock_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        ))
+        self.model.responses.append(ExternalServiceError("Generation failed", UNEXPECTED_ERROR))
 
-        mock_summary_service = Mock(spec = ReleaseSummaryService)
-        mock_summary_service.execute.side_effect = Exception("boom")
-        self.mock_di.release_summary_service.return_value = mock_summary_service
+        result = respond_with_summary(self.payload, self.di)
 
-        # Mock chat config
-        self.mock_di.chat_config_repo.get_all.return_value = [
-            stubs.domain.chat_config(external_id = "1234", release_notifications = ChatConfigDB.ReleaseNotifications.all),
-        ]
-
-        payload = stubs.api.release_output_payload(release_output_b64 = RELEASE_OUTPUT_B64)
-        result = respond_with_summary(payload, self.mock_di)
+        self.assertIn("Release summary failed for default language", result["summary"])
+        self.assertIn("Generation failed", result["summary"])
+        self.assertEqual(result["summaries_created"], 0)
         self.assertEqual(result["chats_notified"], 0)
-        self.assertIsNotNone(result["summary"])
+        self.assertFalse(result["should_retry"])
+        self.assertEqual(len(self.model.prompts), 1)
+        self.assertEqual(self.bot.get_sent_messages(chat.external_id), [])
 
     def test_strip_title_formatting(self):
         self.assertEqual(_strip_title_formatting("# Title\nContent"), "Title\nContent")

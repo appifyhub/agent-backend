@@ -1,233 +1,133 @@
-import unittest
-from unittest.mock import Mock
-from uuid import UUID
+from typing import cast
+from unittest import TestCase
+from unittest.mock import patch
+from uuid import uuid4
 
 import stubs
-from langchain_core.messages import AIMessage
+from fakes.fake_chat_model import FakeChatModel
+from fakes.fake_http_client import FakeHTTPClient
+from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from util.di_utils import di_for_tests
 
 from di.di import DI
-from features.announcements.sys_announcements_service import SysAnnouncementsService
-from features.chat.config.chat_config_repo import ChatConfigRepository
+from features.chat.config.chat_config import ChatConfig
 from features.currencies.asset_alert_responder import respond_with_asset_alerts
-from features.currencies.asset_alert_service import AssetAlertService
-from features.external_tools.tool_choice_resolver import ToolChoiceResolver
-from features.integrations.platform_bot_sdk import PlatformBotSDK
-from features.sponsorships.sponsorship_repo import SponsorshipRepository
-from util.translations_cache import TranslationsCache
+from features.external_tools.configured_tool import ConfiguredTool
+from features.external_tools.external_tool import ToolType
+from features.external_tools.intelligence_presets import default_tool_for
+from util.error_codes import UNEXPECTED_ERROR
+from util.errors import ExternalServiceError
 
 
-class AssetAlertResponderTest(unittest.TestCase):
+class AssetAlertResponderTest(TestCase):
 
-    mock_di: DI
-    mock_scoped_di: DI
-    mock_asset_alert_service: AssetAlertService
-    mock_announcement_service: SysAnnouncementsService
+    di: DI
+    chat: ChatConfig
+    tool: ConfiguredTool
+    model: FakeChatModel
+    http: FakeHTTPClient
+    bot: FakeTelegramBotAPI
+    crypto_url: str = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 
     def setUp(self):
-        # Create a DI mock and set required properties
-        self.mock_di = Mock(spec = DI)
-
-        self.mock_di.chat_config_repo = Mock(spec = ChatConfigRepository)
-        self.mock_di.chat_config_repo.get.side_effect = lambda chat_id: stubs.domain.chat_config(
-            chat_id = chat_id,
-            external_id = str(chat_id.int),
-        )
-
-        # noinspection PyPropertyAccess
-        self.mock_di.sponsorship_repo = Mock(spec = SponsorshipRepository)
-
-        # Mock the asset_alert_service method to return a mock service
-        self.mock_asset_alert_service = Mock(spec = AssetAlertService)
-        self.mock_di.asset_alert_service.return_value = self.mock_asset_alert_service
-
-        # Mock DI clone method and its dependencies
-        # Create a single scoped_di that will be used by all tests
-        self.mock_scoped_di = Mock()
-
-        # Set up scoped DI dependencies
-
-        # noinspection PyPropertyAccess
-        self.mock_scoped_di.translations_cache = Mock(spec = TranslationsCache)
-        # noinspection PyPropertyAccess
-        self.mock_scoped_di.tool_choice_resolver = Mock(spec = ToolChoiceResolver)
-        self.mock_scoped_di.sys_announcements_service = Mock(spec = SysAnnouncementsService)
-        # noinspection PyPropertyAccess
-        self.mock_platform_bot_sdk = Mock(spec = PlatformBotSDK)
-        # noinspection PyPropertyAccess
-        self.mock_scoped_di.platform_bot_sdk = Mock(return_value = self.mock_platform_bot_sdk)
-
-        # Mock the announcements service instance
-        self.mock_announcement_service = Mock(spec = SysAnnouncementsService)
-        self.mock_scoped_di.sys_announcements_service.return_value = self.mock_announcement_service
-
-        # Configure clone to return the same scoped_di
-        self.mock_di.clone.return_value = self.mock_scoped_di
+        self.di = self.enterContext(di_for_tests())
+        self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user()))
+        self.chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
+        self.di.inject_invoker_chat(self.chat)
+        self.tool = self.di.tool_choice_resolver.require_tool(ToolType.copywriting, default_tool_for(ToolType.copywriting))
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool))
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.bot = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        # skip the system delay between provider requests
+        self.enterContext(patch("features.currencies.exchange_rate_fetcher.sleep", return_value = None))
 
     def test_sys_announcements_service_normalizes_structured_content(self):
-        chat = stubs.domain.chat_config(
-            chat_id = UUID(int = 1),
-            external_id = "1",
-        )
-        copywriter = Mock()
-        copywriter.invoke.return_value = AIMessage(content = [
+        self.model.responses.append(stubs.external.ai_message(content = [
             {"type": "thinking", "thinking": "Hidden reasoning"},
             {"type": "text", "text": "System announcement"},
-        ])
-        di = Mock(spec = DI)
-        di.authorization_service.validate_chat.return_value = chat
-        di.chat_langchain_model.return_value = copywriter
+        ]))
+        service = self.di.sys_announcements_service("Raw information", self.chat, self.tool)
 
-        resolved_chat, response = SysAnnouncementsService("Raw information", chat, Mock(), di).execute()
+        resolved_chat, response = service.execute()
 
-        self.assertEqual(resolved_chat, chat)
+        self.assertEqual(resolved_chat, self.chat)
         self.assertEqual(response.content, "System announcement")
 
-    # noinspection PyUnusedLocal
     def test_successful_announcements(self):
-        # Create actual TriggeredAlert objects
-        test_owner_id = UUID(int = 1)
-        triggered_alerts = [
-            stubs.domain.triggered_alert(chat_id = UUID(int = 123), owner_id = test_owner_id),
-            stubs.domain.triggered_alert(
-                chat_id = UUID(int = 456),
-                owner_id = test_owner_id,
-                asset_id = "ETH",
-                currency = "EUR",
-            ),
-        ]
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
+        self.di.price_alert_repo.save(stubs.domain.price_alert())
+        self.di.price_alert_repo.save(stubs.domain.price_alert(chat_id = other_chat.chat_id, threshold_percent = 10))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 55_000),
+        ))
+        self.model.responses.extend([
+            stubs.external.ai_message(content = "Bitcoin price increased"),
+            stubs.external.ai_message(content = "Bitcoin price increased"),
+        ])
 
-        # Mock the service's instance methods
-        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        result = respond_with_asset_alerts(self.di)
 
-        # Mock translations cache
-        self.mock_scoped_di.translations_cache.get.return_value = None  # No cached translation
-        self.mock_scoped_di.translations_cache.save.return_value = "Test announcement"
+        self.assertEqual(result, {
+            "alerts_triggered": 2, "announcements_created": 2, "chats_affected": 2, "chats_notified": 2,
+        })
+        for chat in (self.chat, other_chat):
+            self.assertEqual([message["text"] for message in self.bot.get_sent_messages(chat.external_id)], ["Bitcoin price increased"])
+        self.assertEqual(len(self.model.prompts), 2)
 
-        # Mock tool choice resolver
-        mock_configured_tool = Mock()
-        self.mock_scoped_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
-
-        # Mock the announcements service to return content
-        mock_chat = Mock()
-        mock_answer = Mock(content = "Test announcement")
-        self.mock_announcement_service.execute.return_value = (mock_chat, mock_answer)
-
-        result = respond_with_asset_alerts(self.mock_di)
-
-        # Assertions
-        self.assertEqual(result["alerts_triggered"], 2)
-        self.assertEqual(result["chats_notified"], 2)
-        self.assertEqual(result["announcements_created"], 2)
-        self.assertEqual(result["chats_affected"], 2)
-
-        # Verify the mock methods were called
-        # noinspection PyUnresolvedReferences
-        self.mock_asset_alert_service.get_triggered_alerts.assert_called_once()
-        # Verify announcements were sent via scoped DI's platform_bot_sdk
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.mock_platform_bot_sdk.send_text_message.call_count, 2)
-
-    # noinspection PyUnusedLocal
     def test_no_triggered_alerts(self):
-        # Mock the service's instance to return no alerts
-        self.mock_asset_alert_service.get_triggered_alerts.return_value = []
+        result = respond_with_asset_alerts(self.di)
 
-        result = respond_with_asset_alerts(self.mock_di)
+        self.assertEqual(result, {
+            "alerts_triggered": 0, "announcements_created": 0, "chats_affected": 0, "chats_notified": 0,
+        })
+        self.assertEqual(self.bot.get_sent_messages(self.chat.external_id), [])
+        self.assertEqual(self.model.prompts, [])
+        self.assertEqual(self.http.requests, [])
 
-        # Assertions
-        self.assertEqual(result["alerts_triggered"], 0)
-        self.assertEqual(result["chats_notified"], 0)
-        self.assertEqual(result["announcements_created"], 0)
-        self.assertEqual(result["chats_affected"], 0)
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_bot_sdk.send_text_message.assert_not_called()
-
-    # noinspection PyUnusedLocal
     def test_announcement_creation_failure(self):
-        test_owner_id = UUID(int = 1)
-        triggered_alerts = [
-            stubs.domain.triggered_alert(
-                chat_id = UUID(int = 123),
-                owner_id = test_owner_id,
-            ),
-        ]
+        self.di.price_alert_repo.save(stubs.domain.price_alert())
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 55_000),
+        ))
+        self.model.responses.append(stubs.external.ai_message(content = ""))
 
-        # Mock the service's instance
-        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        result = respond_with_asset_alerts(self.di)
 
-        # Mock translations cache to return no cached content
-        self.mock_scoped_di.translations_cache.get.return_value = None
+        self.assertEqual(result, {
+            "alerts_triggered": 1, "announcements_created": 0, "chats_affected": 1, "chats_notified": 0,
+        })
+        self.assertEqual(len(self.model.prompts), 1)
+        self.assertEqual(self.bot.get_sent_messages(self.chat.external_id), [])
 
-        # Mock tool choice resolver
-        mock_configured_tool = Mock()
-        self.mock_scoped_di.tool_choice_resolver.require_tool.return_value = mock_configured_tool
-
-        # Mock the announcements service to return no content (failure)
-        mock_chat = Mock()
-        mock_answer = Mock(content = None)
-        self.mock_announcement_service.execute.return_value = (mock_chat, mock_answer)
-
-        result = respond_with_asset_alerts(self.mock_di)
-
-        # Assertions - no announcements created due to failure
-        self.assertEqual(result["alerts_triggered"], 1)
-        self.assertEqual(result["chats_notified"], 0)
-        self.assertEqual(result["announcements_created"], 0)
-        self.assertEqual(result["chats_affected"], 1)
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_bot_sdk.send_text_message.assert_not_called()
-
-    # noinspection PyUnusedLocal
     def test_notification_failure(self):
-        # Create actual TriggeredAlert objects
-        test_owner_id = UUID(int = 1)
-        triggered_alerts = [
-            stubs.domain.triggered_alert(
-                chat_id = UUID(int = 123),
-                owner_id = test_owner_id,
-            ),
-        ]
+        self.di.price_alert_repo.save(stubs.domain.price_alert())
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 55_000),
+        ))
+        self.model.responses.append(stubs.external.ai_message(content = "Bitcoin price increased"))
+        self.bot.delivery_errors[self.chat.external_id] = ExternalServiceError("Notification failed", UNEXPECTED_ERROR)
 
-        # Mock the service's instance
-        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        result = respond_with_asset_alerts(self.di)
 
-        # Mock the translations cache to return cached content
-        self.mock_scoped_di.translations_cache.get.return_value = "Cached announcement"
+        self.assertEqual(result, {
+            "alerts_triggered": 1, "announcements_created": 1, "chats_affected": 1, "chats_notified": 0,
+        })
+        self.assertEqual(self.bot.get_sent_messages(self.chat.external_id), [])
 
-        self.mock_platform_bot_sdk.send_text_message.side_effect = Exception("Notification failed")
-
-        result = respond_with_asset_alerts(self.mock_di)
-
-        self.assertEqual(result["alerts_triggered"], 1)
-        self.assertEqual(result["announcements_created"], 0)
-        self.assertEqual(result["chats_affected"], 1)
-        self.assertEqual(result["chats_notified"], 0)
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_bot_sdk.send_text_message.assert_called_once()
-
-    # noinspection PyUnusedLocal
     def test_cached_announcement(self):
-        # Create actual TriggeredAlert objects
-        test_owner_id = UUID(int = 1)
-        triggered_alerts = [
-            stubs.domain.triggered_alert(
-                chat_id = UUID(int = 123),
-                owner_id = test_owner_id,
-            ),
-        ]
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "other-chat"))
+        self.di.price_alert_repo.save(stubs.domain.price_alert())
+        self.di.price_alert_repo.save(stubs.domain.price_alert(chat_id = other_chat.chat_id))
+        self.http.responses[self.crypto_url].append(stubs.external.http_json_response(
+            stubs.external.crypto_exchange_response(price = 55_000),
+        ))
+        self.model.responses.append(stubs.external.ai_message(content = "Shared announcement"))
 
-        # Mock the service's instance
-        self.mock_asset_alert_service.get_triggered_alerts.return_value = triggered_alerts
+        result = respond_with_asset_alerts(self.di)
 
-        # Mock the translations cache to return cached content
-        self.mock_scoped_di.translations_cache.get.return_value = "Cached announcement"
-
-        result = respond_with_asset_alerts(self.mock_di)
-
-        # Assertions
-        self.assertEqual(result["alerts_triggered"], 1)
-        self.assertEqual(result["chats_notified"], 1)
-        self.assertEqual(result["announcements_created"], 0)
-        self.assertEqual(result["chats_affected"], 1)
-        # noinspection PyUnresolvedReferences
-        self.mock_platform_bot_sdk.send_text_message.assert_called_once_with("123", "Cached announcement")
+        self.assertEqual(result, {
+            "alerts_triggered": 2, "announcements_created": 1, "chats_affected": 2, "chats_notified": 2,
+        })
+        self.assertEqual(len(self.model.prompts), 1)
+        for chat in (self.chat, other_chat):
+            self.assertEqual([message["text"] for message in self.bot.get_sent_messages(chat.external_id)], ["Shared announcement"])

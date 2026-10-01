@@ -1,67 +1,39 @@
-import unittest
-from unittest.mock import MagicMock, Mock, patch
+from unittest import TestCase
 from uuid import UUID
 
 import stubs
+from util.di_utils import di_for_tests
 
 from di.di import DI
 from features.accounting.purchases.purchase_record import PurchaseRecord
-from features.accounting.purchases.purchase_record_repo import PurchaseRecordRepository
 from features.accounting.purchases.purchase_service import PurchaseService
+from features.users.user import User
+from util.config import config
 
 KNOWN_PRODUCT_ID = "GUMROAD_ID_100"
 
 
-def _mock_config(known: bool = True, credits: int | None = None):
-    mock = Mock()
-    products_mock = MagicMock()
-    products_mock.__contains__ = Mock(return_value = known)
-    if known:
-        product = (
-            stubs.domain.configured_product()
-            if credits is None
-            else stubs.domain.configured_product(credits = credits)
-        )
-        products_mock.get = Mock(return_value = product)
-    else:
-        products_mock.get = Mock(return_value = None)
-    mock.products = products_mock
-    return mock
+class PurchaseServiceTest(TestCase):
 
-
-class PurchaseServiceTest(unittest.TestCase):
-
-    mock_di: DI
+    di: DI
     service: PurchaseService
+    user: User
 
     def setUp(self):
-        self.user_id = UUID(int = 1)
-        self.mock_di = Mock(spec = DI)
-
-        mock_user = stubs.domain.user(id = self.user_id)
-        mock_user_repo = Mock()
-        mock_user_repo.get = MagicMock(return_value = mock_user)
-        mock_user_repo.update_locked = MagicMock()
-        self.mock_di.user_repo = mock_user_repo
-
-        mock_repo = Mock(spec = PurchaseRecordRepository)
-        mock_repo.save = MagicMock(side_effect = lambda x: x)
-        mock_repo.get_by_user = MagicMock(return_value = [])
-        mock_repo.get_aggregates_by_user = MagicMock(return_value = None)
-        mock_repo.bind_license_key_to_user = MagicMock()
-        self.mock_di.purchase_record_repo = mock_repo
-
-        self.service = PurchaseService(self.mock_di)
+        self.di = self.enterContext(di_for_tests())
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.service = self.di.purchase_service
+        self.addCleanup(setattr, config, "products", config.products)
+        config.products = {KNOWN_PRODUCT_ID: stubs.domain.configured_product(id = KNOWN_PRODUCT_ID)}
 
     def test_record_purchase_success(self):
         payload = stubs.api.gumroad_ping_payload(
             sale_id = "sale-123",
             product_id = KNOWN_PRODUCT_ID,
-            url_params = {"user_id": str(self.user_id)},
+            url_params = {"user_id": str(self.user.id)},
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            record = self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
         self.assertIsInstance(record, PurchaseRecord)
         self.assertEqual(record.sale_id, "sale-123")
@@ -71,30 +43,26 @@ class PurchaseServiceTest(unittest.TestCase):
         unknown_product_id = "UNKNOWN_PRODUCT"
         payload = stubs.api.gumroad_ping_payload(product_id = unknown_product_id)
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config(known = False)):
-            record = self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
         self.assertIsNone(record)
-        self.mock_di.purchase_record_repo.save.assert_not_called()
+        self.assertEqual(self.service.get_by_user(self.user.id), [])
 
     def test_record_purchase_extracts_user_id_from_url_params(self):
         payload = stubs.api.gumroad_ping_payload(
             product_id = KNOWN_PRODUCT_ID,
-            url_params = {"user_id": str(self.user_id)},
+            url_params = {"user_id": str(self.user.id)},
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            record = self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
         assert record is not None
-        self.assertEqual(record.user_id, self.user_id)
-        self.mock_di.user_repo.get.assert_called_once_with(self.user_id)
+        self.assertEqual(record.user_id, self.user.id)
 
     def test_record_purchase_handles_missing_user_id(self):
         payload = stubs.api.gumroad_ping_payload(product_id = KNOWN_PRODUCT_ID, url_params = None)
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            record = self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
         assert record is not None
         self.assertIsNone(record.user_id)
@@ -105,148 +73,114 @@ class PurchaseServiceTest(unittest.TestCase):
             url_params = {"user_id": "invalid-uuid"},
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            record = self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
         assert record is not None
         self.assertIsNone(record.user_id)
 
     def test_record_purchase_handles_nonexistent_user(self):
-        self.mock_di.user_repo.get.return_value = None
+        missing_user_id = UUID("44444444-4444-4444-8444-d44444444444")
         payload = stubs.api.gumroad_ping_payload(
             product_id = KNOWN_PRODUCT_ID,
-            url_params = {"user_id": str(self.user_id)},
+            url_params = {"user_id": str(missing_user_id)},
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            record = self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
         assert record is not None
         self.assertIsNone(record.user_id)
 
     def test_record_purchase_persists_to_repo(self):
-        payload = stubs.api.gumroad_ping_payload(product_id = KNOWN_PRODUCT_ID)
+        payload = stubs.api.gumroad_ping_payload(
+            product_id = KNOWN_PRODUCT_ID,
+            url_params = {"user_id": str(self.user.id)},
+        )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            self.service.record_purchase(payload)
+        record = self.service.record_purchase(payload)
 
-        self.mock_di.purchase_record_repo.save.assert_called()
+        self.assertEqual(self.service.get_by_user(self.user.id), [record])
 
     def test_record_purchase_allocates_credits_on_new_purchase(self):
         payload = stubs.api.gumroad_ping_payload(
             product_id = KNOWN_PRODUCT_ID,
-            url_params = {"user_id": str(self.user_id)},
+            url_params = {"user_id": str(self.user.id)},
             quantity = 2,
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            self.service.record_purchase(payload)
+        self.service.record_purchase(payload)
 
-        self.mock_di.user_repo.update_locked.assert_called_once()
-        call_args = self.mock_di.user_repo.update_locked.call_args
-        self.assertEqual(call_args.kwargs["user_id"], self.user_id)
-        self.assertTrue(callable(call_args.kwargs["update_fn"]))
+        self.assertEqual(self.di.user_repo.get(self.user.id).credit_balance, self.user.credit_balance + 200)
 
     def test_record_purchase_does_not_allocate_credits_for_donation(self):
         donation_product_id = "GUMROAD_ID_DONATION"
         payload = stubs.api.gumroad_ping_payload(
             product_id = donation_product_id,
-            url_params = {"user_id": str(self.user_id)},
+            url_params = {"user_id": str(self.user.id)},
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config(credits = 0)):
-            record = self.service.record_purchase(payload)
+        config.products[donation_product_id] = stubs.domain.configured_product(id = donation_product_id, credits = 0)
+        record = self.service.record_purchase(payload)
 
-        self.mock_di.user_repo.update_locked.assert_not_called()
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
         assert record is not None
 
     def test_record_purchase_does_not_allocate_credits_for_test_purchase(self):
         payload = stubs.api.gumroad_ping_payload(
             product_id = KNOWN_PRODUCT_ID,
-            url_params = {"user_id": str(self.user_id)},
+            url_params = {"user_id": str(self.user.id)},
             test = True,
         )
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            self.service.record_purchase(payload)
+        self.service.record_purchase(payload)
 
-        self.mock_di.user_repo.update_locked.assert_not_called()
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_record_purchase_does_not_allocate_credits_without_user_id(self):
         payload = stubs.api.gumroad_ping_payload(product_id = KNOWN_PRODUCT_ID)
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            self.service.record_purchase(payload)
+        self.service.record_purchase(payload)
 
-        self.mock_di.user_repo.update_locked.assert_not_called()
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_record_purchase_deducts_credits_on_refund(self):
-        already_allocated = stubs.domain.purchase_record(
-            user_id = self.user_id,
-            product_id = KNOWN_PRODUCT_ID,
-            refunded = True,
-        )
-        self.mock_di.purchase_record_repo.save = MagicMock(return_value = already_allocated)
-
         payload = stubs.api.gumroad_ping_payload(
             product_id = KNOWN_PRODUCT_ID,
-            url_params = {"user_id": str(self.user_id)},
-            refunded = True,
+            url_params = {"user_id": str(self.user.id)},
         )
+        purchased = self.service.record_purchase(payload)
+        self.assertEqual(self.di.user_repo.get(self.user.id).credit_balance, self.user.credit_balance + 100)
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            self.service.record_purchase(payload)
+        refunded = self.service.record_purchase(payload.model_copy(update = {"refunded": True}))
 
-        self.mock_di.user_repo.update_locked.assert_called_once()
-        call_args = self.mock_di.user_repo.update_locked.call_args
-        self.assertEqual(call_args.kwargs["user_id"], self.user_id)
-        self.assertTrue(callable(call_args.kwargs["update_fn"]))
-
-    def test_bind_license_key_delegates_to_repo(self):
-        mock_record = stubs.domain.purchase_record(user_id = self.user_id)
-        self.mock_di.purchase_record_repo.bind_license_key_to_user = MagicMock(return_value = mock_record)
-
-        self.service.bind_license_key(self.user_id, "LICENSE-123")
-
-        self.mock_di.purchase_record_repo.bind_license_key_to_user.assert_called_once_with(
-            "LICENSE-123",
-            self.user_id,
-        )
+        self.assertEqual(refunded.id, purchased.id)
+        self.assertTrue(refunded.refunded)
+        self.assertEqual(self.service.get_by_user(self.user.id), [refunded])
+        self.assertEqual(self.di.user_repo.get(self.user.id), self.user)
 
     def test_bind_license_key_allocates_credits(self):
-        mock_record = stubs.domain.purchase_record(
-            user_id = self.user_id,
+        purchase = self.di.purchase_record_repo.save(stubs.domain.purchase_record(
+            user_id = None,
             product_id = KNOWN_PRODUCT_ID,
-        )
-        self.mock_di.purchase_record_repo.bind_license_key_to_user = MagicMock(return_value = mock_record)
-        self.mock_di.purchase_record_repo.save = MagicMock(side_effect = lambda x: x)
+        ))
 
-        with patch("features.accounting.purchases.purchase_service.config", _mock_config()):
-            self.service.bind_license_key(self.user_id, "LICENSE-123")
+        bound = self.service.bind_license_key(self.user.id, purchase.license_key)
 
-        self.mock_di.user_repo.update_locked.assert_called_once()
-        call_args = self.mock_di.user_repo.update_locked.call_args
-        self.assertEqual(call_args.kwargs["user_id"], self.user_id)
-        self.assertTrue(callable(call_args.kwargs["update_fn"]))
+        self.assertEqual(bound.user_id, self.user.id)
+        self.assertEqual(bound.license_key, purchase.license_key)
+        self.assertEqual(self.service.get_by_user(self.user.id), [bound])
+        self.assertEqual(self.di.user_repo.get(self.user.id).credit_balance, self.user.credit_balance + 100)
 
-    def test_get_by_user_delegates_to_repo(self):
-        self.service.get_by_user(self.user_id)
+    def test_get_by_user_returns_purchases(self):
+        purchase = self.di.purchase_record_repo.save(stubs.domain.purchase_record())
 
-        self.mock_di.purchase_record_repo.get_by_user.assert_called_once_with(
-            self.user_id,
-            skip = 0,
-            limit = 50,
-            start_date = None,
-            end_date = None,
-            product_id = None,
-        )
+        self.assertEqual(self.service.get_by_user(self.user.id), [purchase])
 
-    def test_get_aggregates_by_user_delegates_to_repo(self):
-        self.service.get_aggregates_by_user(self.user_id)
+    def test_get_aggregates_by_user_returns_purchase_totals(self):
+        purchase = self.di.purchase_record_repo.save(stubs.domain.purchase_record())
 
-        self.mock_di.purchase_record_repo.get_aggregates_by_user.assert_called_once_with(
-            self.user_id,
-            start_date = None,
-            end_date = None,
-            product_id = None,
-        )
+        totals = self.service.get_aggregates_by_user(self.user.id)
+
+        self.assertEqual(totals.total_purchase_count, 1)
+        self.assertEqual(totals.total_cost_cents, purchase.price)
+        self.assertEqual(totals.total_net_cost_cents, purchase.price - purchase.gumroad_fee - purchase.affiliate_credit_amount_cents)  # ruff: ignore[line-too-long]
+        self.assertEqual(totals.by_product[purchase.product_id].record_count, 1)
