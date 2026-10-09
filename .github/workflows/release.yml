@@ -56,10 +56,28 @@ jobs:
         env:
           USER: ${{ secrets.DOCKER_HUB_USER }}
           TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
-        run: echo "$TOKEN" | docker login docker.io --username "$USER" --password-stdin
+        run: |
+          for attempt in 1 2 3; do
+            if echo "$TOKEN" | docker login docker.io --username "$USER" --password-stdin; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Build Docker image
-        run: docker build . --file Dockerfile --tag the-agent
+        run: |
+          for attempt in 1 2 3; do
+            if docker build . --file Dockerfile --tag the-agent; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Auth for GitHub's Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
