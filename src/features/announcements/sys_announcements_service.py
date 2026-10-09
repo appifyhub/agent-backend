@@ -6,10 +6,7 @@ from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
-from features.integrations.integrations import resolve_best_notification_chat
 from util import log
-from util.error_codes import CHAT_CONFIG_NOT_FOUND
-from util.errors import NotFoundError
 from util.functions import parse_ai_message_content
 
 
@@ -25,15 +22,11 @@ class SysAnnouncementsService:
     def __init__(
         self,
         raw_information: str,
-        target_chat: ChatConfig | None,
+        target_chat: ChatConfig,
         configured_tool: ConfiguredTool,
         di: DI,
     ):
-        resolved_chat = target_chat if target_chat else resolve_best_notification_chat(di.invoker, di)
-        if not resolved_chat:
-            raise NotFoundError("Cannot resolve target chat for announcement", CHAT_CONFIG_NOT_FOUND)
-
-        validated_chat = di.authorization_service.validate_chat(resolved_chat)
+        validated_chat = di.authorization_service.validate_chat(target_chat)
         self.__resolved_chat = validated_chat
         system_prompt = prompt_resolvers.copywriting_new_system_event(validated_chat)
         self.__llm_input = []

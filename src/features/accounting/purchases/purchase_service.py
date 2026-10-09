@@ -9,10 +9,11 @@ from features.accounting.purchases.purchase_record import PurchaseRecord
 from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.external_tools.intelligence_presets import default_tool_for
 from features.integrations.integration_config import THE_AGENT
+from features.integrations.integrations import resolve_best_notification_chat
 from util import log
 from util.config import config
-from util.error_codes import ANNOUNCEMENT_NOT_RECEIVED
-from util.errors import ExternalServiceError
+from util.error_codes import ANNOUNCEMENT_NOT_RECEIVED, CHAT_CONFIG_NOT_FOUND
+from util.errors import ExternalServiceError, NotFoundError
 
 
 class PurchaseService:
@@ -176,15 +177,21 @@ class PurchaseService:
                 default_tool_for(SysAnnouncementsService.TOOL_TYPE),
             )
 
-            # initialize the announcements engine with the purchaser-user and no chat selection, ensuring the best delivery method
+            # resolve the purchaser's best delivery method
             user_scoped_di = self.__di.clone(invoker_id = str(record.user_id))
+            target_chat = resolve_best_notification_chat(user_scoped_di.invoker, user_scoped_di)
+            if target_chat is None:
+                raise NotFoundError("Cannot resolve target chat for announcement", CHAT_CONFIG_NOT_FOUND)
+            user_scoped_di.spending_service.validate_message_delivery_pre_flight(target_chat, user_scoped_di.invoker.id)
+            user_scoped_di.rollback_db_session()
             target_chat, announcement = user_scoped_di.sys_announcements_service(
                 raw_message,
-                target_chat = None,
+                target_chat = target_chat,
                 configured_tool = configured_tool,
             ).execute()
             if not announcement.content:
                 raise ExternalServiceError("LLM announcement not received", ANNOUNCEMENT_NOT_RECEIVED)
+            user_scoped_di.rollback_db_session()
 
             # send the message to the user, into the target chat
             messaging_di = user_scoped_di.clone(invoker_chat_id = target_chat.chat_id.hex)

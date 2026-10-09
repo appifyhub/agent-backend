@@ -249,6 +249,8 @@ class CreditTransferService:
             if not target_chat:
                 log.d(f"No eligible chat found for user {target.id.hex}, skipping notification")
                 return
+            self.__di.spending_service.validate_message_delivery_pre_flight(target_chat, self.__di.invoker.id)
+            self.__di.rollback_db_session()
 
             configured_tool = self.__di.tool_choice_resolver.require_tool(
                 SysAnnouncementsService.TOOL_TYPE,
@@ -262,9 +264,13 @@ class CreditTransferService:
             ).execute()
             if not announcement.content:
                 raise ExternalServiceError("LLM announcement not received", ANNOUNCEMENT_NOT_RECEIVED)
+            self.__di.rollback_db_session()
 
             chat_scoped_di = self.__di.clone(invoker_chat_id = target_chat.chat_id.hex)
             chat_scoped_di.platform_bot_sdk().send_text_message(str(target_chat.external_id), str(announcement.content))
             log.i(f"Transfer notification sent to user {target.id.hex} on {target_chat.chat_type.value}")
         except Exception as e:
-            log.e(f"Failed to send transfer notification to user {target.id.hex}", e)
+            if isinstance(e, ValidationError) and e.error_code == INSUFFICIENT_CREDITS:
+                log.w(f"Skipping transfer notification for user {target.id.hex} due to insufficient delivery credits")
+            else:
+                log.e(f"Failed to send transfer notification to user {target.id.hex}", e)

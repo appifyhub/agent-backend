@@ -90,6 +90,22 @@ INTERNAL = ExternalToolProvider(
     tools = ["Credits"],
 )
 
+TELEGRAM = ExternalToolProvider(
+    id = "telegram",
+    name = "Telegram",
+    token_management_url = "https://telegram.org/privacy",
+    token_format = "",
+    tools = ["Telegram"],
+)
+
+META = ExternalToolProvider(
+    id = "meta",
+    name = "Meta",
+    token_management_url = "https://www.meta.com/actions/protecting-privacy-and-security",
+    token_format = "",
+    tools = ["WhatsApp"],
+)
+
 
 ALL_PROVIDERS = [
     OPEN_AI,
@@ -103,4 +119,6 @@ ALL_PROVIDERS = [
     COINMARKETCAP,
     TWELVE_DATA,
     INTERNAL,
+    TELEGRAM,
+    META,
 ]

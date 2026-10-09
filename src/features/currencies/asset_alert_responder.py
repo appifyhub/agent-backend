@@ -5,8 +5,8 @@ from features.announcements.sys_announcements_service import SysAnnouncementsSer
 from features.external_tools.intelligence_presets import default_tool_for
 from util import log
 from util.config import config
-from util.error_codes import ANNOUNCEMENT_NOT_RECEIVED, CHAT_CONFIG_NOT_FOUND
-from util.errors import ExternalServiceError, NotFoundError
+from util.error_codes import ANNOUNCEMENT_NOT_RECEIVED, CHAT_CONFIG_NOT_FOUND, INSUFFICIENT_CREDITS
+from util.errors import ExternalServiceError, NotFoundError, ValidationError
 from util.translations_cache import TranslationsCache
 
 
@@ -24,6 +24,8 @@ def respond_with_asset_alerts(di: DI) -> dict:
             if not chat_config:
                 raise NotFoundError(f"Chat config not found for chat {triggered_alert.chat_id}", CHAT_CONFIG_NOT_FOUND)
             scoped_di = di.clone(invoker_id = triggered_alert.owner_id.hex, invoker_chat_id = chat_config.chat_id.hex)
+            scoped_di.spending_service.validate_message_delivery_pre_flight(chat_config, scoped_di.invoker.id)
+            scoped_di.rollback_db_session()
 
             # find the correct translations cache for this alert
             asset_type = triggered_alert.asset_type.value
@@ -61,11 +63,15 @@ def respond_with_asset_alerts(di: DI) -> dict:
                 announcement_text = translations.save(str(answer.content), language_name, language_iso_code)
                 announcements_created += 1
         except Exception as e:
-            log.e("Price alert announcement failed", e)
+            if isinstance(e, ValidationError) and e.error_code == INSUFFICIENT_CREDITS:
+                log.w(f"Skipping price alert for chat #{triggered_alert.chat_id} due to insufficient delivery credits")
+            else:
+                log.e("Price alert announcement failed", e)
             continue
 
         # now let's send the announcement to each chat
         try:
+            scoped_di.rollback_db_session()
             scoped_di.platform_bot_sdk().send_text_message(str(chat_config.external_id), announcement_text)
             chats_notified += 1
         except Exception as e:

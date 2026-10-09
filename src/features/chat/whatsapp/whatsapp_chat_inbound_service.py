@@ -36,9 +36,9 @@ class WhatsAppChatInboundService:
     def ingest_update(self, update: Update) -> list[IngestedChatMessage]:
         log.t(f"Ingesting WhatsApp update: {update}")
         message_contexts: list[tuple[WhatsAppMessage, Value]] = []
-        for entry in update.entry:
+        for entry in update.entry or []:
             log.t(f"  Processing update entry '{entry.id}'...")
-            for change in entry.changes:
+            for change in entry.changes or []:
                 log.t(f"  Processing change '{change.field}' in entry '{entry.id}'...")
                 value = change.value
                 if not value.messages:
@@ -117,7 +117,15 @@ class WhatsAppChatInboundService:
             is_invited_to_start = False,
             are_policies_accepted = False,
         )
-        return self.__di.user_repo.save(user)
+        stored_user = self.__di.user_repo.save(user, commit = False)
+        credited_user = self.__di.credit_transfer_service.grant_credits(
+            recipient = stored_user,
+            amount = config.welcome_credit_grant_amount,
+            note = "Welcome",
+            commit = False,
+        )
+        self.__di.db.commit()
+        return credited_user
 
     def store_message(
         self,

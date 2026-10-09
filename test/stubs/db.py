@@ -179,6 +179,7 @@ def usage_record_db(**overrides: Any) -> UsageRecordDB:
         "payer_id": UUID("11111111-1111-4111-8111-a11111111111"),
         "uses_credits": True,
         "is_failed": False,
+        "is_delivery_reconciled": False,
         "chat_id": UUID("22222222-2222-4222-8222-b22222222222"),
         "tool_id": "gpt-5.5",
         "tool_name": "GPT 5.5",

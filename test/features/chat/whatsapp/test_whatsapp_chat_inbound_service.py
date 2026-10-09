@@ -16,6 +16,7 @@ from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_service import ChatMembershipService
 from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
+from features.integrations.integration_config import THE_AGENT
 from features.integrations.integrations import resolve_agent_user
 from features.users.user_repo import UserRepository
 from util.config import config
@@ -44,6 +45,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.chats = self.di.chat_config_repo
         self.messages = self.di.chat_message_repo
         self.users = self.di.user_repo
+        self.users.save(THE_AGENT)
         self.resolver = self.di.whatsapp_chat_inbound_service
 
     def test_ingest_update_empty(self):
@@ -241,6 +243,10 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_store_author_new(self):
+        self.chats.save(stubs.domain.chat_config(
+            external_id = "1",
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+        ))
         mapped_data = stubs.domain.user_remote_data(
             whatsapp_user_id = "1",
             full_name = "New User",
@@ -254,9 +260,26 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertIsNotNone(result.id)
         self.assertEqual(result.full_name, mapped_data.full_name)
         self.assertEqual(result.whatsapp_user_id, mapped_data.whatsapp_user_id)
-        self.assertEqual(result.whatsapp_user_id, mapped_data.whatsapp_user_id)
+        self.assertEqual(result.credit_balance, config.welcome_credit_grant_amount)
         self.assertIsNone(result.open_ai_key)
         self.assertEqual(result.group, UserDB.Group.standard)
+        records = self.di.usage_record_repo.get_by_user(THE_AGENT.id, only_transfers = True)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].counterpart_id, result.id)
+        self.assertEqual(records[0].total_cost_credits, config.welcome_credit_grant_amount)
+        self.assertEqual(records[0].note, "Welcome")
+        self.assertEqual(self.api.get_sent_messages("1"), [])
+
+    def test_store_author_rolls_back_new_user_when_welcome_grant_fails(self):
+        self.addCleanup(setattr, config, "welcome_credit_grant_amount", config.welcome_credit_grant_amount)
+        config.welcome_credit_grant_amount = float("nan")
+        mapped_data = stubs.domain.user_remote_data(whatsapp_user_id = "1")
+
+        with self.assertRaises(InternalError):
+            self.resolver.store_author(mapped_data)
+
+        self.assertIsNone(self.users.get_by_remote_data(mapped_data))
+        self.assertEqual(self.di.usage_record_repo.get_by_user(THE_AGENT.id, only_transfers = True), [])
 
     def test_store_author_by_whatsapp_user_id(self):
         existing_user_data = stubs.domain.user(
@@ -361,6 +384,7 @@ class WhatsAppChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.credit_balance, existing_user.credit_balance)
         self.assertEqual(result.group, existing_user.group)
         self.assertEqual(result.created_at, existing_user.created_at)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(THE_AGENT.id, only_transfers = True), [])
 
         # Verify all tool choice fields are preserved from existing user
         self.assertEqual(result.tool_choice_chat, existing_user.tool_choice_chat)

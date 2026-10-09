@@ -68,6 +68,8 @@ from features.chat.whatsapp.model.response import (
 from features.chat.whatsapp.model.response import (
     SentMessageResponse as WhatsAppSentMessageResponse,
 )
+from features.chat.whatsapp.model.status import MessageStatus as WhatsAppMessageStatus
+from features.chat.whatsapp.model.status import StatusPricing as WhatsAppStatusPricing
 from features.chat.whatsapp.model.update import Update as WhatsAppUpdate
 from features.chat.whatsapp.model.value import Value as WhatsAppValue
 from features.web_browsing.twitter_status_fetcher import (
@@ -357,6 +359,26 @@ def whatsapp_metadata(**overrides: Any) -> WhatsAppMetadata:
         "phone_number_id": "phone-id",
     }
     return WhatsAppMetadata(**(defaults | overrides))
+
+
+def whatsapp_status_pricing(**overrides: Any) -> WhatsAppStatusPricing:
+    defaults = {
+        "billable": True,
+        "type": "regular",
+        "category": "service",
+    }
+    return WhatsAppStatusPricing(**(defaults | overrides))
+
+
+def whatsapp_message_status(**overrides: Any) -> WhatsAppMessageStatus:
+    defaults = {
+        "id": "whatsapp-message-123",
+        "status": "sent",
+        "timestamp": "1768478400",
+        "recipient_id": "15551234567",
+        "pricing": whatsapp_status_pricing(),
+    }
+    return WhatsAppMessageStatus(**(defaults | overrides))
 
 
 def whatsapp_text(**overrides: Any) -> WhatsAppText:

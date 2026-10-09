@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.37.1
+  version: 5.38.1
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -1749,6 +1749,10 @@ components:
           type: boolean
           nullable: false
           description: Whether the tool call failed (balance is not deducted for failed calls)
+        is_delivery_reconciled:
+          type: boolean
+          nullable: false
+          description: Whether a message delivery estimate has been reconciled from a provider sent status (only meaningful for message_delivery records)
         chat_id:
           type: string
           nullable: true
@@ -1760,7 +1764,7 @@ components:
         tool_purpose:
           type: string
           nullable: false
-          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, videos_gen, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, credit_transfer, deprecated]
+          enum: [chat, reasoning, copywriting, vision, hearing, images_gen, videos_gen, search, embedding, api_fiat_exchange, api_crypto_exchange, api_stock_quote, api_twitter, message_delivery, credit_transfer, deprecated]
           description: The purpose/type of tool usage
         timestamp:
           type: string
@@ -1842,7 +1846,7 @@ components:
         counterpart_id:
           type: string
           nullable: true
-          description: The other party's user ID in hexadecimal format (only present for credit transfer records)
+          description: The other party's user ID in hexadecimal format (the recipient for message delivery, or the other party for credit transfers)
         note:
           type: string
           nullable: true
@@ -1856,6 +1860,7 @@ components:
         - payer_id
         - uses_credits
         - is_failed
+        - is_delivery_reconciled
         - tool
         - tool_purpose
         - timestamp
@@ -1902,7 +1907,7 @@ components:
         counterpart:
           $ref: "#/components/schemas/ParticipantInfo"
           nullable: true
-          description: The other party in a credit transfer (null for non-transfer records)
+          description: The recipient for message delivery or the other party in a credit transfer (null for other records)
 
     UsageAggregatesResponse:
       type: object

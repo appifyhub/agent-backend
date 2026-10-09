@@ -10,10 +10,12 @@ import stubs
 from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_http_client import FakeHTTPClient
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from fakes.fake_x_ai_client import FakeXAIClient
 from util.di_utils import di_for_tests
 from util.thread_utils import BackgroundThreads
 
+from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_image
 from features.external_tools.configured_tool import ConfiguredTool
@@ -249,3 +251,31 @@ class SmartImageGeneratorTest(TestCase):
                 self.assertEqual(len(messages), index + 1)
                 self.assertEqual(messages[-1]["text"], "Localized image failure notification")
                 self.assertIn(expected_detail, str(self.copywriter.prompts[-1]))
+
+    def test_background_worker_logs_error_and_skips_unfunded_failure_notification(self):
+        user = self.di.user_repo.save(replace(
+            self.di.invoker,
+            whatsapp_user_id = "15551234567",
+        ))
+        chat = self.di.chat_config_repo.save(replace(
+            self.di.require_invoker_chat(),
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = user.whatsapp_user_id,
+        ))
+        self.di.inject_invoker(user)
+        self.di.inject_invoker_chat(chat)
+        self.di.chat_membership_repo.save(stubs.domain.chat_membership(user_id = user.id, chat_id = chat.chat_id))
+        self.provider.image.responses.clear()
+        self.provider.image.responses.append(ExternalServiceError("Provider unavailable", IMAGE_GENERATION_FAILED))
+        bot = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+
+        self.generator.execute()
+        self.di.user_repo.save(replace(user, credit_balance = 0.0))
+        with patch.object(smart_image_generator.log, "e") as error_log:
+            self.workers.finish()
+
+        self.assertEqual(len(self.copywriter.prompts), 1)
+        self.assertEqual(bot.get_sent_messages(str(chat.external_id)), [])
+        error_messages = [call.args[0] for call in error_log.call_args_list]
+        self.assertIn(f"Background image generation failed for chat '{chat.chat_id.hex}'", error_messages)
+        self.assertIn(f"Could not notify chat '{chat.chat_id.hex}' of image generation failure", error_messages)
