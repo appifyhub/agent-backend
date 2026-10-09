@@ -122,7 +122,15 @@ class TelegramChatInboundService:
             is_invited_to_start = False,
             are_policies_accepted = False,
         )
-        return self.__di.user_repo.save(user)
+        stored_user = self.__di.user_repo.save(user, commit = False)
+        credited_user = self.__di.credit_transfer_service.grant_credits(
+            recipient = stored_user,
+            amount = config.welcome_credit_grant_amount,
+            note = "Welcome",
+            commit = False,
+        )
+        self.__di.db.commit()
+        return credited_user
 
     def store_message(
         self,

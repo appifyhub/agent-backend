@@ -12,8 +12,8 @@ from features.chat.config.chat_config import ChatConfig
 from features.external_tools.intelligence_presets import default_tool_for
 from util import log
 from util.config import config
-from util.error_codes import ANNOUNCEMENT_NOT_RECEIVED
-from util.errors import ExternalServiceError
+from util.error_codes import ANNOUNCEMENT_NOT_RECEIVED, INSUFFICIENT_CREDITS
+from util.errors import ExternalServiceError, ValidationError
 
 
 class SummaryResult:
@@ -118,6 +118,7 @@ def respond_with_summary(payload: ReleaseOutputPayload, di: DI) -> dict:
     for chat in subscribed_chats:
         scoped_di = di.clone(invoker_chat_id = chat.chat_id.hex)
         try:
+            scoped_di.spending_service.validate_message_delivery_pre_flight(chat, scoped_di.invoker.id)
             summary = translations.get(chat.language_name, chat.language_iso_code)
             if not summary:
                 tool = scoped_di.tool_choice_resolver.require_tool(
@@ -131,7 +132,10 @@ def respond_with_summary(payload: ReleaseOutputPayload, di: DI) -> dict:
                 summary = translations.save(stripped_content, chat.language_name, chat.language_iso_code)
                 result.summaries_created += 1
         except Exception as e:
-            log.w(f"Release summary failed for chat #{chat.chat_id} in {chat.language_name}", e)
+            if isinstance(e, ValidationError) and e.error_code == INSUFFICIENT_CREDITS:
+                log.w(f"Skipping release summary for chat #{chat.chat_id} due to insufficient delivery credits")
+            else:
+                log.w(f"Release summary failed for chat #{chat.chat_id} in {chat.language_name}", e)
             continue
 
         # we need to notify each chat of the summary

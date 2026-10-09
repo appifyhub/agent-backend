@@ -2,9 +2,14 @@ from dataclasses import replace
 from enum import Enum
 from uuid import UUID
 
+from db.model.chat_attachment import ChatAttachmentDB
+from db.model.chat_membership import ChatMembershipDB
 from db.model.chat_message import ChatMessageDB
+from db.model.chat_message_burst import ChatMessageBurstDB
 from db.model.price_alert import PriceAlertDB
+from db.model.purchase_record import PurchaseRecordDB
 from db.model.sponsorship import SponsorshipDB
+from db.model.usage_record import UsageRecordDB
 from db.model.user import UserDB
 from di.di import DI
 from features.users.user import User, generate_connect_key
@@ -212,15 +217,46 @@ class ProfileConnectService:
     def __migrate_dependent_entities(self, survivor_user_id: UUID, casualty_user_id: UUID):
         log.d(f"Migrating related records from '{casualty_user_id}' to '{survivor_user_id}'")
 
+        # update chat memberships
+        self.__di.db.query(ChatMembershipDB).filter(
+            ChatMembershipDB.user_id == casualty_user_id,
+        ).update({ChatMembershipDB.user_id: survivor_user_id}, synchronize_session = False)
+
+        # update chat attachments
+        self.__di.db.query(ChatAttachmentDB).filter(
+            ChatAttachmentDB.uploader_user_id == casualty_user_id,
+        ).update({ChatAttachmentDB.uploader_user_id: survivor_user_id}, synchronize_session = False)
+
         # Update chat messages
         self.__di.db.query(ChatMessageDB).filter(
             ChatMessageDB.author_id == casualty_user_id,
         ).update({ChatMessageDB.author_id: survivor_user_id}, synchronize_session = False)
 
+        # update pending message bursts
+        self.__di.db.query(ChatMessageBurstDB).filter(
+            ChatMessageBurstDB.author_id == casualty_user_id,
+        ).update({ChatMessageBurstDB.author_id: survivor_user_id}, synchronize_session = False)
+
         # Update price alerts
         self.__di.db.query(PriceAlertDB).filter(
             PriceAlertDB.owner_id == casualty_user_id,
         ).update({PriceAlertDB.owner_id: survivor_user_id}, synchronize_session = False)
+
+        # update purchase records
+        self.__di.db.query(PurchaseRecordDB).filter(
+            PurchaseRecordDB.user_id == casualty_user_id,
+        ).update({PurchaseRecordDB.user_id: survivor_user_id}, synchronize_session = False)
+
+        # update usage records
+        self.__di.db.query(UsageRecordDB).filter(
+            UsageRecordDB.user_id == casualty_user_id,
+        ).update({UsageRecordDB.user_id: survivor_user_id}, synchronize_session = False)
+        self.__di.db.query(UsageRecordDB).filter(
+            UsageRecordDB.payer_id == casualty_user_id,
+        ).update({UsageRecordDB.payer_id: survivor_user_id}, synchronize_session = False)
+        self.__di.db.query(UsageRecordDB).filter(
+            UsageRecordDB.counterpart_id == casualty_user_id,
+        ).update({UsageRecordDB.counterpart_id: survivor_user_id}, synchronize_session = False)
 
         # Handle sponsorships where casualty user is the sponsor
         self.__di.db.query(SponsorshipDB).filter(

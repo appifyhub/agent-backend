@@ -184,7 +184,9 @@ class TelegramBotSDK:
             sent_at = datetime.fromtimestamp(api_message.date),
             text = text,
         )
-        return self.__di.chat_message_repo.save(message)
+        stored_message = self.__di.chat_message_repo.save(message)
+        self.__di.spending_service.charge_for_message_delivery(chat_config, self.__di.invoker.id)
+        return stored_message
 
     # noinspection PyMethodMayBeStatic
     def __format_media_message(self, attachment: ChatAttachment, caption: str | None) -> FormattedChatMessage:

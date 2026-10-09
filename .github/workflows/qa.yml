@@ -52,9 +52,34 @@ jobs:
           LOG_LEVEL: "trace"
         run: pipenv run pytest -v
 
+      - name: Auth for Docker Hub
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        env:
+          USER: ${{ secrets.DOCKER_HUB_USER }}
+          TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+        run: |
+          for attempt in 1 2 3; do
+            if echo "$TOKEN" | docker login docker.io --username "$USER" --password-stdin; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+
       - name: Build Docker image
         if: github.event.pull_request.user.login != 'dependabot[bot]'
-        run: docker build . --file Dockerfile --tag the-agent
+        run: |
+          for attempt in 1 2 3; do
+            if docker build . --file Dockerfile --tag the-agent; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Auth for GitHub's Container Registry
         if: github.event.pull_request.user.login != 'dependabot[bot]'
@@ -86,12 +111,9 @@ jobs:
         if: github.event.pull_request.user.login != 'dependabot[bot]'
         id: docker_publish
         env:
-          USER: ${{ secrets.DOCKER_HUB_USER }}
-          TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          docker login docker.io -u $USER -p $TOKEN
           echo "Publishing images with version '$VERSION'..."
           docker push appifyhub/the-agent:"$VERSION".pr_$PR_NUMBER
           docker push appifyhub/the-agent:latest_pr

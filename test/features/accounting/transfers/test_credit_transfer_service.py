@@ -1,11 +1,14 @@
 from dataclasses import replace
+from datetime import datetime
 from typing import cast
 from unittest import TestCase
+from unittest.mock import patch
 from uuid import UUID
 
 import stubs
 from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
@@ -245,6 +248,44 @@ class CreditTransferServiceTest(TestCase):
         self.assertEqual(records[0].total_cost_credits, 10.0)
         self.assertEqual(len(self.model.prompts), 1)
         self.assertEqual(self.api.get_sent_messages(str(chat.external_id)), [])
+
+    def test_unfunded_notification_does_not_break_committed_transfer(self):
+        sender = self.di.user_repo.save(replace(
+            self.sender,
+            telegram_user_id = None,
+            telegram_username = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = "15551234567",
+        ))
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = sender.whatsapp_user_id,
+        ))
+        self.di.chat_membership_repo.save(stubs.domain.chat_membership(user_id = sender.id, chat_id = chat.chat_id))
+        self.di.chat_message_repo.save(stubs.domain.chat_message(
+            chat_id = chat.chat_id,
+            author_id = sender.id,
+            message_id = "transfer-message",
+            sent_at = datetime.now(),
+        ))
+        api = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+
+        with patch("features.accounting.transfers.credit_transfer_service.log.w") as warning_log:
+            self.service.transfer_credits(
+                sender_id = sender.id,
+                recipient_handle = "receiver_handle",
+                chat_type = ChatConfigDB.ChatType.telegram,
+                amount = 100.0,
+            )
+
+        self.assertEqual(self.di.user_repo.get(sender.id).credit_balance, 0.0)
+        self.assertEqual(self.di.user_repo.get(self.receiver.id).credit_balance, 200.0)
+        records = self.di.usage_record_repo.get_by_user(sender.id, only_transfers = True)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].total_cost_credits, 100.0)
+        self.assertEqual(len(self.model.prompts), 0)
+        self.assertEqual(api.get_sent_messages(str(chat.external_id)), [])
+        warning_log.assert_called_once_with(f"Skipping transfer notification for user {sender.id.hex} due to insufficient delivery credits")  # ruff: ignore[line-too-long]
 
     def test_credit_grant_accepts_recipient_id(self):
         updated = self.service.grant_credits(
