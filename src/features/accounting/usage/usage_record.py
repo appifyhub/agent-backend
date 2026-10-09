@@ -13,6 +13,7 @@ class UsageRecord:
     payer_id: UUID
     uses_credits: bool = False
     is_failed: bool = False
+    is_delivery_reconciled: bool = False
     chat_id: UUID | None = None
     tool: ExternalTool
     tool_purpose: ToolType
@@ -36,7 +37,7 @@ class UsageRecord:
     # video-related properties
     output_video_size: str | None = None
     output_video_duration_seconds: float | None = None
-    # transfer-related properties
+    # counterparty properties
     counterpart_id: UUID | None = None
     note: str | None = None
     # participant snapshot properties

@@ -13,4 +13,4 @@ class Update(BaseModel):
     model_config = ConfigDict(extra = "ignore")
 
     object: str
-    entry: list[Entry]
+    entry: list[Entry] | None = None
