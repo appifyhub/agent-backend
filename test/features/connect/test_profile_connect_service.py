@@ -173,6 +173,14 @@ class ProfileConnectServiceTest(TestCase):
             connect_key = "OTHER-KEY-1234",
         ))
         chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
+        membership = self.di.chat_membership_repo.save(stubs.domain.chat_membership(
+            user_id = self.target.id,
+            chat_id = chat.chat_id,
+        ))
+        attachment = self.di.chat_attachment_repo.save(stubs.domain.chat_attachment(
+            chat_id = chat.chat_id,
+            uploader_user_id = self.target.id,
+        ))
         message = self.di.chat_message_repo.save(stubs.domain.chat_message(
             chat_id = chat.chat_id,
             author_id = self.target.id,
@@ -180,6 +188,15 @@ class ProfileConnectServiceTest(TestCase):
         alert = self.di.price_alert_repo.save(stubs.domain.price_alert(
             chat_id = chat.chat_id,
             owner_id = self.target.id,
+        ))
+        purchase = self.di.purchase_record_repo.save(stubs.domain.purchase_record(
+            user_id = self.target.id,
+        ))
+        usage = self.di.usage_record_repo.create(stubs.domain.usage_record(
+            user_id = self.target.id,
+            payer_id = self.target.id,
+            counterpart_id = self.target.id,
+            chat_id = chat.chat_id,
         ))
         outgoing = self.di.sponsorship_repo.save(stubs.domain.sponsorship(
             sponsor_id = self.target.id,
@@ -202,12 +219,28 @@ class ProfileConnectServiceTest(TestCase):
 
         self.assertEqual(result, ProfileConnectService.Result.success)
         self.assertEqual(
+            self.di.chat_membership_repo.get(self.requester.id, chat.chat_id),
+            replace(membership, user_id = self.requester.id),
+        )
+        self.assertEqual(
+            self.di.chat_attachment_repo.get(attachment.id),
+            replace(attachment, uploader_user_id = self.requester.id),
+        )
+        self.assertEqual(
             self.di.chat_message_repo.get(chat.chat_id, message.message_id),
             replace(message, author_id = self.requester.id),
         )
         self.assertEqual(
             self.di.price_alert_repo.get(chat.chat_id, alert.asset_type, alert.asset_id, alert.currency),
             replace(alert, owner_id = self.requester.id),
+        )
+        self.assertEqual(
+            self.di.purchase_record_repo.get_by_user(self.requester.id),
+            [replace(purchase, user_id = self.requester.id)],
+        )
+        self.assertEqual(
+            self.di.usage_record_repo.get_by_user(self.requester.id),
+            [replace(usage, user_id = self.requester.id, payer_id = self.requester.id, counterpart_id = self.requester.id)],
         )
         self.assertCountEqual(self.di.sponsorship_repo.get_all(), [
             replace(outgoing, sponsor_id = self.requester.id),
