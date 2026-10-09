@@ -159,6 +159,15 @@ class MessageBurstServiceTest(TestCase):
         self.assertEqual([message["text"] for message in self.whatsapp.get_sent_messages("123")], ["response"])
         self.assertIn("message-1", self.whatsapp.read_messages)
 
+    def test_whatsapp_read_receipt_failure_does_not_fail_delivered_response(self):
+        self.ingested.chat.chat_type = ChatConfigDB.ChatType.whatsapp
+        self.model.responses.append(external.ai_message(content = "response"))
+
+        with patch.object(self.whatsapp, "mark_as_read", side_effect = OSError("Read receipt failed")):
+            self.assertTrue(self.service.process_message(self.ingested))
+
+        self.assertEqual([message["text"] for message in self.whatsapp.get_sent_messages("123")], ["response"])
+
     def test_delayed_attempt_replies_only_after_sleep_finishes(self):
         self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)
         config.chat_burst_quiet_period_s = 0

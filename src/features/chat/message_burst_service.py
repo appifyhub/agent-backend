@@ -171,7 +171,11 @@ class MessageBurstService:
                     sent_messages += 1
 
             if resolved_domain_data.chat.chat_type == ChatConfigDB.ChatType.whatsapp:
-                self.__di.whatsapp_bot_sdk.mark_as_read(resolved_domain_data.message.message_id)
+                try:
+                    # we shouldn't fail on this...
+                    self.__di.whatsapp_bot_sdk.mark_as_read(resolved_domain_data.message.message_id)
+                except Exception as e:
+                    log.w(f"Could not mark WhatsApp message '{resolved_domain_data.message.message_id}' as read: {e}")
 
             log.t(f"Finished responding to updates. \n[{agent.full_name}]: {answer.content}")
             log.i(f"Sent {sent_messages} messages")
