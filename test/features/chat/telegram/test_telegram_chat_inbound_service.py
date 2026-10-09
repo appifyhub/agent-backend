@@ -16,6 +16,7 @@ from features.chat.config.chat_config_repo import ChatConfigRepository
 from features.chat.membership.chat_membership_service import ChatMembershipService
 from features.chat.message.chat_message_repo import ChatMessageRepository
 from features.chat.telegram.telegram_chat_inbound_service import TELEGRAM_MAX_DOWNLOAD_FILE_SIZE_BYTES, TelegramChatInboundService
+from features.integrations.integration_config import THE_AGENT
 from features.integrations.integrations import resolve_agent_user
 from features.users.user_repo import UserRepository
 from util.config import config
@@ -44,6 +45,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.chats = self.di.chat_config_repo
         self.messages = self.di.chat_message_repo
         self.users = self.di.user_repo
+        self.users.save(THE_AGENT)
         self.resolver = self.di.telegram_chat_inbound_service
 
     def test_ingest_update_empty(self):
@@ -87,7 +89,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertEqual(self.chats.get_all(), [])
-        self.assertEqual(self.users.get_all(), [])
+        self.assertEqual([user.id for user in self.users.get_all()], [THE_AGENT.id])
         self.assertEqual(self.messages.get_all(), [])
 
     def test_ingest_message_no_author_with_attachment_raises(self):
@@ -123,7 +125,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
 
         assert result.author is not None
         self.assertEqual(result.author.telegram_user_id, agent_user.telegram_user_id)
-        self.assertIsNone(result.author.telegram_chat_id)
+        self.assertEqual(result.author.telegram_chat_id, THE_AGENT.telegram_chat_id)
         self.assertEqual(result.attachments, [])
         self.assertEqual(self.memberships.get_all_for_user(result.author.id), [])
         self.assertEqual(self.messages.get(result.chat.chat_id, result.message.message_id), result.message)
@@ -286,6 +288,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_store_author_new(self):
+        self.chats.save(stubs.domain.chat_config(external_id = "c1"))
         mapped_data = stubs.domain.user_remote_data(
             telegram_user_id = 1,
             full_name = "New User",
@@ -302,8 +305,26 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.telegram_username, mapped_data.telegram_username)
         self.assertEqual(result.telegram_chat_id, mapped_data.telegram_chat_id)
         self.assertEqual(result.telegram_user_id, mapped_data.telegram_user_id)
+        self.assertEqual(result.credit_balance, config.welcome_credit_grant_amount)
         self.assertIsNone(result.open_ai_key)
         self.assertEqual(result.group, UserDB.Group.standard)
+        records = self.di.usage_record_repo.get_by_user(THE_AGENT.id, only_transfers = True)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].counterpart_id, result.id)
+        self.assertEqual(records[0].total_cost_credits, config.welcome_credit_grant_amount)
+        self.assertEqual(records[0].note, "Welcome")
+        self.assertEqual(self.api.get_sent_messages("c1"), [])
+
+    def test_store_author_rolls_back_new_user_when_welcome_grant_fails(self):
+        self.addCleanup(setattr, config, "welcome_credit_grant_amount", config.welcome_credit_grant_amount)
+        config.welcome_credit_grant_amount = float("nan")
+        mapped_data = stubs.domain.user_remote_data(telegram_user_id = 1, telegram_chat_id = "c1")
+
+        with self.assertRaises(InternalError):
+            self.resolver.store_author(mapped_data)
+
+        self.assertIsNone(self.users.get_by_remote_data(mapped_data))
+        self.assertEqual(self.di.usage_record_repo.get_by_user(THE_AGENT.id, only_transfers = True), [])
 
     def test_store_author_by_username(self):
         existing_user_data = stubs.domain.user(
@@ -418,6 +439,7 @@ class TelegramChatInboundServiceTest(unittest.TestCase):
         self.assertEqual(result.credit_balance, existing_user.credit_balance)
         self.assertEqual(result.group, existing_user.group)
         self.assertEqual(result.created_at, existing_user.created_at)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(THE_AGENT.id, only_transfers = True), [])
 
         # Verify all tool choice fields are preserved from existing user
         self.assertEqual(result.tool_choice_chat, existing_user.tool_choice_chat)

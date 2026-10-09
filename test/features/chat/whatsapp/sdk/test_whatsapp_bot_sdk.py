@@ -5,6 +5,7 @@ from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from stubs import domain, external
 from util.di_utils import di_for_tests
 
+from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.message.chat_message_repo import ChatMessageRepository
@@ -40,6 +41,33 @@ class WhatsAppBotSDKTest(TestCase):
         self.assertEqual(result.text, "test message")
         self.assertEqual(result.chat_id, chat.chat_id)
         self.assertEqual(self.messages.get(chat.chat_id, result.message_id), result)
+
+    def test_successful_send_charges_invoker_for_delivery(self):
+        payer = self.di.user_repo.save(domain.user(
+            whatsapp_user_id = "15551234567",
+            credit_balance = 10.0,
+        ))
+        chat = self.di.chat_config_repo.save(domain.chat_config(
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = payer.whatsapp_user_id,
+            is_private = True,
+        ))
+        self.di.chat_membership_repo.save(domain.chat_membership(
+            user_id = payer.id,
+            chat_id = chat.chat_id,
+        ))
+        self.di.inject_invoker(payer)
+        price = self.di.messaging_price_service.get(chat.chat_type, payer.whatsapp_user_id or "")
+
+        self.sdk.send_text_message(chat, "test message")
+
+        self.assertAlmostEqual(self.di.user_repo.get(payer.id).credit_balance, 10.0 - price)
+        records = self.di.usage_record_repo.get_by_user(payer.id)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].counterpart_id, payer.id)
+        self.assertEqual(records[0].chat_id, chat.chat_id)
+        self.assertEqual(records[0].api_call_cost_credits, price)
+        self.assertFalse(records[0].is_delivery_reconciled)
 
     def test_send_photo(self):
         chat = domain.chat_config()

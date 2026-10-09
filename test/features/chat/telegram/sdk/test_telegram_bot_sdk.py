@@ -48,6 +48,24 @@ class TelegramBotSDKTest(TestCase):
         self.assertEqual(result.text, text)
         self.assertEqual(self.messages.get(chat.chat_id, result.message_id), result)
 
+    def test_successful_send_keeps_free_delivery_unbilled(self):
+        payer = self.di.user_repo.save(domain.user(credit_balance = 10.0))
+        chat = self.di.chat_config_repo.save(domain.chat_config(
+            external_id = payer.telegram_chat_id or "",
+            is_private = True,
+        ))
+        self.di.chat_membership_repo.save(domain.chat_membership(
+            user_id = payer.id,
+            chat_id = chat.chat_id,
+        ))
+        self.di.inject_invoker(payer)
+
+        result = self.sdk.send_text_message(chat, "test message")
+
+        self.assertEqual(self.messages.get(chat.chat_id, result.message_id), result)
+        self.assertEqual(self.di.user_repo.get(payer.id), payer)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(payer.id), [])
+
     def test_send_photo(self):
         attachment = domain.chat_attachment(id = "local123", mime_type = "image/png")
         chat = domain.chat_config()

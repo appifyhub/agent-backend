@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import sleep
 
 from langchain_core.messages import AIMessage
@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
+from features.chat.command_processor import is_known_command
 from features.chat.config.chat_config import ChatConfig
 from features.chat.ingested_chat_message import IngestedChatMessage
 from features.chat.message.chat_message import ChatMessage
@@ -21,9 +22,16 @@ from features.integrations.integrations import (
 )
 from util import log
 from util.config import config
-from util.error_codes import UNSUPPORTED_CHAT_TYPE
-from util.errors import ConfigurationError, ServiceError
+from util.error_codes import INSUFFICIENT_CREDITS, UNSUPPORTED_CHAT_TYPE
+from util.errors import ConfigurationError, ServiceError, ValidationError
 from util.functions import parse_ai_message_content, silent
+
+_COMMAND_HISTORY_PAGE_SIZE = 10
+_COMMAND_RESPONSE_COOLDOWNS = (
+    timedelta(days = 1),
+    timedelta(days = 7),
+    timedelta(days = 30),
+)
 
 
 class MessageBurstService:
@@ -117,6 +125,20 @@ class MessageBurstService:
             )
 
             if command_only:
+                can_process_command = True
+                try:
+                    self.__di.spending_service.validate_message_delivery_pre_flight(resolved_domain_data.chat, resolved_domain_data.author.id)  # ruff: ignore[line-too-long]
+                except ValidationError as e:
+                    # we allow some commands, sometimes, to be ran even without enough credits for message delivery
+                    # (e.g. opening settings to buy more credits would be a good use-case)
+                    if e.error_code != INSUFFICIENT_CREDITS:
+                        raise
+                    can_process_command = self.__can_process_unfunded_command(resolved_domain_data)
+                finally:
+                    self.__di.rollback_db_session()
+                if not can_process_command:
+                    self.__react_to_message(resolved_domain_data, "👎")
+                    return False
                 command_result = chat_agent.process_commands()
                 if not command_result.is_handled or command_result.reply is None:
                     return False
@@ -135,22 +157,7 @@ class MessageBurstService:
             agent = resolve_agent_user(resolved_domain_data.chat.chat_type)
             as_reaction = parse_ai_message_content(answer)
             if is_reaction_response(as_reaction, resolved_domain_data.chat.chat_type):
-                self.__di.chat_message_repo.save(
-                    ChatMessage(
-                        chat_id = resolved_domain_data.chat.chat_id,
-                        message_id = f"reaction:{resolved_domain_data.message.message_id}",
-                        author_id = agent.id,
-                        sent_at = datetime.now(),
-                        text = format_reaction_response(as_reaction),
-                    ),
-                )
-                self.__di.rollback_db_session()
-                silent(self.__di.platform_bot_sdk().set_reaction)(
-                    str(resolved_domain_data.chat.external_id),
-                    resolved_domain_data.message.message_id,
-                    as_reaction,
-                )
-                log.i(f"Reacted to message {resolved_domain_data.message.message_id} with {as_reaction}")
+                self.__react_to_message(resolved_domain_data, as_reaction)
             else:
                 domain_messages = self.__di.domain_langchain_mapper.map_bot_message_to_storage(
                     resolved_domain_data.chat,
@@ -170,11 +177,73 @@ class MessageBurstService:
             log.i(f"Sent {sent_messages} messages")
             return True
         except Exception as e:
+            if isinstance(e, ValidationError) and e.error_code == INSUFFICIENT_CREDITS:
+                self.__di.rollback_db_session()
+                self.__react_to_message(resolved_domain_data, "👎")
+                return False
             log.e("Failed to process message", e)
             if should_notify_of_errors:
                 self.__di.rollback_db_session()
                 self.__notify_of_errors(resolved_domain_data, e)
             return False
+
+    def __can_process_unfunded_command(self, resolved_domain_data: IngestedChatMessage) -> bool:
+        # we allow overdraft for the users who lost credits and would like to open settings to add credits
+        chat_type = resolved_domain_data.chat.chat_type
+        agent_handle = resolve_external_handle(resolve_agent_user(chat_type), chat_type)
+        if not is_known_command(resolved_domain_data.raw_message_text, agent_handle):
+            return False
+
+        # we locate all commands in the history and see when they were sent.
+        # e.g. we will allow one free settings command per day, then one per week, then one per month
+        cutoff = datetime.now() - timedelta(days = config.cleanup_message_retention_days)
+        previous_commands: list[ChatMessage] = []
+        skip = 0
+        while len(previous_commands) < len(_COMMAND_RESPONSE_COOLDOWNS):
+            messages = self.__di.chat_message_repo.get_latest_by_chat(resolved_domain_data.chat.chat_id, skip = skip, limit = _COMMAND_HISTORY_PAGE_SIZE)  # ruff: ignore[line-too-long]
+            if not messages:
+                break
+
+            reached_retention_boundary = False
+            for message in messages:
+                if message.sent_at < cutoff:
+                    reached_retention_boundary = True
+                    break
+                if message.message_id == resolved_domain_data.message.message_id:
+                    continue
+                if message.author_id != resolved_domain_data.author.id:
+                    continue
+                if is_known_command(message.text, agent_handle):
+                    previous_commands.append(message)
+                    if len(previous_commands) == len(_COMMAND_RESPONSE_COOLDOWNS):
+                        break
+
+            if reached_retention_boundary or len(messages) < _COMMAND_HISTORY_PAGE_SIZE:
+                break
+            skip += len(messages)
+
+        if not previous_commands:
+            return True
+        cooldown = _COMMAND_RESPONSE_COOLDOWNS[len(previous_commands) - 1]
+        return datetime.now() - previous_commands[0].sent_at >= cooldown
+
+    def __react_to_message(self, resolved_domain_data: IngestedChatMessage, reaction: str) -> None:
+        self.__di.chat_message_repo.save(
+            ChatMessage(
+                chat_id = resolved_domain_data.chat.chat_id,
+                message_id = f"reaction:{resolved_domain_data.message.message_id}",
+                author_id = resolve_agent_user(resolved_domain_data.chat.chat_type).id,
+                sent_at = datetime.now(),
+                text = format_reaction_response(reaction),
+            ),
+        )
+        self.__di.rollback_db_session()
+        silent(self.__di.platform_bot_sdk().set_reaction)(
+            str(resolved_domain_data.chat.external_id),
+            resolved_domain_data.message.message_id,
+            reaction,
+        )
+        log.i(f"Reacted to message {resolved_domain_data.message.message_id} with {reaction}")
 
     async def process_after_quiet_period(
         self,

@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import cast
 from unittest import TestCase
@@ -6,6 +7,7 @@ from unittest.mock import patch
 
 from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from fakes.fake_url_shortener import FakeUrlShortener
 from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from langchain_core.messages import BaseMessage
 from stubs import domain, external
@@ -48,6 +50,46 @@ class MessageBurstServiceTest(TestCase):
         self.telegram = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
         self.whatsapp = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
         self.service = self.di.message_burst_service
+
+    def __prepare_whatsapp_message(self, raw_message_text: str, credit_balance: float = 0.0) -> IngestedChatMessage:
+        author = self.di.user_repo.save(replace(
+            self.ingested.author,
+            credit_balance = credit_balance,
+            whatsapp_user_id = "15551234567",
+        ))
+        chat = self.di.chat_config_repo.save(replace(
+            self.ingested.chat,
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = author.whatsapp_user_id,
+        ))
+        message = self.di.chat_message_repo.save(replace(
+            self.ingested.message,
+            text = raw_message_text,
+            sent_at = datetime.now(),
+        ))
+        self.di.inject_invoker(author)
+        self.di.inject_invoker_chat(chat)
+        cast(FakeUrlShortener, self.di.url_shortener("https://example.com/settings")).short_url = (
+            "https://example.com/settings?token=abc123"
+        )
+        self.ingested = replace(
+            self.ingested,
+            author = author,
+            chat = chat,
+            message = message,
+            raw_message_text = raw_message_text,
+        )
+        return self.ingested
+
+    def __save_prior_message(self, message_id: str, text: str, sent_at: datetime) -> None:
+        self.di.chat_message_repo.save(domain.chat_message(
+            chat_id = self.ingested.chat.chat_id,
+            author_id = self.ingested.author.id,
+            message_id = message_id,
+            sent_at = sent_at,
+            text = text,
+            ingestion_order = None,
+        ))
 
     def test_explicit_address_ignores_quoted_mentions(self):
         chat_type = ChatConfigDB.ChatType.telegram
@@ -92,6 +134,22 @@ class MessageBurstServiceTest(TestCase):
         saved = self.di.chat_message_repo.get(self.ingested.chat.chat_id, "reaction:message-1")
         self.assertEqual(saved.text, "<reaction>👍</reaction>")
 
+    def test_failed_funded_response_sends_one_error_message_then_reacts(self):
+        message = self.__prepare_whatsapp_message("hello", credit_balance = 0.4)
+        self.model.responses.append(OSError("Test error"))
+
+        self.assertTrue(self.service.process_message(message))
+
+        sent_messages = self.whatsapp.get_sent_messages(str(message.chat.external_id))
+        self.assertEqual(len(sent_messages), 1)
+        self.assertIn("Test error", sent_messages[0]["text"])
+        self.assertIn("Use /settings", sent_messages[0]["text"])
+        self.assertEqual(
+            self.whatsapp.reactions[(str(message.chat.external_id), message.message.message_id)],
+            "👎",
+        )
+        self.assertAlmostEqual(self.di.user_repo.get(message.author.id).credit_balance, 0.0)
+
     def test_whatsapp_message_marks_final_message_read(self):
         self.ingested.chat.chat_type = ChatConfigDB.ChatType.whatsapp
         self.model.responses.append(external.ai_message(content = "response"))
@@ -129,6 +187,130 @@ class MessageBurstServiceTest(TestCase):
 
         asyncio.run(scenario())
         self.assertEqual([message["text"] for message in self.telegram.get_sent_messages("123")], ["Delayed reply"])
+
+    def test_unfunded_non_command_reacts_without_sending(self):
+        message = self.__prepare_whatsapp_message("hello")
+
+        self.assertFalse(self.service.process_message(message))
+
+        self.assertEqual(self.whatsapp.get_sent_messages(str(message.chat.external_id)), [])
+        self.assertEqual(
+            self.whatsapp.reactions[(str(message.chat.external_id), message.message.message_id)],
+            "👎",
+        )
+        self.assertEqual(self.model.prompts, [])
+
+    def test_first_unfunded_command_charges_invoker_into_overdraft(self):
+        message = self.__prepare_whatsapp_message("/settings")
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(len(self.whatsapp.get_sent_messages(str(message.chat.external_id))), 1)
+        self.assertAlmostEqual(self.di.user_repo.get(message.author.id).credit_balance, -0.4)
+        self.assertNotIn((str(message.chat.external_id), message.message.message_id), self.whatsapp.reactions)
+
+    def test_unfunded_command_after_one_day_is_allowed(self):
+        message = self.__prepare_whatsapp_message("/settings")
+        self.__save_prior_message("prior-command", "/help", datetime.now() - timedelta(days = 2))
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(len(self.whatsapp.get_sent_messages(str(message.chat.external_id))), 1)
+        self.assertAlmostEqual(self.di.user_repo.get(message.author.id).credit_balance, -0.4)
+
+    def test_unfunded_command_with_two_recent_commands_reacts(self):
+        message = self.__prepare_whatsapp_message("/settings")
+        self.__save_prior_message("prior-command-1", "/help", datetime.now() - timedelta(days = 6))
+        self.__save_prior_message("prior-command-2", "/start", datetime.now() - timedelta(days = 8))
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(self.whatsapp.get_sent_messages(str(message.chat.external_id)), [])
+        self.assertEqual(
+            self.whatsapp.reactions[(str(message.chat.external_id), message.message.message_id)],
+            "👎",
+        )
+
+    def test_unfunded_command_after_seven_days_is_allowed(self):
+        message = self.__prepare_whatsapp_message("/settings")
+        self.__save_prior_message("prior-command-1", "/help", datetime.now() - timedelta(days = 8))
+        self.__save_prior_message("prior-command-2", "/start", datetime.now() - timedelta(days = 9))
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(len(self.whatsapp.get_sent_messages(str(message.chat.external_id))), 1)
+        self.assertAlmostEqual(self.di.user_repo.get(message.author.id).credit_balance, -0.4)
+
+    def test_unfunded_command_with_three_recent_commands_reacts(self):
+        message = self.__prepare_whatsapp_message("/settings")
+        self.__save_prior_message("prior-command-1", "/help", datetime.now() - timedelta(days = 29))
+        self.__save_prior_message("prior-command-2", "/start", datetime.now() - timedelta(days = 29, hours = 1))
+        self.__save_prior_message("prior-command-3", "/connect", datetime.now() - timedelta(days = 29, hours = 2))
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(self.whatsapp.get_sent_messages(str(message.chat.external_id)), [])
+        self.assertEqual(
+            self.whatsapp.reactions[(str(message.chat.external_id), message.message.message_id)],
+            "👎",
+        )
+
+    def test_command_history_paginates_past_filler_messages(self):
+        message = self.__prepare_whatsapp_message("/settings")
+        now = datetime.now()
+        self.__save_prior_message("prior-command", "/help", now - timedelta(hours = 12))
+        for index in range(12):
+            self.__save_prior_message(
+                f"filler-{index}",
+                "not a command",
+                now - timedelta(minutes = index + 1),
+            )
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(self.whatsapp.get_sent_messages(str(message.chat.external_id)), [])
+        self.assertEqual(
+            self.whatsapp.reactions[(str(message.chat.external_id), message.message.message_id)],
+            "👎",
+        )
+
+    def test_expired_command_history_is_ignored(self):
+        message = self.__prepare_whatsapp_message("/settings")
+        self.__save_prior_message("prior-command", "/help", datetime.now() - timedelta(days = 31))
+
+        self.assertFalse(self.service.process_message(message, command_only = True))
+
+        self.assertEqual(len(self.whatsapp.get_sent_messages(str(message.chat.external_id))), 1)
+        self.assertAlmostEqual(self.di.user_repo.get(message.author.id).credit_balance, -0.4)
+
+    def test_command_only_allows_nested_sends_then_reacts_to_next_execution(self):
+        first_command = self.__prepare_whatsapp_message("/connect INVALID-KEY", credit_balance = 0.4)
+
+        self.assertFalse(self.service.process_message(first_command, command_only = True))
+        self.assertEqual(len(self.whatsapp.get_sent_messages(str(first_command.chat.external_id))), 2)
+        self.assertAlmostEqual(self.di.user_repo.get(first_command.author.id).credit_balance, -0.4)
+
+        second_message = self.di.chat_message_repo.save(domain.chat_message(
+            chat_id = first_command.chat.chat_id,
+            author_id = first_command.author.id,
+            message_id = "message-2",
+            sent_at = datetime.now() + timedelta(seconds = 1),
+            text = "/help",
+            ingestion_order = None,
+        ))
+        second_command = replace(
+            first_command,
+            message = second_message,
+            raw_message_text = "/help",
+        )
+
+        self.assertFalse(self.service.process_message(second_command, command_only = True))
+        self.assertEqual(len(self.whatsapp.get_sent_messages(str(first_command.chat.external_id))), 2)
+        self.assertAlmostEqual(self.di.user_repo.get(first_command.author.id).credit_balance, -0.4)
+        self.assertEqual(
+            self.whatsapp.reactions[(str(first_command.chat.external_id), second_message.message_id)],
+            "👎",
+        )
 
     def test_obsolete_timer_noops_and_latest_timer_replies_once(self):
         self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)

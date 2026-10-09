@@ -98,6 +98,7 @@ if TYPE_CHECKING:
     from features.images.image_api_utils import UnifiedImageParameters
     from features.images.simple_image_generator import SimpleImageGenerator
     from features.images.smart_image_generator import SmartImageGenerator
+    from features.integrations.delivery.messaging_price_service import MessagingPriceService
     from features.integrations.platform_bot_sdk import PlatformBotSDK
     from features.social_cards.providers.social_post_provider import SocialPostProvider
     from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
@@ -160,6 +161,7 @@ class DI:
     _usage_tracking_service: "UsageTrackingService | None"
     _purchase_service: "PurchaseService | None"
     _spending_service: "SpendingService | None"
+    _messaging_price_service: "MessagingPriceService | None"
     # Controllers
     _settings_controller: "SettingsController | None"
     _sponsorships_controller: "SponsorshipsController | None"
@@ -228,6 +230,7 @@ class DI:
         self._usage_tracking_service = None
         self._purchase_service = None
         self._spending_service = None
+        self._messaging_price_service = None
         # Controllers
         self._settings_controller = None
         self._sponsorships_controller = None
@@ -643,6 +646,14 @@ class DI:
             from features.accounting.spending.spending_service import SpendingService
             self._spending_service = SpendingService(self)
         return self._spending_service
+
+    @property
+    @dependency(cache = "_messaging_price_service")
+    def messaging_price_service(self) -> "MessagingPriceService":
+        if self._messaging_price_service is None:
+            from features.integrations.delivery.messaging_price_service import MessagingPriceService
+            self._messaging_price_service = MessagingPriceService()
+        return self._messaging_price_service
 
     # === Controllers ===
 
@@ -1308,7 +1319,7 @@ class DI:
     def sys_announcements_service(
         self,
         raw_information: str,
-        target_chat: ChatConfig | None,
+        target_chat: ChatConfig,
         configured_tool: ConfiguredTool,
     ) -> "SysAnnouncementsService":
         from features.announcements.sys_announcements_service import SysAnnouncementsService
