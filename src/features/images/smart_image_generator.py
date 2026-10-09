@@ -190,6 +190,9 @@ def _run_image_worker(
             notification_di = DI(invoker_id = invoker_id.hex, invoker_chat_id = invoker_chat_id.hex)
             with notification_di.new_session() as db:
                 notification_di.inject_db_session(db)
+                target_chat = notification_di.require_invoker_chat()
+                notification_di.spending_service.validate_message_delivery_pre_flight(target_chat, notification_di.invoker.id)
+                notification_di.rollback_db_session()
                 configured_copywriter_tool = notification_di.tool_choice_resolver.require_tool(
                     purpose = SysAnnouncementsService.TOOL_TYPE,
                     default_tool = default_tool_for(SysAnnouncementsService.TOOL_TYPE),
@@ -197,9 +200,10 @@ def _run_image_worker(
                 raw_message = f"Your image could not be generated or delivered.\n\n{str(failure)}"
                 _, notification = notification_di.sys_announcements_service(
                     raw_information = raw_message,
-                    target_chat = notification_di.require_invoker_chat(),
+                    target_chat = target_chat,
                     configured_tool = configured_copywriter_tool,
                 ).execute()
+                notification_di.rollback_db_session()
                 notification_di.platform_bot_sdk().send_text_message(
                     chat_id = external_chat_id,
                     text = str(notification.content),

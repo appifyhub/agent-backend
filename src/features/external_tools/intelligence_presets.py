@@ -17,6 +17,7 @@ from features.external_tools.external_tool_library import (
     GPT_5_NANO,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
     IMAGE_GEN_GROK_IMAGINE,
+    TELEGRAM_MESSAGE_DELIVERY,
     TEXT_EMBEDDING_3_SMALL,
     TEXT_EMBEDDING_5_LARGE,
     TRANSFER_TOOL,
@@ -53,6 +54,7 @@ class PresetChoices:
     api_stock_quote: ExternalTool
     api_twitter: ExternalTool
     credit_transfer: ExternalTool
+    message_delivery: ExternalTool
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -69,6 +71,7 @@ class PresetChoices:
             ToolType.api_crypto_exchange.value: self.api_crypto_exchange.id,
             ToolType.api_stock_quote.value: self.api_stock_quote.id,
             ToolType.api_twitter.value: self.api_twitter.id,
+            ToolType.message_delivery.value: self.message_delivery.id,
         }
 
 
@@ -89,6 +92,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         api_stock_quote = TWELVE_DATA_STOCK_QUOTE,
         api_twitter = X_READ_POST,
         credit_transfer = TRANSFER_TOOL,
+        message_delivery = TELEGRAM_MESSAGE_DELIVERY,
     ),
 
     IntelligencePreset.highest_price: PresetChoices(
@@ -106,6 +110,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         api_stock_quote = TWELVE_DATA_STOCK_QUOTE,
         api_twitter = X_READ_POST,
         credit_transfer = TRANSFER_TOOL,
+        message_delivery = TELEGRAM_MESSAGE_DELIVERY,
     ),
 
     IntelligencePreset.agent_choice: PresetChoices(
@@ -123,6 +128,7 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
         api_stock_quote = TWELVE_DATA_STOCK_QUOTE,
         api_twitter = X_READ_POST,
         credit_transfer = TRANSFER_TOOL,
+        message_delivery = TELEGRAM_MESSAGE_DELIVERY,
     ),
 
 }

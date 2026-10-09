@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -7,9 +8,16 @@ from util.di_utils import di_for_tests
 
 from db.model.usage_record import UsageRecordDB
 from di.di import DI
+from features.accounting.usage.usage_record import UsageRecord
 from features.accounting.usage.usage_record_repo import UsageRecordRepository
+from features.chat.config.chat_config import ChatConfig
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import CLAUDE_4_5_HAIKU, GPT_5_5, TRANSFER_TOOL
+from features.external_tools.external_tool_library import (
+    CLAUDE_4_5_HAIKU,
+    GPT_5_5,
+    TRANSFER_TOOL,
+    WHATSAPP_MESSAGE_DELIVERY,
+)
 from features.users.user import User
 
 
@@ -773,3 +781,183 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(deleted_count, 2)
         remaining = self.repo.get_by_user(self.user.id)
         self.assertEqual(len(remaining), 1)
+
+
+class UsageRecordReconciliationTest(unittest.TestCase):
+
+    di: DI
+    repo: UsageRecordRepository
+    user: User
+    recipient: User
+    chat: ChatConfig
+    record: UsageRecord
+
+    def setUp(self):
+        self.di = self.enterContext(di_for_tests())
+        self.repo = self.di.usage_record_repo
+        self.user = self.di.user_repo.save(stubs.domain.user())
+        self.recipient = self.di.user_repo.save(stubs.domain.user(
+            id = uuid4(),
+            telegram_user_id = None,
+            whatsapp_user_id = None,
+            connect_key = "DELIVERY-RECIPIENT",
+        ))
+        self.chat = self.di.chat_config_repo.save(stubs.domain.chat_config())
+        self.record = stubs.domain.usage_record(
+            user_id = self.user.id,
+            payer_id = self.user.id,
+            chat_id = self.chat.chat_id,
+            counterpart_id = self.recipient.id,
+            tool = WHATSAPP_MESSAGE_DELIVERY,
+            tool_purpose = ToolType.message_delivery,
+            model_cost_credits = 0.5,
+            remote_runtime_cost_credits = 0.3,
+            api_call_cost_credits = 0.4,
+            maintenance_fee_credits = 0.2,
+            total_cost_credits = 1.4,
+        )
+
+    def test_reconcile_lower_api_cost_preserves_other_costs_and_commits(self):
+        self.repo.create(self.record)
+
+        delta = self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id)
+
+        self.assertAlmostEqual(delta, -0.4)
+        with self.di.new_session() as db:
+            repo = self.di.clone(db = db).usage_record_repo
+            updated = repo.get_by_user(self.user.id)[0]
+            self.assertEqual(updated.api_call_cost_credits, 0.0)
+            self.assertAlmostEqual(updated.total_cost_credits, 1.0)
+            self.assertEqual(updated.model_cost_credits, 0.5)
+            self.assertEqual(updated.remote_runtime_cost_credits, 0.3)
+            self.assertEqual(updated.maintenance_fee_credits, 0.2)
+            self.assertIsNone(repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+
+    def test_reconcile_higher_api_cost_increases_total_by_only_the_difference(self):
+        self.repo.create(self.record)
+
+        delta = self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.6, self.recipient.id)
+
+        self.assertAlmostEqual(delta, 0.2)
+        updated = self.repo.get_by_user(self.user.id)[0]
+        self.assertEqual(updated.api_call_cost_credits, 0.6)
+        self.assertAlmostEqual(updated.total_cost_credits, 1.6)
+        self.assertEqual(updated.model_cost_credits, 0.5)
+        self.assertEqual(updated.remote_runtime_cost_credits, 0.3)
+        self.assertEqual(updated.maintenance_fee_credits, 0.2)
+
+    def test_matching_api_cost_is_still_marked_reconciled(self):
+        self.repo.create(self.record)
+
+        delta = self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.4, self.recipient.id)
+
+        self.assertEqual(delta, 0.0)
+        updated = self.repo.get_by_user(self.user.id)[0]
+        self.assertEqual(updated.api_call_cost_credits, 0.4)
+        self.assertEqual(updated.total_cost_credits, 1.4)
+        self.assertIsNone(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+
+    def test_mark_reconciled_preserves_costs_and_consumes_pending_record(self):
+        self.repo.create(self.record)
+
+        self.repo.mark_latest_delivery_reconciled(self.chat.chat_id, self.recipient.id)
+
+        with self.di.new_session() as db:
+            repo = self.di.clone(db = db).usage_record_repo
+            updated = repo.get_by_user(self.user.id)[0]
+            self.assertEqual(updated.api_call_cost_credits, 0.4)
+            self.assertEqual(updated.total_cost_credits, 1.4)
+            self.assertEqual(updated.model_cost_credits, 0.5)
+            self.assertEqual(updated.remote_runtime_cost_credits, 0.3)
+            self.assertEqual(updated.maintenance_fee_credits, 0.2)
+            self.assertTrue(updated.is_delivery_reconciled)
+            self.assertIsNone(repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+
+    def test_reconcile_latest_then_the_next_unreconciled_record(self):
+        self.repo.create_all([
+            replace(self.record, timestamp = self.record.timestamp - timedelta(seconds = 1)),
+            self.record,
+        ])
+
+        self.assertAlmostEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.8, self.recipient.id), 0.4)
+        records = self.repo.get_by_user(self.user.id)
+        self.assertEqual([record.api_call_cost_credits for record in records], [0.8, 0.4])
+        self.assertAlmostEqual(records[0].total_cost_credits, 1.8)
+        self.assertEqual(records[1].total_cost_credits, 1.4)
+
+        self.assertEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.4, self.recipient.id), 0.0)
+        self.assertIsNone(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+
+    def test_reconcile_does_not_consume_other_chats_purposes_or_recipients(self):
+        other_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_id = uuid4(), external_id = "other-chat",
+        ))
+        other_recipient = self.di.user_repo.save(stubs.domain.user(
+            id = uuid4(),
+            telegram_user_id = None,
+            whatsapp_user_id = None,
+            connect_key = "OTHER-DELIVERY-RECIPIENT",
+        ))
+        self.repo.create_all([
+            self.record,
+            replace(self.record, tool_purpose = ToolType.vision, timestamp = self.record.timestamp + timedelta(seconds = 1)),
+            replace(self.record, chat_id = other_chat.chat_id, timestamp = self.record.timestamp + timedelta(seconds = 2)),
+            replace(self.record, counterpart_id = other_recipient.id, timestamp = self.record.timestamp + timedelta(seconds = 3)),
+        ])
+
+        self.assertAlmostEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id), -0.4)
+        self.assertIsNone(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+        records = self.repo.get_by_user(self.user.id)
+        self.assertEqual([record.api_call_cost_credits for record in records], [0.4, 0.4, 0.4, 0.0])
+        self.assertEqual(self.repo.reconcile_latest_delivery(other_chat.chat_id, 0.4, self.recipient.id), 0.0)
+        self.assertEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.4, other_recipient.id), 0.0)
+
+    def test_reconcile_without_pending_records_returns_none(self):
+        self.assertIsNone(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+
+    def test_deferred_reconciliation_rolls_back_costs_and_flag(self):
+        self.repo.create(self.record)
+
+        self.assertAlmostEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id, commit = False), -0.4)  # ruff: ignore[line-too-long]
+        self.di.db.rollback()
+
+        unchanged = self.repo.get_by_user(self.user.id)[0]
+        self.assertEqual(unchanged.api_call_cost_credits, 0.4)
+        self.assertEqual(unchanged.total_cost_credits, 1.4)
+        self.assertAlmostEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id), -0.4)
+
+    def test_deferred_reconciliation_persists_with_caller_commit(self):
+        self.repo.create(self.record)
+
+        self.assertAlmostEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id, commit = False), -0.4)  # ruff: ignore[line-too-long]
+        self.di.db.commit()
+
+        with self.di.new_session() as db:
+            repo = self.di.clone(db = db).usage_record_repo
+            updated = repo.get_by_user(self.user.id)[0]
+            self.assertEqual(updated.api_call_cost_credits, 0.0)
+            self.assertAlmostEqual(updated.total_cost_credits, 1.0)
+            self.assertIsNone(repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))
+
+    def test_reconcile_skips_a_newer_already_reconciled_record(self):
+        self.repo.create_all([
+            self.record,
+            replace(
+                self.record,
+                timestamp = self.record.timestamp + timedelta(seconds = 1),
+                api_call_cost_credits = 0.9,
+                total_cost_credits = 1.9,
+                is_delivery_reconciled = True,
+            ),
+        ])
+
+        self.assertAlmostEqual(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id), -0.4)
+
+        records = self.repo.get_by_user(self.user.id)
+        self.assertEqual(records[0].api_call_cost_credits, 0.9)
+        self.assertEqual(records[0].total_cost_credits, 1.9)
+        self.assertTrue(records[0].is_delivery_reconciled)
+        self.assertEqual(records[1].api_call_cost_credits, 0.0)
+        self.assertAlmostEqual(records[1].total_cost_credits, 1.0)
+        self.assertTrue(records[1].is_delivery_reconciled)
+        self.assertIsNone(self.repo.reconcile_latest_delivery(self.chat.chat_id, 0.0, self.recipient.id))

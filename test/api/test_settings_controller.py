@@ -1,10 +1,11 @@
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date
 from typing import cast
 from unittest import TestCase
 from uuid import uuid4
 
 import stubs
+from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
 from fakes.fake_url_shortener import FakeUrlShortener
 from util.di_utils import di_for_tests
@@ -14,6 +15,7 @@ from api.settings_controller import SettingsController
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
+from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     ALL_EXTERNAL_TOOLS,
     CLAUDE_4_6_SONNET,
@@ -24,6 +26,7 @@ from features.external_tools.external_tool_library import (
     VIDEO_GEN_P_VIDEO,
 )
 from features.external_tools.external_tool_provider_library import ALL_PROVIDERS, ANTHROPIC, OPEN_AI
+from features.external_tools.intelligence_presets import default_tool_for
 from features.integrations.integration_config import THE_AGENT
 from features.users.user import User
 from util.config import config
@@ -49,6 +52,7 @@ class SettingsControllerTest(TestCase):
     user: User
     chat: ChatConfig
     agent: User
+    model: FakeChatModel
     bot: FakeTelegramBotAPI
     shortener: FakeUrlShortener
 
@@ -62,9 +66,24 @@ class SettingsControllerTest(TestCase):
         self.di.inject_invoker(self.user)
         self.di.inject_invoker_chat(self.chat)
         self.bot = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
+        tool = self.di.tool_choice_resolver.require_tool(ToolType.copywriting, default_tool_for(ToolType.copywriting))
+        self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(tool))
         self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_administrator()
         self.shortener = cast(FakeUrlShortener, self.di.url_shortener("https://example.com/settings"))
         self.controller = self.di.settings_controller
+
+    def __save_private_notification_chat(self, user: User) -> ChatConfig:
+        assert user.telegram_chat_id is not None
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_id = None,
+            external_id = user.telegram_chat_id,
+            is_private = True,
+        ))
+        self.di.chat_membership_repo.save(stubs.domain.chat_membership(
+            chat_id = chat.chat_id,
+            user_id = user.id,
+        ))
+        return chat
 
     def test_create_settings_link_default_is_intelligence(self):
         result = self.controller.create_settings_link()
@@ -261,7 +280,7 @@ class SettingsControllerTest(TestCase):
         self.assertFalse(result.is_on_waitlist)
         self.assertFalse(result.is_invited_to_start)
         self.assertTrue(result.are_policies_accepted)
-        self.assertEqual(result.credit_balance, user.credit_balance + config.welcome_credit_grant_amount)
+        self.assertEqual(result.credit_balance, user.credit_balance)
 
     def test_save_user_settings_waitlisted_activation_denied_without_invite_or_capacity(self):
         user = self.di.user_repo.save(replace(
@@ -276,53 +295,76 @@ class SettingsControllerTest(TestCase):
         self.assertEqual(context.exception.error_code, WAITLIST_ACCOUNT_NOT_ACTIVE)
         self.assertEqual(self.di.user_repo.get(user.id), user)
 
-    def test_save_user_settings_accepts_eula_first_time_grants_welcome_credits(self):
+    def test_save_user_settings_accepts_eula_without_granting_again_and_notifies_once(self):
         user = self.di.user_repo.save(replace(self.user, are_policies_accepted = False))
+        private_chat = self.__save_private_notification_chat(user)
+        self.model.responses.append(stubs.external.ai_message(content = "Welcome credits granted."))
 
+        self.controller.save_user_settings(user.id.hex, stubs.api.user_settings_payload())
         self.controller.save_user_settings(user.id.hex, stubs.api.user_settings_payload())
 
         result = self.controller.fetch_user_settings(user.id.hex)
         self.assertTrue(result.are_policies_accepted)
-        self.assertEqual(result.credit_balance, user.credit_balance + config.welcome_credit_grant_amount)
+        self.assertEqual(result.credit_balance, user.credit_balance)
         self.assertEqual(self.di.user_repo.get(self.agent.id).credit_balance, self.agent.credit_balance)
-        records = self.di.usage_record_repo.get_by_user(self.agent.id, only_transfers = True)
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records[0].counterpart_id, user.id)
-        self.assertEqual(records[0].total_cost_credits, config.welcome_credit_grant_amount)
-        self.assertEqual(records[0].note, "Welcome")
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.agent.id, only_transfers = True), [])
+        self.assertEqual(len(self.model.prompts), 1)
+        self.assertEqual(
+            self.model.prompts[0][-1].content,
+            f"You have been granted {config.welcome_credit_grant_amount} credits for \"Welcome\". Enjoy!",
+        )
+        self.assertEqual(
+            [message["text"] for message in self.bot.get_sent_messages(str(private_chat.external_id))],
+            ["Welcome credits granted."],
+        )
 
-    def test_save_user_settings_acceptance_at_eligibility_boundary_grants_welcome_credits(self):
-        user = self.di.user_repo.save(stubs.domain.user(
-            id = uuid4(), telegram_user_id = None, whatsapp_user_id = None, connect_key = "BOUNDARY-USER",
+    def test_save_user_settings_acceptance_notifies_after_credits_were_spent(self):
+        user = self.di.user_repo.save(replace(
+            self.user,
             are_policies_accepted = False,
-            created_at = date.today() - timedelta(days = config.welcome_credit_grant_eligibility_days),
+            credit_balance = 1.0,
         ))
-        self.di.inject_invoker(user)
-
-        self.controller.save_user_settings(user.id.hex, stubs.api.user_settings_payload())
-
-        result = self.controller.fetch_user_settings(user.id.hex)
-        self.assertTrue(result.are_policies_accepted)
-        self.assertEqual(result.credit_balance, user.credit_balance + config.welcome_credit_grant_amount)
-
-    def test_save_user_settings_repeated_acceptance_no_additional_grant(self):
-        self.controller.save_user_settings(self.user.id.hex, stubs.api.user_settings_payload())
-
-        self.assertEqual(self.controller.fetch_user_settings(self.user.id.hex).credit_balance, self.user.credit_balance)
-
-    def test_save_user_settings_acceptance_outside_window_no_grant(self):
-        user = self.di.user_repo.save(stubs.domain.user(
-            id = uuid4(), telegram_user_id = None, whatsapp_user_id = None, connect_key = "OLDER-USER",
-            are_policies_accepted = False,
-            created_at = date.today() - timedelta(days = config.welcome_credit_grant_eligibility_days + 1),
-        ))
-        self.di.inject_invoker(user)
+        private_chat = self.__save_private_notification_chat(user)
+        self.model.responses.append(stubs.external.ai_message(content = "Welcome credits granted."))
 
         self.controller.save_user_settings(user.id.hex, stubs.api.user_settings_payload())
 
         result = self.controller.fetch_user_settings(user.id.hex)
         self.assertTrue(result.are_policies_accepted)
         self.assertEqual(result.credit_balance, user.credit_balance)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.agent.id, only_transfers = True), [])
+        self.assertEqual(len(self.model.prompts), 1)
+        self.assertEqual(
+            [message["text"] for message in self.bot.get_sent_messages(str(private_chat.external_id))],
+            ["Welcome credits granted."],
+        )
+
+    def test_save_user_settings_repeated_acceptance_does_not_notify(self):
+        private_chat = self.__save_private_notification_chat(self.user)
+        self.model.responses.append(stubs.external.ai_message(content = "Unexpected notification"))
+
+        self.controller.save_user_settings(self.user.id.hex, stubs.api.user_settings_payload())
+
+        self.assertEqual(self.controller.fetch_user_settings(self.user.id.hex).credit_balance, self.user.credit_balance)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.agent.id, only_transfers = True), [])
+        self.assertEqual(self.model.prompts, [])
+        self.assertEqual(self.bot.get_sent_messages(str(private_chat.external_id)), [])
+
+    def test_save_user_settings_acceptance_with_zero_welcome_amount_does_not_notify(self):
+        self.addCleanup(setattr, config, "welcome_credit_grant_amount", config.welcome_credit_grant_amount)
+        config.welcome_credit_grant_amount = 0.0
+        user = self.di.user_repo.save(replace(self.user, are_policies_accepted = False))
+        private_chat = self.__save_private_notification_chat(user)
+        self.model.responses.append(stubs.external.ai_message(content = "Unexpected notification"))
+
+        self.controller.save_user_settings(user.id.hex, stubs.api.user_settings_payload())
+
+        result = self.controller.fetch_user_settings(user.id.hex)
+        self.assertTrue(result.are_policies_accepted)
+        self.assertEqual(result.credit_balance, user.credit_balance)
+        self.assertEqual(self.di.usage_record_repo.get_by_user(self.agent.id, only_transfers = True), [])
+        self.assertEqual(self.model.prompts, [])
+        self.assertEqual(self.bot.get_sent_messages(str(private_chat.external_id)), [])
 
     def test_save_user_settings_without_eula_acceptance_does_not_grant_credits(self):
         payload = stubs.api.user_settings_payload(full_name = "New Name", are_policies_accepted = None)

@@ -62,8 +62,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.version, "dev")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.0)
         self.assertEqual(config.welcome_credit_grant_amount, 500.0)
-        self.assertEqual(config.welcome_credit_grant_eligibility_days, 7)
         self.assertEqual(config.products_config_path, "config/products.yaml")
+        self.assertEqual(config.integration_delivery_pricing_config_path, "config/platform-pricing.yaml")
         self.assertEqual(config.logos_config_path, "config/logos.yaml")
         self.assertEqual(config.fonts_dir, "src/assets/fonts")
         self.assertEqual(config.s3_base_url, "")
@@ -143,7 +143,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["VERSION"] = "custom"
         os.environ["USAGE_MAINTENANCE_FEE_CREDITS"] = "0.5"
         os.environ["WELCOME_CREDIT_GRANT_AMOUNT"] = "750.0"
-        os.environ["WELCOME_CREDIT_GRANT_ELIGIBILITY_DAYS"] = "14"
+        os.environ["INTEGRATION_DELIVERY_PRICING_CONFIG_PATH"] = "/custom/path/platform-pricing.yaml"
         os.environ["FONTS_DIR"] = "/custom/path/fonts"
         os.environ["S3_BASE_URL"] = "https://s3.example.com"
         os.environ["S3_REGION"] = "eu-west-1"
@@ -227,7 +227,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.version, "custom")
         self.assertEqual(config.usage_maintenance_fee_credits, 0.5)
         self.assertEqual(config.welcome_credit_grant_amount, 750.0)
-        self.assertEqual(config.welcome_credit_grant_eligibility_days, 14)
+        self.assertEqual(config.integration_delivery_pricing_config_path, "/custom/path/platform-pricing.yaml")
         self.assertEqual(config.fonts_dir, "/custom/path/fonts")
         self.assertEqual(config.s3_base_url, "https://s3.example.com")
         self.assertEqual(config.s3_region, "eu-west-1")

@@ -1,6 +1,5 @@
 from dataclasses import replace
 from datetime import datetime
-from uuid import UUID
 
 from di.di import DI
 from features.chat.attachment.chat_attachment import ChatAttachment
@@ -28,7 +27,7 @@ class WhatsAppBotSDK:
         text: str,
     ) -> ChatMessage:
         sent_message = self.__di.whatsapp_bot_api.send_text_message(recipient_id = chat_config.external_id, text = text)
-        return self.__store_api_response_as_message(sent_message, text = text, chat_id = chat_config.chat_id)
+        return self.__store_api_response_as_message(sent_message, text = text, chat_config = chat_config)
 
     def send_photo(
         self,
@@ -45,7 +44,7 @@ class WhatsAppBotSDK:
             caption = caption,
         )
         content = self.__format_media_message(attachment, caption)
-        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -66,7 +65,7 @@ class WhatsAppBotSDK:
             filename = f"{attachment.id}.{attachment.extension}" if attachment.extension else None,
         )
         content = self.__format_media_message(attachment, caption)
-        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         # we should now quickly update the attachment record with the new ID
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
@@ -84,7 +83,7 @@ class WhatsAppBotSDK:
             caption = caption,
         )
         content = self.__format_media_message(attachment, caption)
-        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_id = chat_config.chat_id)
+        message = self.__store_api_response_as_message(sent_message, text = content.to_text(), chat_config = chat_config)
         self.__di.chat_attachment_service.save(replace(attachment, message_id = message.message_id))
         return message
 
@@ -104,26 +103,23 @@ class WhatsAppBotSDK:
             text = f"{button_text} {link_url}",
         )
         stored_text = f"{button_text} {obfuscate_url(link_url)}"
-        return self.__store_api_response_as_message(sent_message, text = stored_text, chat_id = chat_config.chat_id)
+        return self.__store_api_response_as_message(sent_message, text = stored_text, chat_config = chat_config)
 
     # === Data utilities ===
 
-    def __store_api_response_as_message(
-        self,
-        raw_api_response: MessageResponse,
-        text: str,
-        chat_id: UUID,
-    ) -> ChatMessage:
+    def __store_api_response_as_message(self, raw_response: MessageResponse, text: str, chat_config: ChatConfig) -> ChatMessage:
         log.t("Storing API message data...")
-        first_message = raw_api_response.messages[0]
+        first_message = raw_response.messages[0]
         message = ChatMessage(
             message_id = first_message.id,
-            chat_id = chat_id,
+            chat_id = chat_config.chat_id,
             author_id = THE_AGENT.id,
             sent_at = datetime.now(),
             text = text,
         )
-        return self.__di.chat_message_repo.save(message)
+        stored_message = self.__di.chat_message_repo.save(message)
+        self.__di.spending_service.charge_for_message_delivery(chat_config, self.__di.invoker.id)
+        return stored_message
 
     # noinspection PyMethodMayBeStatic
     def __format_media_message(

@@ -10,8 +10,8 @@ from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
 from features.integrations.integrations import lookup_user_by_handle, resolve_agent_user, resolve_external_id
 from util import log
-from util.error_codes import NO_PRIVATE_CHAT, NOT_DEVELOPER, TARGET_CHAT_NOT_FOUND, TARGET_USER_NOT_FOUND
-from util.errors import AuthorizationError, NotFoundError
+from util.error_codes import INSUFFICIENT_CREDITS, NO_PRIVATE_CHAT, NOT_DEVELOPER, TARGET_CHAT_NOT_FOUND, TARGET_USER_NOT_FOUND
+from util.errors import AuthorizationError, NotFoundError, ValidationError
 from util.functions import parse_ai_message_content
 
 
@@ -86,6 +86,7 @@ class DevAnnouncementsService:
         for chat in target_chats:
             try:
                 scoped_di = self.__di.clone(invoker_chat_id = chat.chat_id.hex)
+                scoped_di.spending_service.validate_message_delivery_pre_flight(chat, scoped_di.invoker.id)
                 summary = translations.get(chat.language_name, chat.language_iso_code)
                 if not summary:
                     system_prompt = prompt_resolvers.copywriting_system_announcement(chat.chat_type, chat)
@@ -97,7 +98,10 @@ class DevAnnouncementsService:
                 scoped_di.platform_bot_sdk().send_text_message(int(chat.external_id or "-1"), summary)
                 chats_notified += 1
             except Exception as e:
-                log.e(f"Announcement failed for chat #{chat.chat_id}", e)
+                if isinstance(e, ValidationError) and e.error_code == INSUFFICIENT_CREDITS:
+                    log.w(f"Skipping announcement for chat #{chat.chat_id} due to insufficient delivery credits")
+                else:
+                    log.e(f"Announcement failed for chat #{chat.chat_id}", e)
 
         log.i(f"Chats: {len(target_chats)}, summaries created: {summaries_created}, notified: {chats_notified}")
         return {

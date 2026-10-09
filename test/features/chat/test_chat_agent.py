@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
 from fakes.fake_url_shortener import FakeUrlShortener
+from fakes.fake_whatsapp_bot_api import FakeWhatsAppBotAPI
 from langchain_core.messages import HumanMessage, ToolMessage
 from stubs import domain, external
 from util.di_utils import di_for_tests
@@ -23,7 +24,8 @@ from features.external_tools.external_tool_library import GPT_5_6_SOL
 from features.integrations.integrations import resolve_agent_user
 from features.users.user_repo import UserRepository
 from util.config import config
-from util.errors import AuthorizationError
+from util.error_codes import INSUFFICIENT_CREDITS
+from util.errors import AuthorizationError, ValidationError
 
 
 class ChatAgentTest(TestCase):
@@ -94,15 +96,10 @@ class ChatAgentTest(TestCase):
         result = self.__create_agent(trigger_text = "/start@bot@extra").process_commands()
 
         self.assertTrue(result.is_handled)
-        self.assertEqual(result.reply.content, "🤯")
-        self.assertIn("Failed to process command.", self.api.get_sent_messages("test_chat_id")[0]["text"])
-        self.assertEqual(
-            [
-                (message["link_url"], message["button_text"])
-                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
-            ],
-            [("https://example.com/settings", "⚙️")],
-        )
+        self.assertEqual(result.reply.content, "👎")
+        sent_messages = self.api.get_sent_messages("test_chat_id")
+        self.assertEqual(len(sent_messages), 1)
+        self.assertIn("Failed to process command.", sent_messages[0]["text"])
 
     def test_process_commands_success(self):
         result = self.__create_agent(trigger_text = "/help").process_commands()
@@ -189,9 +186,33 @@ class ChatAgentTest(TestCase):
 
         result = agent.execute()
 
-        self.assertEqual(result.content, "🤯")
+        self.assertEqual(result.content, "👎")
         self.assertIn("Not configured", self.api.get_sent_messages("test_chat_id")[0]["text"])
         self.assertEqual(self.model.prompts, [])
+
+    def test_execute_blocks_unfunded_whatsapp_before_byok_model(self):
+        user = self.users.save(replace(
+            self.di.invoker,
+            credit_balance = 0.0,
+            whatsapp_user_id = "15551234567",
+        ))
+        chat = self.di.chat_config_repo.save(replace(
+            self.di.require_invoker_chat(),
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = user.whatsapp_user_id,
+        ))
+        self.di.inject_invoker(user)
+        self.di.inject_invoker_chat(chat)
+        self.tool = replace(self.tool, uses_credits = False, payer_id = user.id)
+        agent = self.__create_agent()
+        whatsapp = cast(FakeWhatsAppBotAPI, self.di.whatsapp_bot_api)
+
+        with self.assertRaises(ValidationError) as context:
+            agent.execute()
+
+        self.assertEqual(context.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.model.prompts, [])
+        self.assertEqual(whatsapp.get_sent_messages(str(chat.external_id)), [])
 
     def test_execute_llm_response(self):
         self.model.responses.append(external.ai_message(content = "LLM response"))
@@ -242,15 +263,11 @@ class ChatAgentTest(TestCase):
 
         result = self.agent.execute()
 
-        self.assertEqual(result.content, "🤯")
-        self.assertIn("Test error", self.api.get_sent_messages("test_chat_id")[0]["text"])
-        self.assertEqual(
-            [
-                (message["link_url"], message["button_text"])
-                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
-            ],
-            [("https://example.com/settings", "⚙️")],
-        )
+        self.assertEqual(result.content, "👎")
+        sent_messages = self.api.get_sent_messages("test_chat_id")
+        self.assertEqual(len(sent_messages), 1)
+        self.assertIn("Test error", sent_messages[0]["text"])
+        self.assertIn("Use /settings", sent_messages[0]["text"])
 
     def test_execute_max_iterations_exceeded(self):
         membership = self.members.get(self.di.invoker.id, self.di.invoker_chat.chat_id)
@@ -263,7 +280,7 @@ class ChatAgentTest(TestCase):
 
         result = agent.execute()
 
-        self.assertEqual(result.content, "⚠️")
+        self.assertEqual(result.content, "👎")
         self.assertIn("Reached max iterations (2)", self.api.get_sent_messages("test_chat_id")[0]["text"])
         self.assertEqual(len(self.model.prompts), 2)
 
@@ -272,7 +289,7 @@ class ChatAgentTest(TestCase):
 
         result = self.agent.execute()
 
-        self.assertEqual(result.content, "🔒")
+        self.assertEqual(result.content, "👎")
         self.assertIn("waitlist", self.api.get_sent_messages("test_chat_id")[0]["text"].lower())
         self.assertEqual(self.model.prompts, [])
 
@@ -281,7 +298,7 @@ class ChatAgentTest(TestCase):
 
         result = self.agent.execute()
 
-        self.assertEqual(result.content, "🔒")
+        self.assertEqual(result.content, "👎")
         self.assertIn("policies", self.api.get_sent_messages("test_chat_id")[0]["text"].lower())
         self.assertEqual(self.model.prompts, [])
 
@@ -324,22 +341,18 @@ class ChatAgentTest(TestCase):
 
         self.assertTrue(self.__create_agent().should_reply())
 
-    def test_error_routes_to_private_chat_with_settings_link(self):
+    def test_error_routes_to_private_chat_as_single_message(self):
         self.di.invoker.is_on_waitlist = True
 
         result = self.agent.execute()
 
-        self.assertEqual(result.content, "🔒")
-        sent_text = self.api.get_sent_messages("test_chat_id")[0]["text"]
+        self.assertEqual(result.content, "👎")
+        sent_messages = self.api.get_sent_messages("test_chat_id")
+        self.assertEqual(len(sent_messages), 1)
+        sent_text = sent_messages[0]["text"]
         self.assertIn("🔒", sent_text)
         self.assertIn("The waitlist is not open yet", sent_text)
-        self.assertEqual(
-            [
-                (message["link_url"], message["button_text"])
-                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
-            ],
-            [("https://example.com/settings", "⚙️")],
-        )
+        self.assertIn("Use /settings", sent_text)
 
     def test_error_falls_back_to_inline_when_no_private_chat(self):
         self.di.invoker.telegram_chat_id = None
@@ -348,15 +361,8 @@ class ChatAgentTest(TestCase):
         result = self.agent.execute()
 
         self.assertIn("The waitlist is not open yet", result.content)
-        self.assertIn("Check settings", result.content)
+        self.assertIn("Use /settings", result.content)
         self.assertEqual(self.api.get_sent_messages("test_chat_id"), [])
-        self.assertEqual(
-            [
-                (message["link_url"], message["button_text"])
-                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
-            ],
-            [],
-        )
 
     def test_error_routing_swallows_private_chat_delivery_failure(self):
         self.api.delivery_errors["test_chat_id"] = OSError("Network error")
@@ -364,12 +370,5 @@ class ChatAgentTest(TestCase):
 
         result = self.agent.execute()
 
-        self.assertIn("The waitlist is not open yet", result.content)
-        self.assertIn("Check settings", result.content)
-        self.assertEqual(
-            [
-                (message["link_url"], message["button_text"])
-                for message in self.api.get_sent_messages("test_chat_id") if "link_url" in message
-            ],
-            [],
-        )
+        self.assertEqual(result.content, "👎")
+        self.assertEqual(self.api.get_sent_messages("test_chat_id"), [])
