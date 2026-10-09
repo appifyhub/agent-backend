@@ -4,10 +4,12 @@ from features.external_tools.external_tool_provider_library import (
     COINMARKETCAP,
     GOOGLE_AI,
     INTERNAL,
+    META,
     OPEN_AI,
     PERPLEXITY,
     RAPID_API,
     REPLICATE,
+    TELEGRAM,
     TWELVE_DATA,
     XAI,
     X,
@@ -689,6 +691,26 @@ TWELVE_DATA_STOCK_QUOTE = ExternalTool(
     ),
 )
 
+###  Messaging Platform Integrations  ###
+
+TELEGRAM_MESSAGE_DELIVERY = ExternalTool(
+    id = "telegram-message-delivery",
+    name = "Telegram message delivery",
+    provider = TELEGRAM,
+    types = [ToolType.message_delivery],
+    cost_estimate = CostEstimate(api_call = 0),
+)
+
+###  Meta  ###
+
+WHATSAPP_MESSAGE_DELIVERY = ExternalTool(
+    id = "whatsapp-message-delivery",
+    name = "WhatsApp message delivery",
+    provider = META,
+    types = [ToolType.message_delivery],
+    cost_estimate = CostEstimate(api_call = 0),
+)
+
 ###  Internal  ###
 
 TRANSFER_TOOL = ExternalTool(
@@ -761,6 +783,9 @@ ALL_EXTERNAL_TOOLS = [
     X_READ_POST,
     CRYPTO_CURRENCY_EXCHANGE,
     TWELVE_DATA_STOCK_QUOTE,
+    #  Messaging Platform Integrations
+    TELEGRAM_MESSAGE_DELIVERY,
+    WHATSAPP_MESSAGE_DELIVERY,
     # Internal
     TRANSFER_TOOL,
 ]

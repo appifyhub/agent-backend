@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Annotated, Literal, TypeAlias, get_args
 from uuid import UUID
 
@@ -323,17 +323,10 @@ class SettingsController:
                 updated_user = replace(updated_user, is_on_waitlist = False, is_invited_to_start = False)
             updated_user = self.__di.user_repo.save(updated_user, commit = False)
 
-            should_grant_welcome_credits = self.__should_grant_welcome_credits(locked_user, updated_user)
-            if should_grant_welcome_credits:
-                updated_user = self.__di.credit_transfer_service.grant_credits(
-                    recipient = updated_user,
-                    amount = config.welcome_credit_grant_amount,
-                    note = "Welcome",
-                    commit = False,
-                )
+            should_notify_welcome_credits = self.__should_notify_welcome_credits(locked_user, updated_user)
             self.__di.db.commit()
 
-            if should_grant_welcome_credits:
+            if should_notify_welcome_credits:
                 self.__di.credit_transfer_service.notify_grant(updated_user, config.welcome_credit_grant_amount, "Welcome")
         except ServiceError:
             self.__di.db.rollback()
@@ -345,12 +338,11 @@ class SettingsController:
         log.i("User settings saved")
 
     @staticmethod
-    def __should_grant_welcome_credits(current_user: User, updated_user: User) -> bool:
+    def __should_notify_welcome_credits(current_user: User, updated_user: User) -> bool:
         return (
             current_user.are_policies_accepted is False
             and updated_user.are_policies_accepted is True
-            and current_user.created_at is not None
-            and (date.today() - current_user.created_at).days <= config.welcome_credit_grant_eligibility_days
+            and config.welcome_credit_grant_amount > 0
         )
 
     def __is_sponsored(self, user_id: UUID) -> bool:

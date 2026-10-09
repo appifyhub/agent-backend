@@ -24,6 +24,8 @@ class UsageRecordMapperTest(unittest.TestCase):
         # UsageRecord domain model doesn't have an ID.
         record = stubs.domain.usage_record(
             payer_id = uuid.uuid4(),
+            counterpart_id = uuid.uuid4(),
+            is_delivery_reconciled = True,
             output_image_sizes = ["1024x1024"],
             output_video_size = "2k",
             output_video_duration_seconds = 5,
@@ -34,6 +36,8 @@ class UsageRecordMapperTest(unittest.TestCase):
         self.assertIsInstance(db_obj, UsageRecordDB)
         self.assertEqual(db_obj.user_id, record.user_id)
         self.assertEqual(db_obj.payer_id, record.payer_id)
+        self.assertEqual(db_obj.counterpart_id, record.counterpart_id)
+        self.assertTrue(db_obj.is_delivery_reconciled)
         self.assertTrue(db_obj.uses_credits)
         self.assertEqual(db_obj.tool_id, record.tool.id)
         self.assertEqual(db_obj.timestamp, record.timestamp)
@@ -48,6 +52,8 @@ class UsageRecordMapperTest(unittest.TestCase):
         # The factory default tool should be found automatically.
         record = stubs.db.usage_record_db(
             payer_id = uuid.uuid4(),
+            counterpart_id = uuid.uuid4(),
+            is_delivery_reconciled = True,
             output_image_sizes = ["1024x1024"],
             output_video_size = "2k",
             output_video_duration_seconds = 5,
@@ -58,6 +64,8 @@ class UsageRecordMapperTest(unittest.TestCase):
         self.assertIsInstance(domain_obj, UsageRecord)
         self.assertEqual(domain_obj.user_id, record.user_id)
         self.assertEqual(domain_obj.payer_id, record.payer_id)
+        self.assertEqual(domain_obj.counterpart_id, record.counterpart_id)
+        self.assertTrue(domain_obj.is_delivery_reconciled)
         self.assertTrue(domain_obj.uses_credits)
         self.assertEqual(domain_obj.tool.id, record.tool_id)
         self.assertEqual(domain_obj.tool.name, record.tool_name)

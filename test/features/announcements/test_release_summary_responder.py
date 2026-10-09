@@ -1,5 +1,7 @@
+from dataclasses import replace
 from typing import cast
 from unittest import TestCase
+from unittest.mock import patch
 from uuid import uuid4
 
 import stubs
@@ -150,6 +152,38 @@ class ReleaseSummaryResponderTest(TestCase):
         self.assertEqual(result["summaries_created"], 2)
         self.assertEqual([message["text"] for message in self.bot.get_sent_messages("123")], ["English summary"])
         self.assertEqual([message["text"] for message in self.bot.get_sent_messages("456")], ["Spanish summary"])
+
+    def test_unfunded_whatsapp_subscription_is_not_notified(self):
+        payer = self.di.user_repo.save(replace(self.di.invoker, credit_balance = 0.0))
+        recipient = self.di.user_repo.save(stubs.domain.user(
+            id = uuid4(),
+            telegram_user_id = None,
+            telegram_username = None,
+            telegram_chat_id = None,
+            whatsapp_user_id = "15551234567",
+            whatsapp_phone_number = "+15551234568",
+            connect_key = "RLSM-TRGT-0001",
+        ))
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_type = ChatConfigDB.ChatType.whatsapp,
+            external_id = recipient.whatsapp_user_id,
+            release_notifications = ChatConfigDB.ReleaseNotifications.all,
+        ))
+        self.di.chat_membership_repo.save(stubs.domain.chat_membership(
+            chat_id = chat.chat_id,
+            user_id = recipient.id,
+        ))
+        self.di.inject_invoker(payer)
+        self.model.responses.append(stubs.external.ai_message(content = "Default summary"))
+
+        with patch("features.announcements.release_summary_responder.log.w") as warning_log:
+            result = respond_with_summary(self.payload, self.di)
+
+        self.assertEqual(result["chats_subscribed"], 1)
+        self.assertEqual(result["chats_notified"], 0)
+        self.assertEqual(result["summaries_created"], 1)
+        self.assertEqual(len(self.model.prompts), 1)
+        warning_log.assert_called_once_with(f"Skipping release summary for chat #{chat.chat_id} due to insufficient delivery credits")  # ruff: ignore[line-too-long]
 
     def test_telegram_send_failure(self):
         chat = self.di.chat_config_repo.save(stubs.domain.chat_config(

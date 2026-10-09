@@ -22,25 +22,8 @@ class UsageRecordRepository:
         db_model = self._db.query(UsageRecordDB).filter(UsageRecordDB.id == record_id).first()
         return domain(db_model)
 
-    def create(self, record: UsageRecord, commit: bool = True) -> UsageRecord:
-        db_model = db(record)
-        self._db.add(db_model)
-
-        self._db.flush()
-        if commit:
-            self._db.commit()
-
-        self._db.refresh(db_model)
-        return domain(db_model)
-
-    def create_all(self, records: list[UsageRecord]) -> list[UsageRecord]:
-        db_models = [db(record) for record in records]
-        for db_model in db_models:
-            self._db.add(db_model)
-        self._db.commit()
-        for db_model in db_models:
-            self._db.refresh(db_model)
-        return [domain(db_model) for db_model in db_models]
+    def get_latest_unreconciled_delivery(self, chat_id: UUID, counterpart_id: UUID) -> UsageRecord | None:
+        return domain(self.__get_latest_unreconciled(chat_id, counterpart_id))
 
     def get_by_user(
         self,
@@ -57,7 +40,7 @@ class UsageRecordRepository:
         purpose: str | None = None,
         provider_id: str | None = None,
     ) -> list[UsageRecord]:
-        base_query = self._build_user_query(
+        base_query = self.__build_user_query(
             user_id, start_date, end_date,
             exclude_self, include_sponsored,
             include_transfers, only_transfers,
@@ -88,7 +71,7 @@ class UsageRecordRepository:
         provider_id: str | None = None,
     ) -> UsageAggregates:
         # unfiltered query for all_*_used lists (dropdown options)
-        unfiltered_query = self._build_user_query(
+        unfiltered_query = self.__build_user_query(
             user_id, start_date, end_date,
             exclude_self, include_sponsored,
             include_transfers, only_transfers,
@@ -96,7 +79,7 @@ class UsageRecordRepository:
         unfiltered_subquery = unfiltered_query.subquery()
 
         # filtered query for totals and by_* breakdowns
-        filtered_query = self._build_user_query(
+        filtered_query = self.__build_user_query(
             user_id, start_date, end_date,
             exclude_self, include_sponsored,
             include_transfers, only_transfers,
@@ -187,7 +170,66 @@ class UsageRecordRepository:
             all_providers_used = all_providers_used,
         )
 
-    def _build_user_query(
+    def create(self, record: UsageRecord, commit: bool = True) -> UsageRecord:
+        db_model = db(record)
+        self._db.add(db_model)
+
+        self._db.flush()
+        if commit:
+            self._db.commit()
+
+        self._db.refresh(db_model)
+        return domain(db_model)
+
+    def create_all(self, records: list[UsageRecord]) -> list[UsageRecord]:
+        db_models = [db(record) for record in records]
+        for db_model in db_models:
+            self._db.add(db_model)
+        self._db.commit()
+        for db_model in db_models:
+            self._db.refresh(db_model)
+        return [domain(db_model) for db_model in db_models]
+
+    def mark_latest_delivery_reconciled(self, chat_id: UUID, counterpart_id: UUID, commit: bool = True):
+        db_model = self.__get_latest_unreconciled(chat_id, counterpart_id, locked = True)
+        if db_model is None:
+            return
+
+        db_model.is_delivery_reconciled = True
+        self._db.flush()
+        if commit:
+            self._db.commit()
+
+    def reconcile_latest_delivery(self, chat_id: UUID, cost_credits: float, counterpart_id: UUID, commit: bool = True) -> float | None:  # ruff: ignore[line-too-long]
+        db_model = self.__get_latest_unreconciled(chat_id, counterpart_id, locked = True)
+        if db_model is None:
+            return None
+
+        delta = cost_credits - db_model.api_call_cost_credits
+        if delta:
+            db_model.api_call_cost_credits = cost_credits
+            db_model.total_cost_credits += delta
+        db_model.is_delivery_reconciled = True
+
+        self._db.flush()
+        if commit:
+            self._db.commit()
+        self._db.refresh(db_model)
+        return delta
+
+    def __get_latest_unreconciled(self, chat_id: UUID, counterpart_id: UUID, locked: bool = False) -> UsageRecordDB | None:
+        query = self._db.query(UsageRecordDB).filter(
+            UsageRecordDB.chat_id == chat_id,
+            UsageRecordDB.purpose == ToolType.message_delivery.value,
+            UsageRecordDB.counterpart_id == counterpart_id,
+            UsageRecordDB.is_delivery_reconciled.is_(False),
+        )
+        query = query.order_by(UsageRecordDB.timestamp.desc())
+        if locked:
+            query = query.with_for_update()
+        return query.first()
+
+    def __build_user_query(
         self,
         user_id: UUID,
         start_date: datetime | None,

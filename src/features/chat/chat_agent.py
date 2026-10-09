@@ -109,13 +109,11 @@ class ChatAgent:
             private_chat_id = resolve_private_chat_id(self.__di.invoker, chat_type)
             if not private_chat_id:
                 return fallback
-            self.__di.platform_bot_sdk().send_text_message(private_chat_id, f"{emoji}\n\n{error_text}")
-            settings_link = self.__di.settings_controller.create_settings_link().settings_link
-            self.__di.platform_bot_sdk().send_button_link(private_chat_id, settings_link)
-            return AIMessage(emoji)
+            self.__di.rollback_db_session()
+            self.__di.platform_bot_sdk().send_text_message(private_chat_id, str(fallback.content))
         except Exception as e:
             log.w("Failed to route error to private chat", e)
-            return fallback
+        return AIMessage("👎")
 
     def execute(self) -> AIMessage | None:
         log.t(f"Starting chat completion for '{self.__last_message.content}'")
@@ -128,12 +126,20 @@ class ChatAgent:
             return None
 
         # handle user profile constraints next
+        readiness_error: ServiceError | None = None
         try:
-            self.__di.authorization_service.require_user_is_chat_ready(self.__di.invoker)
-        except ServiceError as e:
-            return self.__route_error_to_user(str(e), emoji = e.emoji)
+            # this is intentionally outside of the 2nd try/catch block as it needs to roll back session
+            # note that commands are processed already (sometimes free of charge) in the burst message handler
+            self.__di.spending_service.validate_message_delivery_pre_flight(self.__di.require_invoker_chat(), self.__di.invoker.id)  # ruff: ignore[line-too-long]
+            try:
+                self.__di.authorization_service.require_user_is_chat_ready(self.__di.invoker)
+            except ServiceError as e:
+                readiness_error = e
         finally:
             self.__di.rollback_db_session()
+
+        if readiness_error:
+            return self.__route_error_to_user(str(readiness_error), emoji = readiness_error.emoji)
 
         # handle access control before doing any LLM processing
         if not self.__configured_tool:

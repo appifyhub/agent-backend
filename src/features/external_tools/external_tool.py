@@ -103,6 +103,7 @@ class ToolType(str, Enum):
     api_stock_quote = "api_stock_quote"  # stock quote API
     api_twitter = "api_twitter"  # X (Twitter) API
     credit_transfer = "credit_transfer"  # credit transfer between users
+    message_delivery = "message_delivery"  # platform message delivery
     deprecated = "deprecated"  # deprecated tool type, for API compatibility
 
     @property

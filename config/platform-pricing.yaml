@@ -1,0 +1,390 @@
+platforms:
+  telegram:
+    markets:
+      global:
+        default: true
+        categories:
+          service: "0"
+  whatsapp:
+    markets:
+      argentina:
+        name: "Argentina"
+        prefixes:
+          - "54"
+        categories:
+          service: "2.6"
+      bangladesh:
+        name: "Bangladesh"
+        prefixes:
+          - "880"
+        categories:
+          service: "0.4"
+      brazil:
+        name: "Brazil"
+        prefixes:
+          - "55"
+        categories:
+          service: "0.7"
+      chile:
+        name: "Chile"
+        prefixes:
+          - "56"
+        categories:
+          service: "2.0"
+      colombia:
+        name: "Colombia"
+        prefixes:
+          - "57"
+        categories:
+          service: "0.1"
+      egypt:
+        name: "Egypt"
+        prefixes:
+          - "20"
+        categories:
+          service: "0.4"
+      france:
+        name: "France"
+        prefixes:
+          - "33"
+        categories:
+          service: "3.0"
+      germany:
+        name: "Germany"
+        prefixes:
+          - "49"
+        categories:
+          service: "5.5"
+      hong_kong:
+        name: "Hong Kong"
+        prefixes:
+          - "852"
+        categories:
+          service: "2.6"
+      hungary:
+        name: "Hungary"
+        prefixes:
+          - "36"
+        categories:
+          service: "3.5"
+      india:
+        name: "India"
+        prefixes:
+          - "91"
+        categories:
+          service: "0.2"
+      indonesia:
+        name: "Indonesia"
+        prefixes:
+          - "62"
+        categories:
+          service: "2.5"
+      iraq:
+        name: "Iraq"
+        prefixes:
+          - "964"
+        categories:
+          service: "0.8"
+      israel:
+        name: "Israel"
+        prefixes:
+          - "972"
+        categories:
+          service: "0.6"
+      italy:
+        name: "Italy"
+        prefixes:
+          - "39"
+        categories:
+          service: "3.0"
+      kazakhstan:
+        name: "Kazakhstan"
+        prefixes:
+          - "70"
+          - "76"
+          - "77"
+        categories:
+          service: "1.8"
+      kuwait:
+        name: "Kuwait"
+        prefixes:
+          - "965"
+        categories:
+          service: "4.4"
+      malaysia:
+        name: "Malaysia"
+        prefixes:
+          - "60"
+        categories:
+          service: "1.4"
+      mexico:
+        name: "Mexico"
+        prefixes:
+          - "52"
+        categories:
+          service: "0.9"
+      morocco:
+        name: "Morocco"
+        prefixes:
+          - "212"
+        categories:
+          service: "2.3"
+      netherlands:
+        name: "Netherlands"
+        prefixes:
+          - "31"
+        categories:
+          service: "5.0"
+      nepal:
+        name: "Nepal"
+        prefixes:
+          - "977"
+        categories:
+          service: "0.4"
+      nigeria:
+        name: "Nigeria"
+        prefixes:
+          - "234"
+        categories:
+          service: "0.7"
+      oman:
+        name: "Oman"
+        prefixes:
+          - "968"
+        categories:
+          service: "2.5"
+      pakistan:
+        name: "Pakistan"
+        prefixes:
+          - "92"
+        categories:
+          service: "1.5"
+      peru:
+        name: "Peru"
+        prefixes:
+          - "51"
+        categories:
+          service: "3.0"
+      poland:
+        name: "Poland"
+        prefixes:
+          - "48"
+        categories:
+          service: "1.3"
+      qatar:
+        name: "Qatar"
+        prefixes:
+          - "974"
+        categories:
+          service: "1.2"
+      romania:
+        name: "Romania"
+        prefixes:
+          - "40"
+        categories:
+          service: "2.9"
+      russia:
+        name: "Russia"
+        prefixes:
+          - "7"
+        categories:
+          service: "4.0"
+      saudi_arabia:
+        name: "Saudi Arabia"
+        prefixes:
+          - "966"
+        categories:
+          service: "1.1"
+      singapore:
+        name: "Singapore"
+        prefixes:
+          - "65"
+        categories:
+          service: "1.6"
+      south_africa:
+        name: "South Africa"
+        prefixes:
+          - "27"
+        categories:
+          service: "1.0"
+      spain:
+        name: "Spain"
+        prefixes:
+          - "34"
+        categories:
+          service: "2.0"
+      sri_lanka:
+        name: "Sri Lanka"
+        prefixes:
+          - "94"
+        categories:
+          service: "0.2"
+      turkey:
+        name: "Turkey"
+        prefixes:
+          - "90"
+        categories:
+          service: "0.1"
+      ukraine:
+        name: "Ukraine"
+        prefixes:
+          - "380"
+        categories:
+          service: "3.0"
+      united_arab_emirates:
+        name: "United Arab Emirates"
+        prefixes:
+          - "971"
+        categories:
+          service: "1.6"
+      united_kingdom:
+        name: "United Kingdom"
+        prefixes:
+          - "44"
+        categories:
+          service: "2.2"
+      north_america:
+        name: "North America"
+        prefixes:
+          - "1"
+        categories:
+          service: "0.4"
+      rest_of_africa:
+        name: "Rest of Africa"
+        prefixes:
+          - "213"
+          - "244"
+          - "229"
+          - "267"
+          - "226"
+          - "257"
+          - "237"
+          - "235"
+          - "242"
+          - "291"
+          - "251"
+          - "241"
+          - "220"
+          - "233"
+          - "245"
+          - "225"
+          - "254"
+          - "266"
+          - "231"
+          - "218"
+          - "261"
+          - "265"
+          - "223"
+          - "222"
+          - "258"
+          - "264"
+          - "227"
+          - "250"
+          - "221"
+          - "232"
+          - "252"
+          - "211"
+          - "249"
+          - "268"
+          - "255"
+          - "228"
+          - "216"
+          - "256"
+          - "260"
+          - "263"
+        categories:
+          service: "0.4"
+      rest_of_asia_pacific:
+        name: "Rest of Asia Pacific"
+        prefixes:
+          - "93"
+          - "61"
+          - "855"
+          - "86"
+          - "81"
+          - "856"
+          - "976"
+          - "64"
+          - "675"
+          - "63"
+          - "886"
+          - "992"
+          - "66"
+          - "993"
+          - "998"
+          - "84"
+        categories:
+          service: "1.2"
+      rest_of_central_and_eastern_europe:
+        name: "Rest of Central & Eastern Europe"
+        prefixes:
+          - "355"
+          - "374"
+          - "994"
+          - "375"
+          - "359"
+          - "385"
+          - "420"
+          - "995"
+          - "30"
+          - "371"
+          - "370"
+          - "373"
+          - "389"
+          - "381"
+          - "421"
+          - "386"
+        categories:
+          service: "2.2"
+      rest_of_western_europe:
+        name: "Rest of Western Europe"
+        prefixes:
+          - "43"
+          - "32"
+          - "45"
+          - "358"
+          - "353"
+          - "47"
+          - "351"
+          - "46"
+          - "41"
+        categories:
+          service: "1.8"
+      rest_of_latin_america:
+        name: "Rest of Latin America"
+        prefixes:
+          - "591"
+          - "506"
+          - "1809"
+          - "1829"
+          - "1849"
+          - "593"
+          - "503"
+          - "502"
+          - "509"
+          - "504"
+          - "1658"
+          - "1876"
+          - "505"
+          - "507"
+          - "595"
+          - "1787"
+          - "1939"
+          - "598"
+          - "58"
+        categories:
+          service: "1.2"
+      rest_of_middle_east:
+        name: "Rest of Middle East"
+        prefixes:
+          - "973"
+          - "962"
+          - "961"
+          - "967"
+        categories:
+          service: "1.0"
+      other:
+        name: "Other"
+        default: true
+        categories:
+          service: "0.8"

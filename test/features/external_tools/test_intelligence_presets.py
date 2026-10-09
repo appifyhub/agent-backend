@@ -96,8 +96,9 @@ class IntelligencePresetsTest(unittest.TestCase):
         for tool_type in ToolType:
             if tool_type == ToolType.deprecated:
                 continue
-            tool = default_tool_for(tool_type)
-            self.assertIsInstance(tool, ExternalTool)
+            with self.subTest(tool_type = tool_type):
+                tool = default_tool_for(tool_type)
+                self.assertIn(tool_type, tool.types)
 
     def test_video_generation_presets(self):
         self.assertEqual(
