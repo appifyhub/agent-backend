@@ -7,6 +7,8 @@ from db.model.user import UserDB
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantInfo
 from features.chat.config.chat_config import ChatConfig
+from features.external_tools.external_tool import ExternalTool
+from features.external_tools.external_tool_library import TELEGRAM_MESSAGE_DELIVERY, WHATSAPP_MESSAGE_DELIVERY
 from features.integrations.integration_config import (
     BACKGROUND_AGENT,
     TELEGRAM_REACTION_INITIAL_DELAY_S,
@@ -31,6 +33,13 @@ def resolve_agent_user(chat_type: ChatConfigDB.ChatType) -> User:
             return THE_AGENT
         case ChatConfigDB.ChatType.background:
             return BACKGROUND_AGENT
+
+
+def delivery_tool_for(platform: ChatConfigDB.ChatType) -> ExternalTool:
+    return {
+        ChatConfigDB.ChatType.telegram: TELEGRAM_MESSAGE_DELIVERY,
+        ChatConfigDB.ChatType.whatsapp: WHATSAPP_MESSAGE_DELIVERY,
+    }[platform]
 
 
 def resolve_external_id(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:
