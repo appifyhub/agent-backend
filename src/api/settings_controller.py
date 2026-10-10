@@ -236,6 +236,7 @@ class SettingsController:
             "  Updating user_chat_config: "
             f"use_about_me={payload.use_about_me}, "
             f"use_custom_prompt={payload.use_custom_prompt}, "
+            f"split_messages={payload.split_messages}, "
             f"max_output_tokens={payload.max_output_tokens}, "
             f"max_chat_history_depth={payload.max_chat_history_depth}, "
             f"max_iterations={payload.max_iterations}",
@@ -248,6 +249,7 @@ class SettingsController:
                 is_admin = membership.is_admin,
                 use_about_me = payload.use_about_me,
                 use_custom_prompt = payload.use_custom_prompt,
+                split_messages = payload.split_messages,
                 max_output_tokens = payload.max_output_tokens,
                 max_chat_history_depth = payload.max_chat_history_depth,
                 max_iterations = payload.max_iterations,

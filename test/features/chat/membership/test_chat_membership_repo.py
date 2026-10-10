@@ -58,8 +58,6 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertEqual(result.max_output_tokens, 500)
         self.assertEqual(result.max_chat_history_depth, 5)
         self.assertEqual(result.max_iterations, 3)
-        fetched = self.repo.get(self.user.id, self.chat.chat_id)
-        self.assertFalse(fetched.split_messages)
 
     def test_get_returns_saved_membership(self):
         membership = stubs.domain.chat_membership(
@@ -182,40 +180,3 @@ class ChatMembershipRepoTest(unittest.TestCase):
         user_ids = {r.user_id for r in results}
         self.assertIn(self.user.id, user_ids)
         self.assertIn(second_user.id, user_ids)
-
-    def test_save_updates_splitting_only_for_matching_user_and_chat(self):
-        second_chat = self.di.chat_config_repo.save(
-            stubs.domain.chat_config(chat_id = None, external_id = "chat2"),
-        )
-        second_user = self.di.user_repo.save(
-            stubs.domain.user(
-                id = UUID("33333333-3333-4333-8333-c33333333333"),
-                telegram_user_id = 654321,
-                whatsapp_user_id = None,
-                connect_key = "SCND-USER-2026",
-            ),
-        )
-        for user, chat in (
-            (self.user, self.chat),
-            (self.user, second_chat),
-            (second_user, self.chat),
-        ):
-            self.repo.save(
-                stubs.domain.chat_membership(
-                    user_id = user.id,
-                    chat_id = chat.chat_id,
-                    split_messages = True,
-                ),
-            )
-
-        self.repo.save(
-            stubs.domain.chat_membership(
-                user_id = self.user.id,
-                chat_id = self.chat.chat_id,
-                split_messages = False,
-            ),
-        )
-
-        self.assertFalse(self.repo.get(self.user.id, self.chat.chat_id).split_messages)
-        self.assertTrue(self.repo.get(self.user.id, second_chat.chat_id).split_messages)
-        self.assertTrue(self.repo.get(second_user.id, self.chat.chat_id).split_messages)

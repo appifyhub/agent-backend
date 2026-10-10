@@ -128,6 +128,7 @@ def user_chat_config_payload(**overrides: Any) -> UserChatConfigPayload:
     defaults = {
         "use_about_me": True,
         "use_custom_prompt": True,
+        "split_messages": True,
         "max_output_tokens": 2_048,
         "max_chat_history_depth": 20,
         "max_iterations": 10,
@@ -139,6 +140,7 @@ def user_chat_config_response(**overrides: Any) -> UserChatConfigResponse:
     defaults = {
         "use_about_me": True,
         "use_custom_prompt": True,
+        "split_messages": True,
         "max_output_tokens": 2_048,
         "max_chat_history_depth": 20,
         "max_iterations": 10,

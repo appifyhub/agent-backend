@@ -116,24 +116,17 @@ class MessageBurstServiceTest(TestCase):
             last_message_ingestion_order = self.ingested.message.ingestion_order,
             is_addressed = True,
         )
-        self.model.responses.append(external.ai_message(content = "response"))
+        self.model.responses.append(external.ai_message(content = "First paragraph\n\nSecond paragraph\n\nThird paragraph"))
 
         result = self.service.process_message(self.ingested, claim = claim)
 
         self.assertTrue(result)
-        self.assertEqual([message["text"] for message in self.telegram.get_sent_messages("123")], ["response"])
-        self.assertNotIn("Future message outside this burst", str(self.model.prompts))
-        self.assertIn("hello", str(self.model.prompts))
-
-    def test_reply_splits_paragraphs_into_separate_messages(self):
-        self.model.responses.append(external.ai_message(content = "First paragraph\n\nSecond paragraph\n\nThird paragraph"))
-
-        self.assertTrue(self.service.process_message(self.ingested))
-
         self.assertEqual(
             [message["text"] for message in self.telegram.get_sent_messages("123")],
             ["First paragraph", "Second paragraph", "Third paragraph"],
         )
+        self.assertNotIn("Future message outside this burst", str(self.model.prompts))
+        self.assertIn("hello", str(self.model.prompts))
 
     def test_delivery_failure_sends_separate_error_notification(self):
         self.model.responses.append(external.ai_message(content = "Undelivered response"))
