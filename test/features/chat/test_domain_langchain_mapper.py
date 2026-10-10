@@ -2,8 +2,10 @@ import unittest
 from uuid import UUID
 
 import stubs
+from util.di_utils import di_for_tests
 
 from db.model.chat_config import ChatConfigDB
+from di.di import DI
 from features.chat.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
 from features.integrations.integrations import resolve_agent_user
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
@@ -12,11 +14,13 @@ from features.users.user import User
 
 class DomainLangchainMapperTest(unittest.TestCase):
 
+    di: DI
     mapper: DomainLangchainMapper
     agent_user: User
 
     def setUp(self):
-        self.mapper = DomainLangchainMapper()
+        self.di = self.enterContext(di_for_tests())
+        self.mapper = self.di.domain_langchain_mapper
         self.agent_user = resolve_agent_user(ChatConfigDB.ChatType.telegram)
 
     def test_map_to_langchain_with_author(self):
@@ -64,44 +68,52 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "Test message")
         self.assertEqual(result[0].chat_id, chat.chat_id)
         self.assertEqual(result[0].author_id, self.agent_user.id)
 
     def test_map_bot_message_to_storage_multiple_messages(self):
-        message = stubs.external.ai_message(content = f"Message 1{CHAT_MESSAGE_DELIMITER}Message 2{CHAT_MESSAGE_DELIMITER}Message 3")  # ruff: ignore[line-too-long]
+        content = f"Message 1{CHAT_MESSAGE_DELIMITER}Message 2{CHAT_MESSAGE_DELIMITER}Message 3"
+        message = stubs.external.ai_message(content = content)
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
-        self.assertEqual(len(result), 3)
-        self.assertEqual(result[0].text, "Message 1")
-        self.assertEqual(result[1].text, "Message 2")
-        self.assertEqual(result[2].text, "Message 3")
-        for message in result:
-            self.assertEqual(message.chat_id, chat.chat_id)
-            self.assertEqual(message.author_id, self.agent_user.id)
+        for split_messages, expected_texts in (
+            (True, ["Message 1", "Message 2", "Message 3"]),
+            (False, [content]),
+        ):
+            with self.subTest(split_messages = split_messages):
+                result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = split_messages)
+
+                self.assertEqual([item.text for item in result], expected_texts)
+                for item in result:
+                    self.assertEqual(item.chat_id, chat.chat_id)
+                    self.assertEqual(item.author_id, self.agent_user.id)
 
     def test_map_bot_message_to_storage_empty_message(self):
         message = stubs.external.ai_message(content = "")
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
-        self.assertEqual(len(result), 0)
+        for split_messages in (False, True):
+            with self.subTest(split_messages = split_messages):
+                result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = split_messages)
+                self.assertEqual(result, [])
 
     def test_map_bot_message_to_storage_list_of_strings(self):
         message = stubs.external.ai_message(content = ["Message 1", "Message 2", "Message 3"])
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0].text, "Message 1")
         self.assertEqual(result[1].text, "Message 2")
         self.assertEqual(result[2].text, "Message 3")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], ["Message 1\n\nMessage 2\n\nMessage 3"])
         for message in result:
             self.assertEqual(message.chat_id, chat.chat_id)
             self.assertEqual(message.author_id, self.agent_user.id)
@@ -111,10 +123,12 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].text, "name: Mike\ncity: Valencia")
         self.assertEqual(result[1].text, "name: Dirk")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], ["name: Mike\ncity: Valencia\n\nname: Dirk"])
         for message in result:
             self.assertEqual(message.chat_id, chat.chat_id)
             self.assertEqual(message.author_id, self.agent_user.id)
@@ -125,7 +139,7 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "Hello, world!")
         self.assertEqual(result[0].chat_id, chat.chat_id)
@@ -142,10 +156,12 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].text, "First message")
         self.assertEqual(result[1].text, "Second message")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], ["First message\n\nSecond message"])
         for message in result:
             self.assertEqual(message.chat_id, chat.chat_id)
             self.assertEqual(message.author_id, self.agent_user.id)
@@ -155,8 +171,8 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result1 = self.mapper.map_bot_message_to_storage(chat, message)
-        result2 = self.mapper.map_bot_message_to_storage(chat, message)
+        result1 = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
+        result2 = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertNotEqual(result1[0].message_id, result2[0].message_id)
 
     def test_map_bot_message_to_storage_preserves_code_block(self):
@@ -165,11 +181,13 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0].text, "Here's code:")
         self.assertEqual(result[1].text, f"```python\nx = 1{CHAT_MESSAGE_DELIMITER}y = 2\n```")
         self.assertEqual(result[2].text, "Done!")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], [content])
 
     def test_map_bot_message_to_storage_preserves_list(self):
         D = CHAT_MESSAGE_DELIMITER
@@ -178,11 +196,13 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0].text, "Steps:")
         self.assertEqual(result[1].text, f"- First{CHAT_MESSAGE_DELIMITER}- Second{CHAT_MESSAGE_DELIMITER}- Third")
         self.assertEqual(result[2].text, "That's it.")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], [content])
 
     def test_map_bot_message_to_storage_closes_unclosed_code_block(self):
         content = f"Here:{CHAT_MESSAGE_DELIMITER}```python\nprint('hi')"
@@ -190,10 +210,12 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].text, "Here:")
         self.assertEqual(result[1].text, "```python\nprint('hi')\n```")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], ["Here:\n\n```python\nprint('hi')\n```"])
 
     def test_map_bot_message_to_storage_formats_thinking_block(self):
         message = stubs.external.ai_message(
@@ -205,10 +227,12 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].text, "💭\n> some reasoning")
         self.assertEqual(result[1].text, "Hello!")
+        unsplit = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+        self.assertEqual([item.text for item in unsplit], ["💭\n> some reasoning\n\nHello!"])
 
     def test_map_bot_message_to_storage_formats_multiline_thinking_block(self):
         message = stubs.external.ai_message(
@@ -220,7 +244,7 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].text, "💭\n> line one\n> line two\n> line three")
         self.assertEqual(result[1].text, "Answer.")
@@ -235,7 +259,7 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "Hello!")
 
@@ -248,7 +272,7 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "💭\n> some reasoning")
 
@@ -261,7 +285,7 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
         self.assertEqual(len(result), 0)
 
     def test_map_bot_message_to_storage_skips_redacted_thinking_block(self):
@@ -274,7 +298,7 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = True)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "Hello!")
 
@@ -284,9 +308,18 @@ class DomainLangchainMapperTest(unittest.TestCase):
         chat = stubs.domain.chat_config(
             chat_id = UUID(int = 3),
         )
-        result = self.mapper.map_bot_message_to_storage(chat, message)
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "~~~\nsome code\n~~~")
+
+    def test_map_bot_message_to_storage_preserves_blank_lines_when_splitting_disabled(self):
+        content = "\n\nFirst\n\n\n\nSecond\n\n"
+        message = stubs.external.ai_message(content = content)
+        chat = stubs.domain.chat_config()
+
+        result = self.mapper.map_bot_message_to_storage(chat, message, split_messages = False)
+
+        self.assertEqual([item.text for item in result], [content])
 
 
 class SplitPreservingBlocksTest(unittest.TestCase):

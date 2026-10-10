@@ -160,8 +160,9 @@ class MessageBurstService:
                 self.__react_to_message(resolved_domain_data, as_reaction)
             else:
                 domain_messages = self.__di.domain_langchain_mapper.map_bot_message_to_storage(
-                    resolved_domain_data.chat,
-                    answer,
+                    chat = resolved_domain_data.chat,
+                    message = answer,
+                    split_messages = True,
                 )
                 for message in domain_messages:
                     should_notify_of_errors = True
@@ -318,6 +319,7 @@ class MessageBurstService:
         messages = self.__di.domain_langchain_mapper.map_bot_message_to_storage(
             chat = resolved_domain_data.chat,
             message = answer,
+            split_messages = True,
         )
         for message in messages:
             self.__send_text_message(resolved_domain_data.chat, message.text)

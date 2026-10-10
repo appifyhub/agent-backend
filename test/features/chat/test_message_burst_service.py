@@ -125,6 +125,29 @@ class MessageBurstServiceTest(TestCase):
         self.assertNotIn("Future message outside this burst", str(self.model.prompts))
         self.assertIn("hello", str(self.model.prompts))
 
+    def test_reply_splits_paragraphs_into_separate_messages(self):
+        self.model.responses.append(external.ai_message(content = "First paragraph\n\nSecond paragraph\n\nThird paragraph"))
+
+        self.assertTrue(self.service.process_message(self.ingested))
+
+        self.assertEqual(
+            [message["text"] for message in self.telegram.get_sent_messages("123")],
+            ["First paragraph", "Second paragraph", "Third paragraph"],
+        )
+
+    def test_delivery_failure_sends_separate_error_notification(self):
+        self.model.responses.append(external.ai_message(content = "Undelivered response"))
+        self.telegram.delivery_errors_once["123"] = OSError("Delivery failed\n\nRetry later")
+
+        self.assertFalse(self.service.process_message(self.ingested))
+
+        sent_texts = [message["text"] for message in self.telegram.get_sent_messages("123")]
+        self.assertNotIn("Undelivered response", sent_texts)
+        self.assertEqual(
+            [text for text in sent_texts if "Delivery failed" in text],
+            ["```\nDelivery failed\n\nRetry later\n```"],
+        )
+
     def test_reaction_response_is_stored_and_sent(self):
         self.model.responses.append(external.ai_message(content = "👍"))
 

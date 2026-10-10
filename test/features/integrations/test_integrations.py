@@ -21,6 +21,7 @@ from features.integrations.integrations import (
     resolve_allowed_reactions,
     resolve_any_external_handle,
     resolve_best_notification_chat,
+    resolve_default_split_messages,
     resolve_external_handle,
     resolve_external_id,
     resolve_private_chat_id,
@@ -58,6 +59,12 @@ class IntegrationsTest(TestCase):
         assert agent.whatsapp_phone_number is not None
         self.assertEqual(agent.whatsapp_phone_number.get_secret_value(), config.whatsapp_bot_phone_number)
         self.assertEqual(agent.full_name, "The Agent")
+
+    def test_resolve_default_split_messages(self):
+        self.assertTrue(resolve_default_split_messages(ChatConfigDB.ChatType.telegram))
+        self.assertFalse(resolve_default_split_messages(ChatConfigDB.ChatType.whatsapp))
+        self.assertFalse(resolve_default_split_messages(ChatConfigDB.ChatType.github))
+        self.assertFalse(resolve_default_split_messages(ChatConfigDB.ChatType.background))
 
     def test_resolve_allowed_reactions_telegram(self):
         reactions = resolve_allowed_reactions(ChatConfigDB.ChatType.telegram)

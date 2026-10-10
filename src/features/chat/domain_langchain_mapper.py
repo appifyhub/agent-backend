@@ -94,11 +94,11 @@ class DomainLangchainMapper:
             return AIMessage(content)
         return HumanMessage(content)
 
-    def map_bot_message_to_storage(self, chat: ChatConfig, message: AIMessage) -> list[ChatMessage]:
+    def map_bot_message_to_storage(self, chat: ChatConfig, message: AIMessage, split_messages: bool) -> list[ChatMessage]:
         log.t(f"Mapping AI message '{message}' to storage message")
         result: list[ChatMessage] = []
         content = CHAT_MESSAGE_DELIMITER.join(parse_ai_message_content_blocks(message, include_thinking = True))
-        parts = _split_preserving_blocks(content, CHAT_MESSAGE_DELIMITER)
+        parts = _split_preserving_blocks(content, CHAT_MESSAGE_DELIMITER) if split_messages else [content]
         for part in parts:
             if not part:
                 continue

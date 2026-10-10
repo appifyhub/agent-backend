@@ -2,9 +2,18 @@ import uuid
 
 from pydantic import SecretStr
 
+from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from features.users.user import User
 from util.config import config
+
+SPLIT_MESSAGES_DEFAULTS: dict[ChatConfigDB.ChatType, bool] = {
+    ChatConfigDB.ChatType.telegram: True,
+    ChatConfigDB.ChatType.whatsapp: False,
+    ChatConfigDB.ChatType.github: False,
+    ChatConfigDB.ChatType.background: False,
+}
+
 
 # === Core Agent (chat and core operations) ===
 

@@ -11,6 +11,7 @@ from features.external_tools.external_tool import ExternalTool
 from features.external_tools.external_tool_library import TELEGRAM_MESSAGE_DELIVERY, WHATSAPP_MESSAGE_DELIVERY
 from features.integrations.integration_config import (
     BACKGROUND_AGENT,
+    SPLIT_MESSAGES_DEFAULTS,
     TELEGRAM_REACTION_INITIAL_DELAY_S,
     TELEGRAM_REACTION_INTERVAL_S,
     TELEGRAM_REACTIONS,
@@ -40,6 +41,10 @@ def delivery_tool_for(platform: ChatConfigDB.ChatType) -> ExternalTool:
         ChatConfigDB.ChatType.telegram: TELEGRAM_MESSAGE_DELIVERY,
         ChatConfigDB.ChatType.whatsapp: WHATSAPP_MESSAGE_DELIVERY,
     }[platform]
+
+
+def resolve_default_split_messages(chat_type: ChatConfigDB.ChatType) -> bool:
+    return SPLIT_MESSAGES_DEFAULTS[chat_type]
 
 
 def resolve_external_id(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:
