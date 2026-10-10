@@ -7,7 +7,7 @@ from util.di_utils import di_for_tests
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.domain_langchain_mapper import DomainLangchainMapper, _split_preserving_blocks
-from features.integrations.integrations import resolve_agent_user
+from features.integrations.integrations import measure_text_message_length, resolve_agent_user, resolve_text_message_limit
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 from features.users.user import User
 
@@ -91,6 +91,45 @@ class DomainLangchainMapperTest(unittest.TestCase):
                 for item in result:
                     self.assertEqual(item.chat_id, chat.chat_id)
                     self.assertEqual(item.author_id, self.agent_user.id)
+
+    def test_map_bot_message_to_storage_respects_provider_limit(self):
+        chat = stubs.domain.chat_config(chat_type = ChatConfigDB.ChatType.telegram)
+        limit = resolve_text_message_limit(chat.chat_type)
+        exact_content = f"*{'😀' * limit}*"
+
+        exact = self.mapper.map_bot_message_to_storage(
+            chat,
+            stubs.external.ai_message(content = exact_content),
+            split_messages = False,
+        )
+        oversized_content = f"{'a' * 3000}{CHAT_MESSAGE_DELIMITER}{'b' * 2000}"
+        oversized = self.mapper.map_bot_message_to_storage(
+            chat,
+            stubs.external.ai_message(content = oversized_content),
+            split_messages = False,
+        )
+
+        self.assertEqual([message.text for message in exact], [exact_content])
+        self.assertEqual([message.text for message in oversized], [
+            f"{'a' * 3000}{CHAT_MESSAGE_DELIMITER}",
+            "b" * 2000,
+        ])
+        self.assertTrue(all(measure_text_message_length(message.text, chat.chat_type) <= limit for message in oversized))
+
+    def test_map_bot_message_to_storage_splits_oversized_code_block(self):
+        chat = stubs.domain.chat_config(chat_type = ChatConfigDB.ChatType.whatsapp)
+        content = f"```python\n{'x' * 5000}\n```"
+
+        result = self.mapper.map_bot_message_to_storage(chat, stubs.external.ai_message(content = content), split_messages = False)  # ruff: ignore[line-too-long]
+
+        self.assertEqual(len(result), 2)
+        self.assertTrue(
+            all(message.text.startswith("```") and message.text.endswith("```") for message in result),
+        )
+        self.assertTrue(
+            all(measure_text_message_length(message.text, chat.chat_type) <= resolve_text_message_limit(chat.chat_type) for message in result),  # ruff: ignore[line-too-long]
+        )
+        self.assertEqual(sum(message.text.count("x") for message in result), 5000)
 
     def test_map_bot_message_to_storage_empty_message(self):
         message = stubs.external.ai_message(content = "")

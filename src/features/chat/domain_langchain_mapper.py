@@ -8,7 +8,14 @@ from langchain_core.messages import AIMessage, HumanMessage
 from db.model.chat_config import ChatConfigDB
 from features.chat.config.chat_config import ChatConfig
 from features.chat.message.chat_message import ChatMessage
-from features.integrations.integrations import is_the_agent, resolve_agent_user, resolve_external_handle, resolve_external_id
+from features.integrations.integrations import (
+    is_the_agent,
+    measure_text_message_length,
+    resolve_agent_user,
+    resolve_external_handle,
+    resolve_external_id,
+    resolve_text_message_limit,
+)
 from features.prompting.prompt_library import CHAT_MESSAGE_DELIMITER
 from features.users.user import User
 from util import log
@@ -80,6 +87,47 @@ def _split_preserving_blocks(content: str, delimiter: str) -> list[str]:
     return result
 
 
+def _split_for_provider_limit(content: str, chat_type: ChatConfigDB.ChatType) -> list[str]:
+    limit = resolve_text_message_limit(chat_type)
+    if limit is None or measure_text_message_length(content, chat_type) <= limit:
+        return [content]
+
+    result = []
+    remaining = content
+    while measure_text_message_length(remaining, chat_type) > limit:
+        low = 1
+        high = len(remaining) - 1
+        split_at = 0
+        while low <= high:
+            candidate = (low + high) // 2
+            chunk = remaining[:candidate]
+            if fence := _unclosed_fence_marker(chunk):
+                chunk += f"\n{fence}"
+            if measure_text_message_length(chunk, chat_type) <= limit:
+                split_at = candidate
+                low = candidate + 1
+            else:
+                high = candidate - 1
+
+        minimum_boundary = max(1, split_at // 2)
+        for delimiter in (CHAT_MESSAGE_DELIMITER, "\n", " ", "\t"):
+            boundary = remaining.rfind(delimiter, minimum_boundary, split_at)
+            if boundary >= 0:
+                split_at = boundary + len(delimiter)
+                break
+
+        chunk = remaining[:split_at]
+        if fence := _unclosed_fence_marker(chunk):
+            result.append(f"{chunk}\n{fence}")
+            remaining = f"{fence}\n{remaining[split_at:]}"
+        else:
+            result.append(chunk)
+            remaining = remaining[split_at:]
+
+    result.append(remaining)
+    return result
+
+
 class DomainLangchainMapper:
 
     def map_to_langchain(
@@ -99,11 +147,14 @@ class DomainLangchainMapper:
         result: list[ChatMessage] = []
         content = CHAT_MESSAGE_DELIMITER.join(parse_ai_message_content_blocks(message, include_thinking = True))
         parts = _split_preserving_blocks(content, CHAT_MESSAGE_DELIMITER) if split_messages else [content]
+        bounded_parts = []
         for part in parts:
             if not part:
                 continue
             if fence := _unclosed_fence_marker(part):
                 part += f"\n{fence}"
+            bounded_parts.extend(_split_for_provider_limit(part, chat.chat_type))
+        for part in bounded_parts:
             sent_at = datetime.now()
             agent_user = resolve_agent_user(chat.chat_type)
             storage_message = ChatMessage(
