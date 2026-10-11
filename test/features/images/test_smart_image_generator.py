@@ -20,7 +20,7 @@ from di.di import DI
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_image
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_6_LUNA, IMAGE_GEN_GROK_IMAGINE_QUALITY
+from features.external_tools.external_tool_library import GPT_6_LUNA, IMAGE_GROK_IMAGINE_2
 from features.images import smart_image_generator
 from features.images.smart_image_generator import SmartImageGenerator
 from util.config import config
@@ -43,12 +43,12 @@ class SmartImageGeneratorTest(TestCase):
     def setUp(self):
         self.di = self.enterContext(di_for_tests())
         self.di.inject_invoker(self.di.user_repo.save(stubs.domain.user(
-            tool_choice_images_gen = IMAGE_GEN_GROK_IMAGINE_QUALITY.id,
+            tool_choice_images_gen = IMAGE_GROK_IMAGINE_2.id,
         )))
         self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config(external_id = "12345")))
         self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_6_LUNA, purpose = ToolType.copywriting)
         self.image_tool = stubs.domain.configured_tool(
-            definition = IMAGE_GEN_GROK_IMAGINE_QUALITY,
+            definition = IMAGE_GROK_IMAGINE_2,
             purpose = ToolType.images_gen,
         )
         self.copywriter = cast(FakeChatModel, self.di.base_chat_langchain_model(self.copywriter_tool))
@@ -118,21 +118,22 @@ class SmartImageGeneratorTest(TestCase):
         self.assertIs(ALL_LLM_TOOLS["generate_image"], generate_image)
         self.assertEqual(result["result"], "Success")
         self.assertEqual(result["status"], "started")
-        self.assertEqual(result["used_reference_images"], 1)
-        self.assertEqual(result["ignored_reference_images"], 3)
+        self.assertEqual(result["used_reference_images"], 4)
+        self.assertEqual(result["ignored_reference_images"], 0)
         self.assertEqual(self.provider.image.requests, [])
         self.workers.finish()
         self.assertEqual(self.provider.image.requests[0]["resolution"], "2k")
 
-    def test_execute_retains_first_supported_reference(self):
-        for attachment_id in ("first", "ignored"):
+    def test_execute_retains_supported_reference_limit(self):
+        attachment_ids = ("first", "second", "third", "fourth", "fifth", "ignored")
+        for attachment_id in attachment_ids:
             self.di.chat_attachment_service.save(
                 stubs.domain.chat_attachment(id = attachment_id, external_id = None),
                 content = stubs.external.image_bytes(),
             )
         generator = self.di.smart_image_generator(
             raw_prompt = "Make them shake hands",
-            attachment_ids = ["first", "ignored"],
+            attachment_ids = list(attachment_ids),
             urls = [],
             configured_copywriter_tool = self.copywriter_tool,
             configured_image_gen_tool = self.image_tool,
@@ -141,12 +142,12 @@ class SmartImageGeneratorTest(TestCase):
         result = generator.execute()
         self.workers.finish()
 
-        self.assertEqual(result["used_reference_images"], 1)
+        self.assertEqual(result["used_reference_images"], 5)
         self.assertEqual(result["ignored_reference_images"], 1)
         references = self.di.chat_attachment_service.resolve_image_attachments(
-            [], [self.provider.image.requests[0]["image_url"]],
+            [], self.provider.image.requests[0]["image_urls"],
         )
-        self.assertEqual([attachment.id for attachment in references], ["first"])
+        self.assertEqual([attachment.id for attachment in references], list(attachment_ids[:5]))
 
     def test_execute_stops_before_upscaling_when_preflight_fails(self):
         self.di.user_repo.save(replace(self.di.invoker, credit_balance = -1))

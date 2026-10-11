@@ -11,7 +11,7 @@ from di.di import DI
 from features.accounting.usage.decorators.google_ai_usage_tracking_decorator import GoogleAIUsageTrackingDecorator
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import NANO_BANANA
+from features.external_tools.external_tool_library import NANO_BANANA_2_LITE
 from features.users.user import User
 from util.config import config
 from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
@@ -31,7 +31,7 @@ class GoogleAIUsageTrackingDecoratorTest(TestCase):
         self.user = self.di.user_repo.save(stubs.domain.user())
         self.di.inject_invoker(self.user)
         self.tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = NANO_BANANA.id),
+            definition = stubs.domain.external_tool(id = NANO_BANANA_2_LITE.id),
             purpose = ToolType.images_gen,
             uses_credits = True,
         )
