@@ -15,6 +15,7 @@ from features.external_tools.external_tool_library import (
     GPT_5_6_SOL,
     GPT_5_6_TERRA,
     GPT_6_LUNA,
+    GPT_TRANSCRIBE,
     GROK_4_3,
     GROK_4_7,
     VIDEO_GEN_P_VIDEO,
@@ -37,7 +38,7 @@ class ExternalToolTest(unittest.TestCase):
             (GPT_5_6_SOL, "gpt-5.6-sol", 400, 2000, text_types),
             (GPT_5_6_TERRA, "gpt-5.6-terra", 200, 1200, text_types),
             (GPT_5_6_LUNA, "gpt-5.6-luna", 20, 120, text_types),
-            (CLAUDE_5_5_HAIKU, "claude-haiku-5-5", 10, 50, text_types),
+            (CLAUDE_5_5_HAIKU, "claude-haiku-5-5", 15, 55, text_types),
             (CLAUDE_5_5_SONNET, "claude-sonnet-5-5", 200, 1000, text_types),
             (CLAUDE_5_5_OPUS, "claude-opus-5-5", 400, 2000, text_types),
             (CLAUDE_5_1_FABLE, "claude-fable-5-1", 1000, 5000, text_types),
@@ -78,6 +79,13 @@ class ExternalToolTest(unittest.TestCase):
         }
 
         self.assertTrue(deprecated_ids.isdisjoint(available_ids))
+
+    def test_hearing_model_has_expected_id_type_and_cost(self):
+        hearing_models = [tool for tool in ALL_EXTERNAL_TOOLS if ToolType.hearing in tool.types]
+
+        self.assertEqual(hearing_models, [GPT_TRANSCRIBE])
+        self.assertEqual(GPT_TRANSCRIBE.id, "gpt-transcribe")
+        self.assertEqual(GPT_TRANSCRIBE.cost_estimate.second_of_runtime, 0.0075)
 
     def test_returns_zero_for_empty_estimate(self):
         estimate = stubs.domain.cost_estimate(

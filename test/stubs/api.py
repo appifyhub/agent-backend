@@ -37,7 +37,7 @@ def user_settings_payload(**overrides: Any) -> UserSettingsPayload:
         "tool_choice_reasoning": "claude-sonnet-4-6",
         "tool_choice_copywriting": "gpt-5.6-terra",
         "tool_choice_vision": "claude-sonnet-4-6",
-        "tool_choice_hearing": "whisper-1",
+        "tool_choice_hearing": "gpt-transcribe",
         "tool_choice_images_gen": "black-forest-labs/flux-2-pro",
         "tool_choice_videos_gen": "prunaai/p-video",
         "tool_choice_search": "sonar",

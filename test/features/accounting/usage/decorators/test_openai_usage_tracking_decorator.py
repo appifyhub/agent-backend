@@ -12,7 +12,7 @@ from di.di import DI
 from features.accounting.usage.decorators.openai_usage_tracking_decorator import OpenAIUsageTrackingDecorator
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import WHISPER_1
+from features.external_tools.external_tool_library import GPT_TRANSCRIBE
 from features.users.user import User
 from util.config import config
 from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
@@ -32,7 +32,7 @@ class OpenAIUsageTrackingDecoratorTest(TestCase):
         self.user = self.di.user_repo.save(stubs.domain.user())
         self.di.inject_invoker(self.user)
         self.tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = WHISPER_1.id),
+            definition = stubs.domain.external_tool(id = GPT_TRANSCRIBE.id),
             purpose = ToolType.hearing,
             uses_credits = True,
         )
@@ -47,7 +47,7 @@ class OpenAIUsageTrackingDecoratorTest(TestCase):
         })
         self.client.audio.transcriptions.responses.append(response)
 
-        result = self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
+        result = self.decorator.audio.transcriptions.create(model = GPT_TRANSCRIBE.id, file = BytesIO(b"audio"))
 
         self.assertEqual(result, response)
         self.assertEqual(self.client.audio.transcriptions.recordings, [b"audio"])
@@ -66,7 +66,7 @@ class OpenAIUsageTrackingDecoratorTest(TestCase):
         self.client.audio.transcriptions.responses.append(stubs.external.openai_transcription())
         # the system clock makes elapsed time deterministic
         with patch("features.accounting.usage.decorators.openai_usage_tracking_decorator.time", side_effect = [10, 10.25]):
-            self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
+            self.decorator.audio.transcriptions.create(model = GPT_TRANSCRIBE.id, file = BytesIO(b"audio"))
 
         record, = self.di.usage_record_repo.get_by_user(self.user.id)
         self.assertEqual(record.runtime_seconds, 0.25)
@@ -103,7 +103,7 @@ class OpenAIUsageTrackingDecoratorTest(TestCase):
         user = self.di.user_repo.save(replace(self.user, credit_balance = 0))
 
         with self.assertRaises(ValidationError) as raised:
-            self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
+            self.decorator.audio.transcriptions.create(model = GPT_TRANSCRIBE.id, file = BytesIO(b"audio"))
 
         self.assertEqual(raised.exception.error_code, INSUFFICIENT_CREDITS)
         self.assertEqual(self.client.audio.transcriptions.recordings, [])
@@ -115,7 +115,7 @@ class OpenAIUsageTrackingDecoratorTest(TestCase):
         self.client.audio.transcriptions.responses.append(error)
 
         with self.assertRaises(ExternalServiceError) as raised:
-            self.decorator.audio.transcriptions.create(model = "whisper-1", file = BytesIO(b"audio"))
+            self.decorator.audio.transcriptions.create(model = GPT_TRANSCRIBE.id, file = BytesIO(b"audio"))
 
         self.assertIs(raised.exception, error)
         record, = self.di.usage_record_repo.get_by_user(self.user.id)

@@ -49,7 +49,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertEqual(payload.tool_choice_reasoning, "claude-3-7-sonnet-latest")
         self.assertEqual(payload.tool_choice_copywriting, "gpt-4o-mini")
         self.assertEqual(payload.tool_choice_vision, "gpt-4o")
-        self.assertEqual(payload.tool_choice_hearing, "whisper-1")
+        self.assertEqual(payload.tool_choice_hearing, "gpt-transcribe")
         self.assertEqual(payload.tool_choice_images_gen, "dall-e-3")
         self.assertEqual(payload.tool_choice_videos_gen, "prunaai/p-video")
         self.assertEqual(payload.tool_choice_search, "perplexity-search")
@@ -185,7 +185,7 @@ class UserSettingsPayloadTest(unittest.TestCase):
         self.assertIsNone(payload.tool_choice_chat)
         self.assertEqual(payload.tool_choice_reasoning, "claude-3-7-sonnet-latest")
         self.assertIsNone(payload.tool_choice_vision)
-        self.assertEqual(payload.tool_choice_hearing, "whisper-1")
+        self.assertEqual(payload.tool_choice_hearing, "gpt-transcribe")
 
     def test_empty_payload(self):
         """Test creating a payload with every optional field set to None"""

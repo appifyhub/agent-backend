@@ -44,12 +44,12 @@ from features.external_tools.external_tool_library import (
     CRYPTO_CURRENCY_EXCHANGE,
     FIAT_CURRENCY_EXCHANGE,
     GPT_5_6_TERRA,
+    GPT_TRANSCRIBE,
     IMAGE_GEN_EDIT_FLUX_2_PRO,
     SONAR,
     TEXT_EMBEDDING_5_LARGE,
     TWELVE_DATA_STOCK_QUOTE,
     VIDEO_GEN_P_VIDEO,
-    WHISPER_1,
     X_READ_POST,
 )
 from features.prompting.prompt_composer import PromptFragment, PromptSection
@@ -105,7 +105,7 @@ def user(**overrides: Any) -> User:
         "tool_choice_reasoning": CLAUDE_4_6_SONNET.id,
         "tool_choice_copywriting": GPT_5_6_TERRA.id,
         "tool_choice_vision": CLAUDE_4_6_SONNET.id,
-        "tool_choice_hearing": WHISPER_1.id,
+        "tool_choice_hearing": GPT_TRANSCRIBE.id,
         "tool_choice_images_gen": IMAGE_GEN_EDIT_FLUX_2_PRO.id,
         "tool_choice_videos_gen": VIDEO_GEN_P_VIDEO.id,
         "tool_choice_search": SONAR.id,
