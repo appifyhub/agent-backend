@@ -63,35 +63,13 @@ GPT_6_LUNA = ExternalTool(
     ),
 )
 
-GPT_4O_TRANSCRIBE = ExternalTool(
-    id = "gpt-4o-transcribe",
-    name = "GPT 4o Transcribe",
+GPT_TRANSCRIBE = ExternalTool(
+    id = "gpt-transcribe",
+    name = "GPT Transcribe",
     provider = OPEN_AI,
     types = [ToolType.hearing],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 600,
-        output_1m_tokens = 1000,
-    ),
-)
-
-GPT_4O_MINI_TRANSCRIBE = ExternalTool(
-    id = "gpt-4o-mini-transcribe",
-    name = "GPT 4o Mini Transcribe",
-    provider = OPEN_AI,
-    types = [ToolType.hearing],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 300,
-        output_1m_tokens = 500,
-    ),
-)
-
-WHISPER_1 = ExternalTool(
-    id = "whisper-1",
-    name = "Whisper 1",
-    provider = OPEN_AI,
-    types = [ToolType.hearing],
-    cost_estimate = CostEstimate(
-        second_of_runtime = 0.01,
+        second_of_runtime = 0.0075,
     ),
 )
 
@@ -707,9 +685,7 @@ ALL_EXTERNAL_TOOLS = [
     GPT_5_6_TERRA,
     GPT_5_6_SOL,
     GPT_6_LUNA,
-    GPT_4O_TRANSCRIBE,
-    GPT_4O_MINI_TRANSCRIBE,
-    WHISPER_1,
+    GPT_TRANSCRIBE,
     TEXT_EMBEDDING_3_SMALL,
     TEXT_EMBEDDING_5_LARGE,
     # Anthropic
