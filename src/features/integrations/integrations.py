@@ -7,13 +7,16 @@ from db.model.user import UserDB
 from di.di import DI
 from features.accounting.usage.participant_details import ParticipantInfo
 from features.chat.config.chat_config import ChatConfig
+from features.chat.telegram.telegram_markdown_utils import calculate_rendered_length
 from features.external_tools.external_tool import ExternalTool
 from features.external_tools.external_tool_library import TELEGRAM_MESSAGE_DELIVERY, WHATSAPP_MESSAGE_DELIVERY
 from features.integrations.integration_config import (
     BACKGROUND_AGENT,
+    SPLIT_MESSAGES_DEFAULTS,
     TELEGRAM_REACTION_INITIAL_DELAY_S,
     TELEGRAM_REACTION_INTERVAL_S,
     TELEGRAM_REACTIONS,
+    TEXT_MESSAGE_LIMITS,
     THE_AGENT,
     WHATSAPP_REACTION_INITIAL_DELAY_S,
     WHATSAPP_REACTION_INTERVAL_S,
@@ -40,6 +43,20 @@ def delivery_tool_for(platform: ChatConfigDB.ChatType) -> ExternalTool:
         ChatConfigDB.ChatType.telegram: TELEGRAM_MESSAGE_DELIVERY,
         ChatConfigDB.ChatType.whatsapp: WHATSAPP_MESSAGE_DELIVERY,
     }[platform]
+
+
+def resolve_default_split_messages(chat_type: ChatConfigDB.ChatType) -> bool:
+    return SPLIT_MESSAGES_DEFAULTS[chat_type]
+
+
+def resolve_text_message_limit(chat_type: ChatConfigDB.ChatType) -> int | None:
+    return TEXT_MESSAGE_LIMITS.get(chat_type)
+
+
+def measure_text_message_length(text: str, chat_type: ChatConfigDB.ChatType) -> int:
+    if chat_type == ChatConfigDB.ChatType.telegram:
+        return calculate_rendered_length(text)
+    return len(text)
 
 
 def resolve_external_id(user: User, chat_type: ChatConfigDB.ChatType) -> str | None:

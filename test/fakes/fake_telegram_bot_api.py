@@ -18,6 +18,7 @@ class FakeTelegramBotAPI:
     statuses: dict[str, str]
     reactions: dict[tuple[str, str], str | None]
     delivery_errors: dict[str, Exception]
+    delivery_errors_once: dict[str, Exception]
     photo_error: Exception | None
     video_error: Exception | None
 
@@ -28,6 +29,7 @@ class FakeTelegramBotAPI:
         self.statuses = {}
         self.reactions = {}
         self.delivery_errors = {}
+        self.delivery_errors_once = {}
         self.photo_error = None
         self.video_error = None
 
@@ -136,7 +138,10 @@ class FakeTelegramBotAPI:
         return content
 
     def _send(self, message: dict[str, Any]) -> dict:
-        error = self.delivery_errors.get(str(message["chat_id"]))
+        chat_id = str(message["chat_id"])
+        error = self.delivery_errors_once.pop(chat_id, None)
+        if error is None:
+            error = self.delivery_errors.get(chat_id)
         if error is not None:
             raise error
         message_id = str(len(self._messages) + 1)

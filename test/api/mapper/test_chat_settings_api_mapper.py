@@ -43,6 +43,7 @@ class ChatMapperTest(unittest.TestCase):
         # user_chat_config block
         self.assertTrue(api.user_chat_config.use_about_me)
         self.assertFalse(api.user_chat_config.use_custom_prompt)
+        self.assertTrue(api.user_chat_config.split_messages)
         self.assertEqual(api.user_chat_config.max_output_tokens, 3500)
         self.assertEqual(api.user_chat_config.max_chat_history_depth, 30)
         self.assertEqual(api.user_chat_config.max_iterations, 20)
@@ -62,6 +63,7 @@ class ChatMapperTest(unittest.TestCase):
             chat_id = chat.chat_id,
             use_about_me = False,
             use_custom_prompt = False,
+            split_messages = False,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
@@ -72,6 +74,7 @@ class ChatMapperTest(unittest.TestCase):
         self.assertFalse(api.chat_config.is_own)
         self.assertFalse(api.user_chat_config.use_about_me)
         self.assertFalse(api.user_chat_config.use_custom_prompt)
+        self.assertFalse(api.user_chat_config.split_messages)
         self.assertEqual(api.user_chat_config.max_output_tokens, 500)
         self.assertEqual(api.user_chat_config.max_chat_history_depth, 5)
         self.assertEqual(api.user_chat_config.max_iterations, 3)

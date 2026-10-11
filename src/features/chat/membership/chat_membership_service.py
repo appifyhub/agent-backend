@@ -3,6 +3,7 @@ from uuid import UUID
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership import ChatMembership
+from features.integrations.integrations import resolve_default_split_messages
 from features.integrations.platform_bot_sdk import ChatAccess
 from features.users.user import User
 from util import log
@@ -35,6 +36,7 @@ class ChatMembershipService:
                     is_admin = is_admin,
                     use_about_me = True,
                     use_custom_prompt = True,
+                    split_messages = resolve_default_split_messages(chat.chat_type),
                 ),
             )
         if existing.is_admin != is_admin:
@@ -45,6 +47,7 @@ class ChatMembershipService:
                     is_admin = is_admin,
                     use_about_me = existing.use_about_me,
                     use_custom_prompt = existing.use_custom_prompt,
+                    split_messages = existing.split_messages,
                     max_output_tokens = existing.max_output_tokens,
                     max_chat_history_depth = existing.max_chat_history_depth,
                     max_iterations = existing.max_iterations,
@@ -72,11 +75,11 @@ class ChatMembershipService:
         return self.__di.chat_membership_repo.save(membership)
 
     def refresh_chat_memberships(self, user: User, current_admin_chats: list[ChatConfig]) -> list[ChatMembership]:
-        admin_chat_ids: set[UUID] = {chat.chat_id for chat in current_admin_chats}
+        admin_chats_by_id = {chat.chat_id: chat for chat in current_admin_chats}
         existing_memberships = self.__di.chat_membership_repo.get_all_for_user(user.id)
         existing_by_chat_id = {m.chat_id: m for m in existing_memberships}
 
-        for chat_id in admin_chat_ids:
+        for chat_id, chat in admin_chats_by_id.items():
             existing = existing_by_chat_id.get(chat_id)
             if existing is None:
                 self.__di.chat_membership_repo.save(
@@ -86,6 +89,7 @@ class ChatMembershipService:
                         is_admin = True,
                         use_about_me = True,
                         use_custom_prompt = True,
+                        split_messages = resolve_default_split_messages(chat.chat_type),
                     ),
                 )
             elif not existing.is_admin:
@@ -96,6 +100,7 @@ class ChatMembershipService:
                         is_admin = True,
                         use_about_me = existing.use_about_me,
                         use_custom_prompt = existing.use_custom_prompt,
+                        split_messages = existing.split_messages,
                         max_output_tokens = existing.max_output_tokens,
                         max_chat_history_depth = existing.max_chat_history_depth,
                         max_iterations = existing.max_iterations,
@@ -103,7 +108,7 @@ class ChatMembershipService:
                 )
 
         for chat_id, existing in existing_by_chat_id.items():
-            if existing.is_admin and chat_id not in admin_chat_ids:
+            if existing.is_admin and chat_id not in admin_chats_by_id:
                 self.__di.chat_membership_repo.save(
                     ChatMembership(
                         user_id = user.id,
@@ -111,6 +116,7 @@ class ChatMembershipService:
                         is_admin = False,
                         use_about_me = existing.use_about_me,
                         use_custom_prompt = existing.use_custom_prompt,
+                        split_messages = existing.split_messages,
                         max_output_tokens = existing.max_output_tokens,
                         max_chat_history_depth = existing.max_chat_history_depth,
                         max_iterations = existing.max_iterations,

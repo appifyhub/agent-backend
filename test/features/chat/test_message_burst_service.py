@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
+from uuid import uuid4
 
 from fakes.fake_chat_model import FakeChatModel
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
@@ -17,6 +18,7 @@ from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.ingested_chat_message import IngestedChatMessage
 from features.chat.message_burst_service import MessageBurstService
+from features.external_tools.external_tool import ToolType
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
 from util.config import config
 
@@ -101,6 +103,23 @@ class MessageBurstServiceTest(TestCase):
     def test_claimed_message_uses_cutoff_and_aggregate_addressing(self):
         self.ingested.chat.is_private = False
         self.ingested.chat.reply_chance_percent = 0
+        self.di.chat_membership_repo.save(domain.chat_membership(
+            user_id = self.ingested.author.id,
+            chat_id = self.ingested.chat.chat_id,
+            split_messages = False,
+        ))
+        other_member = self.di.user_repo.save(replace(
+            self.ingested.author,
+            id = uuid4(),
+            telegram_user_id = 987654321,
+            whatsapp_user_id = "other-member",
+            connect_key = "OTHER-MEMBER",
+        ))
+        self.di.chat_membership_repo.save(domain.chat_membership(
+            user_id = other_member.id,
+            chat_id = self.ingested.chat.chat_id,
+            split_messages = True,
+        ))
         self.di.chat_message_repo.save(domain.chat_message(
             chat_id = self.ingested.chat.chat_id,
             author_id = self.ingested.author.id,
@@ -116,14 +135,34 @@ class MessageBurstServiceTest(TestCase):
             last_message_ingestion_order = self.ingested.message.ingestion_order,
             is_addressed = True,
         )
-        self.model.responses.append(external.ai_message(content = "response"))
+        content = "First paragraph\n\nSecond paragraph\n\nThird paragraph"
+        self.model.responses.append(external.ai_message(content = content))
 
         result = self.service.process_message(self.ingested, claim = claim)
 
         self.assertTrue(result)
-        self.assertEqual([message["text"] for message in self.telegram.get_sent_messages("123")], ["response"])
+        self.assertEqual(
+            [message["text"] for message in self.telegram.get_sent_messages("123")],
+            [content],
+        )
         self.assertNotIn("Future message outside this burst", str(self.model.prompts))
         self.assertIn("hello", str(self.model.prompts))
+
+    def test_delivery_failure_sends_separate_error_notification(self):
+        self.di.chat_membership_repo.save(domain.chat_membership(
+            user_id = self.ingested.author.id,
+            chat_id = self.ingested.chat.chat_id,
+            split_messages = False,
+        ))
+        self.model.responses.append(external.ai_message(content = "Undelivered response"))
+        self.telegram.delivery_errors_once["123"] = OSError("Delivery failed\n\nRetry later")
+
+        self.assertFalse(self.service.process_message(self.ingested))
+
+        sent_texts = [message["text"] for message in self.telegram.get_sent_messages("123")]
+        self.assertNotIn("Undelivered response", sent_texts)
+        self.assertEqual(len(sent_texts), 1)
+        self.assertIn("```\nDelivery failed\n\nRetry later\n```", sent_texts[0])
 
     def test_reaction_response_is_stored_and_sent(self):
         self.model.responses.append(external.ai_message(content = "👍"))
@@ -152,21 +191,41 @@ class MessageBurstServiceTest(TestCase):
 
     def test_whatsapp_message_marks_final_message_read(self):
         self.ingested.chat.chat_type = ChatConfigDB.ChatType.whatsapp
-        self.model.responses.append(external.ai_message(content = "response"))
+        initial_balance = self.ingested.author.credit_balance
+        price = self.di.messaging_price_service.get(self.ingested.chat.chat_type, self.ingested.author.whatsapp_user_id or "")
+        self.model.responses.append(external.ai_message(content = "First paragraph\n\nSecond paragraph\n\nThird paragraph"))
 
         self.assertTrue(self.service.process_message(self.ingested))
 
-        self.assertEqual([message["text"] for message in self.whatsapp.get_sent_messages("123")], ["response"])
+        self.assertEqual(
+            [message["text"] for message in self.whatsapp.get_sent_messages("123")],
+            ["First paragraph", "Second paragraph", "Third paragraph"],
+        )
+        records = [
+            record
+            for record in self.di.usage_record_repo.get_by_user(self.ingested.author.id)
+            if record.tool_purpose == ToolType.message_delivery
+        ]
+        self.assertEqual(len(records), 3)
+        self.assertEqual([record.api_call_cost_credits for record in records], [price] * 3)
+        self.assertAlmostEqual(self.di.user_repo.get(self.ingested.author.id).credit_balance, initial_balance - 3 * price)
         self.assertIn("message-1", self.whatsapp.read_messages)
 
     def test_whatsapp_read_receipt_failure_does_not_fail_delivered_response(self):
         self.ingested.chat.chat_type = ChatConfigDB.ChatType.whatsapp
-        self.model.responses.append(external.ai_message(content = "response"))
+        content = "First paragraph\n\nSecond paragraph\n\nThird paragraph"
+
+        def respond_after_membership_removal() -> BaseMessage:
+            self.di.chat_membership_repo.delete(self.ingested.author.id, self.ingested.chat.chat_id)
+            return external.ai_message(content = content)
+
+        self.model.responses.append(respond_after_membership_removal)
 
         with patch.object(self.whatsapp, "mark_as_read", side_effect = OSError("Read receipt failed")):
             self.assertTrue(self.service.process_message(self.ingested))
 
-        self.assertEqual([message["text"] for message in self.whatsapp.get_sent_messages("123")], ["response"])
+        self.assertEqual([message["text"] for message in self.whatsapp.get_sent_messages("123")], [content])
+        self.assertIsNone(self.di.chat_membership_repo.get(self.ingested.author.id, self.ingested.chat.chat_id))
 
     def test_delayed_attempt_replies_only_after_sleep_finishes(self):
         self.addCleanup(setattr, config, "chat_burst_quiet_period_s", config.chat_burst_quiet_period_s)

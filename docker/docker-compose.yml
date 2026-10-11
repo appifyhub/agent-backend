@@ -1,19 +1,49 @@
 services:
   db:
-    image: postgres:alpine
+    image: postgres:17.9-alpine
     container_name: the-agent-database
     restart: always
-    env_file:
-      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASS}
+      SHLINK_DB_NAME: ${SHLINK_DB_NAME}
+      SHLINK_DB_USER: ${SHLINK_DB_USER}
+      SHLINK_DB_PASSWORD: ${SHLINK_DB_PASSWORD}
     volumes:
       - postgres:/var/lib/postgresql/data
+      - ./init-shlink-db.sh:/docker-entrypoint-initdb.d/init-shlink-db.sh:ro
     expose:
       - 5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 15
+
+  shortener:
+    image: shlinkio/shlink:4.5.2
+    restart: always
+    environment:
+      DEFAULT_DOMAIN: ${SHLINK_DOMAIN}
+      IS_HTTPS_ENABLED: ${SHLINK_HTTPS_ENABLED}
+      INITIAL_API_KEY: ${URL_SHORTENER_API_KEY}
+      DB_DRIVER: postgres
+      DB_HOST: db
+      DB_NAME: ${SHLINK_DB_NAME}
+      DB_USER: ${SHLINK_DB_USER}
+      DB_PASSWORD: ${SHLINK_DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SHLINK_PORT}:8080"
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/rest/health') === false ? 1 : 0);"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
 
   api:
     image: appifyhub/the-agent:latest
@@ -21,12 +51,30 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASS: ${POSTGRES_PASS}
+      URL_SHORTENER_API_KEY: ${URL_SHORTENER_API_KEY}
+    volumes:
+      - attachments:/app/.local/s3
     depends_on:
       db:
         condition: service_healthy
+      shortener:
+        condition: service_healthy
     ports:
-      - "80:80"
+      - "127.0.0.1:${API_PORT}:80"
+    healthcheck:
+      test: ["CMD", "pipenv", "run", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1/health', timeout=5).close()"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
 
 volumes:
   postgres:
+    driver: local
+  attachments:
     driver: local

@@ -41,6 +41,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
         membership = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
+            split_messages = False,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
@@ -53,6 +54,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertFalse(result.is_admin)
         self.assertTrue(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertFalse(result.split_messages)
         self.assertEqual(result.max_output_tokens, 500)
         self.assertEqual(result.max_chat_history_depth, 5)
         self.assertEqual(result.max_iterations, 3)
@@ -63,6 +65,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
             chat_id = self.chat.chat_id,
             is_admin = True,
             use_about_me = False,
+            split_messages = True,
             max_output_tokens = 1000,
             max_chat_history_depth = 10,
             max_iterations = 7,
@@ -75,6 +78,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertTrue(result.split_messages)
         self.assertEqual(result.max_output_tokens, 1000)
         self.assertEqual(result.max_chat_history_depth, 10)
         self.assertEqual(result.max_iterations, 7)
@@ -83,6 +87,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
         original = stubs.domain.chat_membership(
             user_id = self.user.id,
             chat_id = self.chat.chat_id,
+            split_messages = False,
             max_output_tokens = 500,
             max_chat_history_depth = 5,
             max_iterations = 3,
@@ -95,6 +100,7 @@ class ChatMembershipRepoTest(unittest.TestCase):
             is_admin = True,
             use_about_me = False,
             use_custom_prompt = False,
+            split_messages = True,
             max_output_tokens = 8000,
             max_chat_history_depth = 50,
             max_iterations = 10,
@@ -104,12 +110,14 @@ class ChatMembershipRepoTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertFalse(result.use_custom_prompt)
+        self.assertTrue(result.split_messages)
         self.assertEqual(result.max_output_tokens, 8000)
         self.assertEqual(result.max_chat_history_depth, 50)
         self.assertEqual(result.max_iterations, 10)
         fetched = self.repo.get(self.user.id, self.chat.chat_id)
         self.assertTrue(fetched.is_admin)
         self.assertEqual(fetched.max_output_tokens, 8000)
+        self.assertTrue(fetched.split_messages)
 
     def test_get_all_for_user_returns_memberships(self):
         second_chat = self.di.chat_config_repo.save(

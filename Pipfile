@@ -57,6 +57,7 @@ ruff = "*"
 pre-commit = "*"
 the-agent = {path = ".", editable = true}
 pytest-xdist = "*"
+virtualenv = "==21.14.5"
 
 [requires]
 # Python 3.12: keep in sync with pyproject.toml
