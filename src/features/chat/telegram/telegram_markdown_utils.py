@@ -87,3 +87,59 @@ def escape_markdown(text: str) -> str:
         text = text.replace(placeholder, f"{delimiter}{content}{delimiter}")
 
     return text
+
+
+def calculate_rendered_length(text: str) -> int:
+    parsed_text = escape_markdown(text)
+    length = 0
+    index = 0
+    while index < len(parsed_text):
+        character = parsed_text[index]
+        if (
+            character == "\\"
+            and index + 1 < len(parsed_text)
+            and parsed_text[index + 1] in "_*`["
+        ):
+            length += 1
+            index += 2
+            continue
+        if character not in "_*`[":
+            length += 1
+            index += 1
+            continue
+
+        closing_character = "]" if character == "[" else character
+        content_start = index + 1
+        closing_marker = closing_character
+        if parsed_text.startswith("```", index):
+            content_start = index + 3
+            language_end = content_start
+            while (
+                language_end < len(parsed_text)
+                and not parsed_text[language_end].isspace()
+                and parsed_text[language_end] != "`"
+            ):
+                language_end += 1
+            if (
+                language_end > content_start
+                and language_end < len(parsed_text)
+                and parsed_text[language_end] != "`"
+            ):
+                content_start = language_end
+            if parsed_text[content_start:content_start + 2] in ("\n\r", "\r\n"):
+                content_start += 2
+            elif content_start < len(parsed_text) and parsed_text[content_start] in "\n\r":
+                content_start += 1
+            closing_marker = "```"
+
+        content_end = parsed_text.find(closing_marker, content_start)
+        if content_end < 0:
+            length += 1
+            index += 1
+            continue
+        length += len(parsed_text[content_start:content_end])
+        index = content_end + len(closing_marker)
+        if character == "[" and index < len(parsed_text) and parsed_text[index] == "(":
+            closing_parenthesis = parsed_text.find(")", index + 1)
+            index = len(parsed_text) if closing_parenthesis < 0 else closing_parenthesis + 1
+    return length

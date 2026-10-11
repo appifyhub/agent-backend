@@ -18,6 +18,7 @@ from features.integrations.integrations import (
     format_reaction_response,
     is_reaction_response,
     resolve_agent_user,
+    resolve_default_split_messages,
     resolve_external_handle,
 )
 from util import log
@@ -160,8 +161,9 @@ class MessageBurstService:
                 self.__react_to_message(resolved_domain_data, as_reaction)
             else:
                 domain_messages = self.__di.domain_langchain_mapper.map_bot_message_to_storage(
-                    resolved_domain_data.chat,
-                    answer,
+                    chat = resolved_domain_data.chat,
+                    message = answer,
+                    split_messages = self.__resolve_split_messages(resolved_domain_data),
                 )
                 for message in domain_messages:
                     should_notify_of_errors = True
@@ -291,6 +293,12 @@ class MessageBurstService:
             log.e(f"Failed to process burst with {claim.message_count} messages", e)
             return False
 
+    def __resolve_split_messages(self, resolved_domain_data: IngestedChatMessage) -> bool:
+        membership = self.__di.chat_membership_repo.get(resolved_domain_data.author.id, resolved_domain_data.chat.chat_id)
+        if membership is not None:
+            return membership.split_messages
+        return resolve_default_split_messages(resolved_domain_data.chat.chat_type)
+
     def __send_text_message(
         self,
         chat: ChatConfig,
@@ -318,6 +326,7 @@ class MessageBurstService:
         messages = self.__di.domain_langchain_mapper.map_bot_message_to_storage(
             chat = resolved_domain_data.chat,
             message = answer,
+            split_messages = self.__resolve_split_messages(resolved_domain_data),
         )
         for message in messages:
             self.__send_text_message(resolved_domain_data.chat, message.text)

@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.38.4
+  version: 5.39.0
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -1325,6 +1325,10 @@ components:
           type: boolean
           nullable: false
           description: Whether to apply this user's custom prompt instructions in agent interactions for this chat
+        split_messages:
+          type: boolean
+          nullable: false
+          description: Whether to split this user's replies into separate messages at paragraph boundaries in this chat; platform message-length limits still apply when disabled
         max_output_tokens:
           type: integer
           nullable: false
@@ -1343,6 +1347,7 @@ components:
       required:
         - use_about_me
         - use_custom_prompt
+        - split_messages
 
     ChatSettingsResponse:
       type: object
@@ -1428,6 +1433,10 @@ components:
           type: boolean
           nullable: false
           description: Whether this user's custom prompt instructions are applied in agent interactions for this chat
+        split_messages:
+          type: boolean
+          nullable: false
+          description: Whether this user's replies are split into separate messages at paragraph boundaries in this chat; platform message-length limits still apply when disabled
         max_output_tokens:
           type: integer
           nullable: false
@@ -1446,6 +1455,7 @@ components:
       required:
         - use_about_me
         - use_custom_prompt
+        - split_messages
         - max_output_tokens
         - max_chat_history_depth
         - max_iterations
