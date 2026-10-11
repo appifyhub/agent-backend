@@ -428,21 +428,30 @@ class SettingsControllerTest(TestCase):
         self.assertFalse(result.is_private)
 
     def test_save_chat_settings_success_user_chat_config(self):
+        self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
         payload = stubs.api.chat_settings_payload(
             chat_config = None,
             user_chat_config = stubs.api.user_chat_config_payload(
-                use_about_me = False, max_output_tokens = 500, max_chat_history_depth = 5, max_iterations = 3,
+                use_about_me = False,
+                split_messages = False,
+                max_output_tokens = 500,
+                max_chat_history_depth = 5,
+                max_iterations = 3,
             ),
         )
 
         self.controller.save_chat_settings(self.chat.chat_id.hex, payload)
 
-        result = self.controller.fetch_chat_settings(self.chat.chat_id.hex).user_chat_config
+        settings = self.controller.fetch_chat_settings(self.chat.chat_id.hex)
+        result = settings.user_chat_config
+        self.assertFalse(settings.chat_config.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertFalse(result.split_messages)
         self.assertEqual(result.max_output_tokens, 500)
         self.assertEqual(result.max_chat_history_depth, 5)
         self.assertEqual(result.max_iterations, 3)
+        self.assertEqual(self.di.chat_config_repo.get(self.chat.chat_id), self.chat)
 
     def test_save_chat_settings_failure_non_admin_chat_config_rejected(self):
         self.bot.members[(self.chat.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_member()
@@ -473,6 +482,7 @@ class SettingsControllerTest(TestCase):
         self.assertTrue(result[0].chat_config.is_admin)
         self.assertEqual(result[0].chat_config.platform, "telegram")
         self.assertTrue(result[0].user_chat_config.use_about_me)
+        self.assertTrue(result[0].user_chat_config.split_messages)
 
     def test_fetch_all_chat_settings_sort_order(self):
         private_chat = self.di.chat_config_repo.save(stubs.domain.chat_config(
@@ -504,6 +514,7 @@ class SettingsControllerTest(TestCase):
         self.assertEqual(result.chat_config.chat_id, self.chat.chat_id.hex)
         self.assertTrue(result.chat_config.is_admin)
         self.assertEqual(result.user_chat_config.max_output_tokens, 3500)
+        self.assertTrue(result.user_chat_config.split_messages)
 
     def test_create_settings_link_with_sponsorship(self):
         self.di.sponsorship_repo.save(stubs.domain.sponsorship(sponsor_id = self.agent.id, receiver_id = self.user.id))

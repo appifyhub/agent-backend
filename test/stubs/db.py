@@ -125,6 +125,7 @@ def chat_membership_db(**overrides: Any) -> ChatMembershipDB:
         "is_admin": False,
         "use_about_me": True,
         "use_custom_prompt": True,
+        "split_messages": True,
         "max_output_tokens": 3_500,
         "max_chat_history_depth": 30,
         "max_iterations": 20,

@@ -1,12 +1,12 @@
 import unittest
-from dataclasses import replace
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import stubs
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
 from util.di_utils import di_for_tests
 
+from db.model.chat_config import ChatConfigDB
 from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.chat.membership.chat_membership_repo import ChatMembershipRepository
@@ -144,6 +144,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 chat_id = self.chat.chat_id,
                 use_about_me = False,
                 use_custom_prompt = False,
+                split_messages = False,
             ),
         )
         self.bot.members[self.member_key] = stubs.external.telegram_chat_member()
@@ -153,6 +154,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertEqual(result.user_id, existing.user_id)
         self.assertFalse(result.is_admin)
         self.assertFalse(result.use_about_me)
+        self.assertFalse(result.split_messages)
         self.assertEqual(self.repo.get(self.user.id, self.chat.chat_id), existing)
 
     def test_sync_refreshes_admin_status_on_existing(self):
@@ -162,6 +164,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 chat_id = self.chat.chat_id,
                 use_about_me = False,
                 use_custom_prompt = False,
+                split_messages = False,
                 max_output_tokens = 500,
                 max_chat_history_depth = 5,
                 max_iterations = 3,
@@ -174,6 +177,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
         self.assertFalse(result.use_custom_prompt)
+        self.assertFalse(result.split_messages)
         self.assertEqual(result.max_output_tokens, 500)
         self.assertEqual(result.max_chat_history_depth, 5)
         self.assertEqual(result.max_iterations, 3)
@@ -189,6 +193,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result.is_admin)
         self.assertTrue(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertTrue(result.split_messages)
         self.assertEqual(self.repo.get(self.user.id, self.chat.chat_id), result)
 
     def test_sync_creates_with_member_access(self):
@@ -199,6 +204,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertFalse(result.is_admin)
         self.assertTrue(result.use_about_me)
         self.assertTrue(result.use_custom_prompt)
+        self.assertTrue(result.split_messages)
         stored = self.service.get(self.user.id, self.chat.chat_id)
         self.assertIsNotNone(stored)
 
@@ -209,6 +215,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 chat_id = self.chat.chat_id,
                 is_admin = True,
                 use_about_me = False,
+                split_messages = False,
             ),
         )
         self.bot.members.clear()
@@ -219,6 +226,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertEqual(result.chat_id, existing.chat_id)
         self.assertTrue(result.is_admin)
         self.assertFalse(result.use_about_me)
+        self.assertFalse(result.split_messages)
         self.assertEqual(self.repo.get(self.user.id, self.chat.chat_id), existing)
 
     def test_ensure_for_inbound_creates_missing_membership(self):
@@ -251,15 +259,26 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertIsNone(self.repo.get(self.user.id, self.chat.chat_id))
 
     def test_sync_creates_with_owner_access(self):
-        self.chat = replace(self.chat, is_private = True, external_id = str(self.user.telegram_user_id))
+        user = stubs.domain.user(whatsapp_user_id = "15551234567")
         self.bot.members.clear()
 
-        result = self.service.sync(self.user, self.chat)
+        for chat_type, external_id, expected_split_messages in (
+            (ChatConfigDB.ChatType.telegram, user.telegram_chat_id, True),
+            (ChatConfigDB.ChatType.whatsapp, user.whatsapp_user_id, False),
+        ):
+            with self.subTest(chat_type = chat_type):
+                chat = stubs.domain.chat_config(
+                    chat_id = uuid4(),
+                    chat_type = chat_type,
+                    external_id = external_id,
+                    is_private = True,
+                )
 
-        self.assertTrue(result.is_admin)
-        self.assertEqual(self.repo.get(self.user.id, self.chat.chat_id), result)
-        stored = self.service.get(self.user.id, self.chat.chat_id)
-        self.assertIsNotNone(stored)
+                result = self.service.sync(user, chat)
+
+                self.assertTrue(result.is_admin)
+                self.assertEqual(result.split_messages, expected_split_messages)
+                self.assertEqual(self.repo.get(user.id, chat.chat_id), result)
 
     def test_sync_rejects_non_participant(self):
         self.bot.members[self.member_key] = stubs.external.telegram_chat_member_left()
@@ -301,6 +320,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 chat_id = self.chat.chat_id,
                 use_about_me = False,
                 use_custom_prompt = False,
+                split_messages = False,
                 max_output_tokens = 500,
                 max_chat_history_depth = 5,
                 max_iterations = 3,
@@ -312,6 +332,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertTrue(result[0].is_admin)
         self.assertFalse(result[0].use_about_me)
         self.assertFalse(result[0].use_custom_prompt)
+        self.assertFalse(result[0].split_messages)
         self.assertEqual(result[0].max_output_tokens, 500)
         self.assertEqual(result[0].max_chat_history_depth, 5)
         self.assertEqual(result[0].max_iterations, 3)
@@ -322,6 +343,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
+                split_messages = False,
             ),
         )
 
@@ -331,6 +353,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.assertFalse(result[0].is_admin)
         self.assertTrue(result[0].use_about_me)
         self.assertTrue(result[0].use_custom_prompt)
+        self.assertFalse(result[0].split_messages)
 
     def test_refresh_chat_memberships_preserves_already_correct_admin_membership(self):
         self.di.chat_membership_repo.save(
@@ -338,6 +361,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
                 user_id = self.user.id,
                 chat_id = self.chat.chat_id,
                 is_admin = True,
+                split_messages = False,
             ),
         )
 
@@ -345,14 +369,23 @@ class ChatMembershipServiceTest(unittest.TestCase):
 
         stored = self.service.get(self.user.id, self.chat.chat_id)
         self.assertTrue(stored.is_admin)
+        self.assertFalse(stored.split_messages)
 
     def test_refresh_chat_memberships_creates_missing_admin_row_with_defaults(self):
-        result = self.service.refresh_chat_memberships(self.user, [self.chat])
+        for chat_type, expected_split_messages in (
+            (ChatConfigDB.ChatType.whatsapp, False),
+            (ChatConfigDB.ChatType.telegram, True),
+        ):
+            with self.subTest(chat_type = chat_type):
+                chat = stubs.domain.chat_config(chat_id = uuid4(), chat_type = chat_type)
 
-        self.assertEqual(len(result), 1)
-        self.assertTrue(result[0].is_admin)
-        self.assertTrue(result[0].use_about_me)
-        self.assertTrue(result[0].use_custom_prompt)
+                result = self.service.refresh_chat_memberships(self.user, [chat])
+
+                membership = next(m for m in result if m.chat_id == chat.chat_id)
+                self.assertTrue(membership.is_admin)
+                self.assertTrue(membership.use_about_me)
+                self.assertTrue(membership.use_custom_prompt)
+                self.assertEqual(membership.split_messages, expected_split_messages)
 
     def test_refresh_chat_memberships_handles_multiple_chats(self):
         second_chat = stubs.domain.chat_config(chat_id = UUID("33333333-3333-4333-8333-c33333333333"))

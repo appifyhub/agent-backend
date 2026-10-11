@@ -43,6 +43,7 @@ class ChatMembershipRepository:
             existing.is_admin = membership.is_admin
             existing.use_about_me = membership.use_about_me
             existing.use_custom_prompt = membership.use_custom_prompt
+            existing.split_messages = membership.split_messages
             existing.max_output_tokens = membership.max_output_tokens
             existing.max_chat_history_depth = membership.max_chat_history_depth
             existing.max_iterations = membership.max_iterations

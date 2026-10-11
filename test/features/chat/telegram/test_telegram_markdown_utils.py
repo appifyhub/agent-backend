@@ -1,9 +1,20 @@
 import unittest
 
-from features.chat.telegram.telegram_markdown_utils import escape_markdown
+from features.chat.telegram.telegram_markdown_utils import calculate_rendered_length, escape_markdown
 
 
 class TelegramMarkdownUtilsTest(unittest.TestCase):
+
+    def test_calculate_rendered_length_plain_text_and_unicode(self):
+        self.assertEqual(calculate_rendered_length("Hello 😀"), 7)
+
+    def test_calculate_rendered_length_excludes_legacy_markdown(self):
+        self.assertEqual(calculate_rendered_length("Use *bold*, _italic_, and `code`."), 27)
+        self.assertEqual(calculate_rendered_length("```python\nprint('hi')\n```"), 12)
+
+    def test_calculate_rendered_length_counts_escaped_literals(self):
+        text = "snake_case [value]"
+        self.assertEqual(calculate_rendered_length(text), len(text))
 
     def test_escape_markdown_preserves_bold(self):
         # Telegram uses *bold* (single asterisk, not double!)
