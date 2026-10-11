@@ -5,10 +5,18 @@ import stubs
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     ALL_EXTERNAL_TOOLS,
-    CLAUDE_5_OPUS,
+    CLAUDE_4_6_SONNET,
+    CLAUDE_4_8_OPUS,
+    CLAUDE_5_1_FABLE,
+    CLAUDE_5_5_HAIKU,
+    CLAUDE_5_5_OPUS,
+    CLAUDE_5_5_SONNET,
     GPT_5_6_LUNA,
     GPT_5_6_SOL,
     GPT_5_6_TERRA,
+    GPT_6_LUNA,
+    GROK_4_3,
+    GROK_4_7,
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
     VIDEO_GEN_SEEDANCE_2_0,
@@ -21,16 +29,25 @@ from features.external_tools.external_tool_provider_library import REPLICATE
 
 class ExternalToolTest(unittest.TestCase):
 
-    def test_new_text_models_have_expected_ids_types_and_costs(self):
-        expected_types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision]
+    def test_text_models_have_expected_ids_types_and_costs(self):
+        text_types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision]
+        search_types = text_types + [ToolType.search]
         expected_models = (
-            (GPT_5_6_SOL, "gpt-5.6-sol", 500, 3000),
-            (GPT_5_6_TERRA, "gpt-5.6-terra", 250, 1500),
-            (GPT_5_6_LUNA, "gpt-5.6-luna", 100, 600),
-            (CLAUDE_5_OPUS, "claude-opus-5", 500, 2500),
+            (GPT_6_LUNA, "gpt-6-luna", 10, 50, text_types),
+            (GPT_5_6_SOL, "gpt-5.6-sol", 400, 2000, text_types),
+            (GPT_5_6_TERRA, "gpt-5.6-terra", 200, 1200, text_types),
+            (GPT_5_6_LUNA, "gpt-5.6-luna", 20, 120, text_types),
+            (CLAUDE_5_5_HAIKU, "claude-haiku-5-5", 10, 50, text_types),
+            (CLAUDE_5_5_SONNET, "claude-sonnet-5-5", 200, 1000, text_types),
+            (CLAUDE_5_5_OPUS, "claude-opus-5-5", 400, 2000, text_types),
+            (CLAUDE_5_1_FABLE, "claude-fable-5-1", 1000, 5000, text_types),
+            (CLAUDE_4_6_SONNET, "claude-sonnet-4-6", 300, 1500, text_types),
+            (CLAUDE_4_8_OPUS, "claude-opus-4-8", 500, 2500, text_types),
+            (GROK_4_7, "grok-4.7", 200, 600, search_types),
+            (GROK_4_3, "grok-4.3", 125, 250, search_types),
         )
 
-        for model, model_id, input_cost, output_cost in expected_models:
+        for model, model_id, input_cost, output_cost, expected_types in expected_models:
             with self.subTest(model_id = model_id):
                 self.assertEqual(model.id, model_id)
                 self.assertEqual(model.types, expected_types)
@@ -43,13 +60,21 @@ class ExternalToolTest(unittest.TestCase):
         deprecated_ids = {
             "gpt-4.1",
             "gpt-4.1-mini",
-            "gpt-5",
-            "gpt-5-mini",
-            "gpt-5.1",
-            "gpt-5.2",
             "gpt-4o",
             "gpt-4o-mini",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-5.1",
+            "gpt-5.2",
+            "gpt-5.4",
+            "gpt-5.5",
+            "claude-haiku-4-5",
             "claude-opus-4-7",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-fable-5",
+            "grok-4.5",
         }
 
         self.assertTrue(deprecated_ids.isdisjoint(available_ids))

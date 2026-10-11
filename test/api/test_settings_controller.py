@@ -19,7 +19,7 @@ from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     ALL_EXTERNAL_TOOLS,
     CLAUDE_4_6_SONNET,
-    GPT_5_5,
+    GPT_6_LUNA,
     IMAGE_GEN_EDIT_FLUX_2_PRO,
     SONAR,
     TWELVE_DATA_STOCK_QUOTE,
@@ -181,7 +181,7 @@ class SettingsControllerTest(TestCase):
             x_key = "new_x_key",
             x_ai_key = "new_x_ai_key",
             tool_choice_chat = CLAUDE_4_6_SONNET.id,
-            tool_choice_reasoning = GPT_5_5.id,
+            tool_choice_reasoning = GPT_6_LUNA.id,
             tool_choice_copywriting = None,
             tool_choice_vision = CLAUDE_4_6_SONNET.id,
             tool_choice_hearing = None,

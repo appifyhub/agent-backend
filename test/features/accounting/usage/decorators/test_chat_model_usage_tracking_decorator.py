@@ -10,7 +10,7 @@ from util.di_utils import di_for_tests
 from di.di import DI
 from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.external_tools.configured_tool import ConfiguredTool
-from features.external_tools.external_tool_library import GPT_5_5
+from features.external_tools.external_tool_library import GPT_5_6_TERRA
 from features.users.user import User
 from util.config import config
 from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
@@ -30,7 +30,7 @@ class ChatModelUsageTrackingDecoratorTest(TestCase):
         self.user = self.di.user_repo.save(stubs.domain.user())
         self.di.inject_invoker(self.user)
         self.tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = GPT_5_5.id),
+            definition = stubs.domain.external_tool(id = GPT_5_6_TERRA.id),
             uses_credits = True,
         )
         self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool, max_tokens = 4096))

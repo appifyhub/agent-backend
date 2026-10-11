@@ -5,16 +5,16 @@ from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_6_SONNET,
     CLAUDE_4_8_OPUS,
-    CLAUDE_5_FABLE,
-    CLAUDE_5_SONNET,
+    CLAUDE_5_1_FABLE,
+    CLAUDE_5_5_SONNET,
     CRYPTO_CURRENCY_EXCHANGE,
     FIAT_CURRENCY_EXCHANGE,
     GEMINI_FLASH_LATEST,
     GPT_4O_MINI_TRANSCRIBE,
     GPT_4O_TRANSCRIBE,
-    GPT_5_4,
     GPT_5_6_SOL,
-    GPT_5_NANO,
+    GPT_5_6_TERRA,
+    GPT_6_LUNA,
     IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
     IMAGE_GEN_GROK_IMAGINE,
     TELEGRAM_MESSAGE_DELIVERY,
@@ -78,10 +78,10 @@ class PresetChoices:
 INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
 
     IntelligencePreset.lowest_price: PresetChoices(
-        chat = GPT_5_NANO,
-        copywriting = GPT_5_NANO,
-        reasoning = GPT_5_NANO,
-        vision = GPT_5_NANO,
+        chat = GPT_6_LUNA,
+        copywriting = GPT_6_LUNA,
+        reasoning = GPT_6_LUNA,
+        vision = GPT_6_LUNA,
         hearing = WHISPER_1,
         images_gen = IMAGE_GEN_GROK_IMAGINE,
         videos_gen = VIDEO_GEN_P_VIDEO,
@@ -96,9 +96,9 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
     ),
 
     IntelligencePreset.highest_price: PresetChoices(
-        chat = CLAUDE_5_SONNET,
+        chat = CLAUDE_5_5_SONNET,
         copywriting = CLAUDE_4_8_OPUS,
-        reasoning = CLAUDE_5_FABLE,
+        reasoning = CLAUDE_5_1_FABLE,
         vision = GPT_5_6_SOL,
         hearing = GPT_4O_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
@@ -114,10 +114,10 @@ INTELLIGENCE_PRESETS: dict[IntelligencePreset, PresetChoices] = {
     ),
 
     IntelligencePreset.agent_choice: PresetChoices(
-        chat = GPT_5_4,
-        copywriting = GPT_5_4,
+        chat = GPT_5_6_TERRA,
+        copywriting = GPT_5_6_TERRA,
         reasoning = CLAUDE_4_6_SONNET,
-        vision = GPT_5_4,
+        vision = GPT_5_6_TERRA,
         hearing = GPT_4O_MINI_TRANSCRIBE,
         images_gen = IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
         videos_gen = VIDEO_GEN_SEEDANCE_2_0_FAST,

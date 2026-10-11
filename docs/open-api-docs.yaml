@@ -1527,10 +1527,10 @@ components:
           description: Intelligence presets mapping preset names to tool type choices
           example:
             lowest_price:
-              chat: "gpt-5-nano"
-              reasoning: "gpt-5-nano"
+              chat: "gpt-6-luna"
+              reasoning: "gpt-6-luna"
             agent_choice:
-              chat: "gpt-5.4"
+              chat: "gpt-5.6-terra"
               reasoning: "claude-sonnet-4-6"
       required:
         - tools

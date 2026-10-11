@@ -20,7 +20,7 @@ from di.di import DI
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_image
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_5_NANO, IMAGE_GEN_GROK_IMAGINE_QUALITY
+from features.external_tools.external_tool_library import GPT_6_LUNA, IMAGE_GEN_GROK_IMAGINE_QUALITY
 from features.images import smart_image_generator
 from features.images.smart_image_generator import SmartImageGenerator
 from util.config import config
@@ -46,7 +46,7 @@ class SmartImageGeneratorTest(TestCase):
             tool_choice_images_gen = IMAGE_GEN_GROK_IMAGINE_QUALITY.id,
         )))
         self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config(external_id = "12345")))
-        self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_6_LUNA, purpose = ToolType.copywriting)
         self.image_tool = stubs.domain.configured_tool(
             definition = IMAGE_GEN_GROK_IMAGINE_QUALITY,
             purpose = ToolType.images_gen,
