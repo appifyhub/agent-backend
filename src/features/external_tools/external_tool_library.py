@@ -525,17 +525,17 @@ VIDEO_GEN_P_VIDEO = ExternalTool(
     max_input_images = 1,
 )
 
-VIDEO_GEN_SEEDANCE_2_0 = ExternalTool(
-    id = "bytedance/seedance-2.0",
-    name = "ByteDance: Seedance 2.0",
+VIDEO_GEN_RAY_3_2 = ExternalTool(
+    id = "luma/ray-3.2",
+    name = "Luma: Ray 3.2",
     provider = REPLICATE,
     types = [ToolType.videos_gen],
     cost_estimate = CostEstimate(
-        output_video_1k_second = 18,
-        output_video_2k_second = 45,
-        output_video_4k_second = 100,
+        output_video_1k_second = 8,
+        output_video_2k_second = 30,
+        output_video_4k_second = 30,
     ),
-    max_input_images = 9,
+    max_input_images = 1,
 )
 
 VIDEO_GEN_SEEDANCE_2_0_FAST = ExternalTool(
@@ -551,19 +551,6 @@ VIDEO_GEN_SEEDANCE_2_0_FAST = ExternalTool(
     max_input_images = 9,
 )
 
-VIDEO_GEN_VEO_3_1 = ExternalTool(
-    id = "google/veo-3.1",
-    name = "Google: Veo 3.1",
-    provider = REPLICATE,
-    types = [ToolType.videos_gen],
-    cost_estimate = CostEstimate(
-        output_video_1k_second = 40,
-        output_video_2k_second = 40,
-        output_video_4k_second = 40,
-    ),
-    max_input_images = 3,
-)
-
 VIDEO_GEN_VEO_3_1_FAST = ExternalTool(
     id = "google/veo-3.1-fast",
     name = "Google: Veo 3.1 Fast",
@@ -577,17 +564,43 @@ VIDEO_GEN_VEO_3_1_FAST = ExternalTool(
     max_input_images = 1,
 )
 
-VIDEO_GEN_RAY_3_2 = ExternalTool(
-    id = "luma/ray-3.2",
-    name = "Luma: Ray 3.2",
+VIDEO_GEN_GEMINI_OMNI_1_1 = ExternalTool(
+    id = "google/gemini-omni-1.1",
+    name = "Google: Gemini Omni 1.1 Flash",
     provider = REPLICATE,
     types = [ToolType.videos_gen],
     cost_estimate = CostEstimate(
         output_video_1k_second = 15,
-        output_video_2k_second = 50,
-        output_video_4k_second = 50,
+        output_video_2k_second = 25,
+        output_video_4k_second = 45,
     ),
     max_input_images = 1,
+)
+
+VIDEO_GEN_SEEDANCE_2_5 = ExternalTool(
+    id = "bytedance/seedance-2.5",
+    name = "ByteDance: Seedance 2.5",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 25,
+        output_video_2k_second = 25,
+        output_video_4k_second = 25,
+    ),
+    max_input_images = 30,
+)
+
+VIDEO_GEN_VEO_3_1 = ExternalTool(
+    id = "google/veo-3.1",
+    name = "Google: Veo 3.1",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 40,
+        output_video_2k_second = 40,
+        output_video_4k_second = 40,
+    ),
+    max_input_images = 3,
 )
 
 ###  API Integrations  ###
@@ -709,11 +722,12 @@ ALL_EXTERNAL_TOOLS = [
     IMAGE_GOOGLE_NANO_BANANA_2_1,
     IMAGE_GOOGLE_NANO_BANANA_PRO,
     VIDEO_GEN_P_VIDEO,
-    VIDEO_GEN_SEEDANCE_2_0,
-    VIDEO_GEN_SEEDANCE_2_0_FAST,
-    VIDEO_GEN_VEO_3_1,
-    VIDEO_GEN_VEO_3_1_FAST,
     VIDEO_GEN_RAY_3_2,
+    VIDEO_GEN_SEEDANCE_2_0_FAST,
+    VIDEO_GEN_VEO_3_1_FAST,
+    VIDEO_GEN_GEMINI_OMNI_1_1,
+    VIDEO_GEN_SEEDANCE_2_5,
+    VIDEO_GEN_VEO_3_1,
     # API Integrations
     FIAT_CURRENCY_EXCHANGE,
     X_READ_POST,
