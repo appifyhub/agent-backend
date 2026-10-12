@@ -13,7 +13,7 @@ from util.di_utils import di_for_tests
 from di.di import DI
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_5_5, X_READ_POST
+from features.external_tools.external_tool_library import GPT_5_6_TERRA, X_READ_POST
 from features.tools_cache.tools_cache import ToolsCache
 from features.web_browsing.twitter_status_fetcher import (
     CACHE_PREFIX,
@@ -45,7 +45,7 @@ class TwitterStatusFetcherTest(TestCase):
         self.di.inject_invoker(domain.user())
         self.di.inject_invoker_chat(domain.chat_config())
         self.x_api_tool = domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
+        vision_tool = domain.configured_tool(definition = GPT_5_6_TERRA, purpose = ToolType.vision)
         self.http = cast(FakeHTTPClient, self.di.http_client())
         self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(vision_tool, max_tokens = 500))
         self.fetcher = self.di.twitter_status_fetcher(self.tweet_id, self.x_api_tool, vision_tool)

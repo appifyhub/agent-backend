@@ -19,47 +19,14 @@ from features.external_tools.external_tool_provider_library import (
 
 ###  Open AI  ###
 
-GPT_5_NANO = ExternalTool(
-    id = "gpt-5-nano",
-    name = "GPT 5 Nano",
+GPT_5_6_LUNA = ExternalTool(
+    id = "gpt-5.6-luna",
+    name = "GPT 5.6 Luna",
     provider = OPEN_AI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 5,
-        output_1m_tokens = 40,
-    ),
-)
-
-GPT_5_4 = ExternalTool(
-    id = "gpt-5.4",
-    name = "GPT 5.4",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 250,
-        output_1m_tokens = 1500,
-    ),
-)
-
-GPT_5_5 = ExternalTool(
-    id = "gpt-5.5",
-    name = "GPT 5.5",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 500,
-        output_1m_tokens = 3000,
-    ),
-)
-
-GPT_5_6_SOL = ExternalTool(
-    id = "gpt-5.6-sol",
-    name = "GPT 5.6 Sol",
-    provider = OPEN_AI,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 500,
-        output_1m_tokens = 3000,
+        input_1m_tokens = 20,
+        output_1m_tokens = 120,
     ),
 )
 
@@ -69,51 +36,40 @@ GPT_5_6_TERRA = ExternalTool(
     provider = OPEN_AI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 250,
-        output_1m_tokens = 1500,
+        input_1m_tokens = 200,
+        output_1m_tokens = 1200,
     ),
 )
 
-GPT_5_6_LUNA = ExternalTool(
-    id = "gpt-5.6-luna",
-    name = "GPT 5.6 Luna",
+GPT_5_6_SOL = ExternalTool(
+    id = "gpt-5.6-sol",
+    name = "GPT 5.6 Sol",
     provider = OPEN_AI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 100,
-        output_1m_tokens = 600,
+        input_1m_tokens = 400,
+        output_1m_tokens = 2000,
     ),
 )
 
-GPT_4O_TRANSCRIBE = ExternalTool(
-    id = "gpt-4o-transcribe",
-    name = "GPT 4o Transcribe",
+GPT_6_LUNA = ExternalTool(
+    id = "gpt-6-luna",
+    name = "GPT 6 Luna",
     provider = OPEN_AI,
-    types = [ToolType.hearing],
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 600,
-        output_1m_tokens = 1000,
+        input_1m_tokens = 10,
+        output_1m_tokens = 50,
     ),
 )
 
-GPT_4O_MINI_TRANSCRIBE = ExternalTool(
-    id = "gpt-4o-mini-transcribe",
-    name = "GPT 4o Mini Transcribe",
+GPT_TRANSCRIBE = ExternalTool(
+    id = "gpt-transcribe",
+    name = "GPT Transcribe",
     provider = OPEN_AI,
     types = [ToolType.hearing],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 300,
-        output_1m_tokens = 500,
-    ),
-)
-
-WHISPER_1 = ExternalTool(
-    id = "whisper-1",
-    name = "Whisper 1",
-    provider = OPEN_AI,
-    types = [ToolType.hearing],
-    cost_estimate = CostEstimate(
-        second_of_runtime = 0.01,
+        second_of_runtime = 0.0075,
     ),
 )
 
@@ -141,33 +97,9 @@ TEXT_EMBEDDING_5_LARGE = ExternalTool(
 
 ###  Anthropic  ###
 
-CLAUDE_4_5_HAIKU = ExternalTool(
-    id = "claude-haiku-4-5",
-    name = "Claude Haiku 4.5",
-    provider = ANTHROPIC,
-    types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 100,
-        output_1m_tokens = 500,
-        search_1m_tokens = 50,  # used with vision queries
-    ),
-)
-
 CLAUDE_4_6_SONNET = ExternalTool(
     id = "claude-sonnet-4-6",
     name = "Claude Sonnet 4.6",
-    provider = ANTHROPIC,
-    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 300,
-        output_1m_tokens = 1500,
-        search_1m_tokens = 150,  # used with vision queries
-    ),
-)
-
-CLAUDE_5_SONNET = ExternalTool(
-    id = "claude-sonnet-5",
-    name = "Claude Sonnet 5",
     provider = ANTHROPIC,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
@@ -189,21 +121,45 @@ CLAUDE_4_8_OPUS = ExternalTool(
     ),
 )
 
-CLAUDE_5_OPUS = ExternalTool(
-    id = "claude-opus-5",
-    name = "Claude Opus 5",
+CLAUDE_5_5_HAIKU = ExternalTool(
+    id = "claude-haiku-5-5",
+    name = "Claude Haiku 5.5",
     provider = ANTHROPIC,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 500,
-        output_1m_tokens = 2500,
+        input_1m_tokens = 15,
+        output_1m_tokens = 55,
+        search_1m_tokens = 10,  # used with vision queries
+    ),
+)
+
+CLAUDE_5_5_SONNET = ExternalTool(
+    id = "claude-sonnet-5-5",
+    name = "Claude Sonnet 5.5",
+    provider = ANTHROPIC,
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 200,
+        output_1m_tokens = 1000,
+        search_1m_tokens = 100,  # used with vision queries
+    ),
+)
+
+CLAUDE_5_5_OPUS = ExternalTool(
+    id = "claude-opus-5-5",
+    name = "Claude Opus 5.5",
+    provider = ANTHROPIC,
+    types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 400,
+        output_1m_tokens = 2000,
         search_1m_tokens = 200,  # used with vision queries
     ),
 )
 
-CLAUDE_5_FABLE = ExternalTool(
-    id = "claude-fable-5",
-    name = "Claude Fable 5",
+CLAUDE_5_1_FABLE = ExternalTool(
+    id = "claude-fable-5-1",
+    name = "Claude Fable 5.1",
     provider = ANTHROPIC,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
@@ -221,9 +177,9 @@ GEMINI_FLASH_LITE_LATEST = ExternalTool(
     provider = GOOGLE_AI,
     types = [ToolType.chat, ToolType.copywriting, ToolType.vision],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 10,
-        output_1m_tokens = 40,
-        search_1m_tokens = 5,  # used with vision queries
+        input_1m_tokens = 30,
+        output_1m_tokens = 250,
+        search_1m_tokens = 7,  # used with vision queries
     ),
 )
 
@@ -234,8 +190,8 @@ GEMINI_FLASH_LATEST = ExternalTool(
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
         input_1m_tokens = 150,
-        output_1m_tokens = 900,
-        search_1m_tokens = 75,  # used with vision queries
+        output_1m_tokens = 750,
+        search_1m_tokens = 100,  # used with vision queries
         web_search_query = 1.4,
     ),
 )
@@ -252,23 +208,38 @@ GEMINI_PRO_LATEST = ExternalTool(
     ),
 )
 
-NANO_BANANA = ExternalTool(
-    id = "gemini-2.5-flash-image",
-    name = "Nano Banana",
+NANO_BANANA_2_LITE = ExternalTool(
+    id = "gemini-3.1-flash-lite-image",
+    name = "Nano Banana 2 (Lite)",
     provider = GOOGLE_AI,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 50,
-        output_1m_tokens = 300,
+        input_1m_tokens = 25,
+        output_1m_tokens = 3000,
         output_image_1k = 4,
         output_image_2k = 4,
         output_image_4k = 4,
     ),
-    max_input_images = 3,
+    max_input_images = 6,
+)
+
+NANO_BANANA_2_1 = ExternalTool(
+    id = "gemini-nano-banana-2.1",
+    name = "Nano Banana 2.1",
+    provider = GOOGLE_AI,
+    types = [ToolType.images_gen],
+    cost_estimate = CostEstimate(
+        input_1m_tokens = 150,
+        output_1m_tokens = 3000,
+        output_image_1k = 4,
+        output_image_2k = 6,
+        output_image_4k = 12,
+    ),
+    max_input_images = 14,
 )
 
 NANO_BANANA_PRO = ExternalTool(
-    id = "gemini-3-pro-image-preview",
+    id = "gemini-3-pro-image",
     name = "Nano Banana Pro",
     provider = GOOGLE_AI,
     types = [ToolType.images_gen],
@@ -278,21 +249,6 @@ NANO_BANANA_PRO = ExternalTool(
         output_image_1k = 15,
         output_image_2k = 15,
         output_image_4k = 30,
-    ),
-    max_input_images = 5,
-)
-
-NANO_BANANA_2 = ExternalTool(
-    id = "gemini-3.1-flash-image-preview",
-    name = "Nano Banana 2",
-    provider = GOOGLE_AI,
-    types = [ToolType.images_gen],
-    cost_estimate = CostEstimate(
-        input_1m_tokens = 50,
-        output_1m_tokens = 6000,
-        output_image_1k = 7,
-        output_image_2k = 11,
-        output_image_4k = 16,
     ),
     max_input_images = 14,
 )
@@ -305,15 +261,15 @@ GROK_4_3 = ExternalTool(
     provider = XAI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
-        input_1m_tokens = 200,
-        output_1m_tokens = 600,
+        input_1m_tokens = 125,
+        output_1m_tokens = 250,
         web_search_query = 0.5,
     ),
 )
 
-GROK_4_5 = ExternalTool(
-    id = "grok-4.5",
-    name = "Grok 4.5",
+GROK_4_7 = ExternalTool(
+    id = "grok-4.7",
+    name = "Grok 4.7",
     provider = XAI,
     types = [ToolType.chat, ToolType.reasoning, ToolType.copywriting, ToolType.vision, ToolType.search],
     cost_estimate = CostEstimate(
@@ -323,7 +279,7 @@ GROK_4_5 = ExternalTool(
     ),
 )
 
-IMAGE_GEN_GROK_IMAGINE = ExternalTool(
+IMAGE_GROK_IMAGINE = ExternalTool(
     id = "grok-imagine-image",
     name = "Grok Imagine Image",
     provider = XAI,
@@ -341,22 +297,21 @@ IMAGE_GEN_GROK_IMAGINE = ExternalTool(
     max_input_images = 5,
 )
 
-IMAGE_GEN_GROK_IMAGINE_QUALITY = ExternalTool(
-    id = "grok-imagine-image-quality",
-    name = "Grok Imagine Image (Quality)",
+IMAGE_GROK_IMAGINE_2 = ExternalTool(
+    id = "grok-imagine-image-2.0",
+    name = "Grok Imagine Image 2.0",
     provider = XAI,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
-        output_image_1k = 5,
-        output_image_2k = 7,
-        output_image_4k = 7,
-        input_image_1k = 0.2,
-        input_image_2k = 0.2,
-        input_image_4k = 0.2,
-        input_image_8k = 0.2,
-        input_image_12k = 0.2,
+        output_image_1k = 6,
+        output_image_2k = 8,
+        input_image_1k = 1,
+        input_image_2k = 1,
+        input_image_4k = 1,
+        input_image_8k = 1,
+        input_image_12k = 1,
     ),
-    max_input_images = 1,
+    max_input_images = 5,
 )
 
 ###  Perplexity  ###
@@ -415,20 +370,7 @@ SONAR_DEEP_RESEARCH = ExternalTool(
 
 ###  Replicate  ###
 
-IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO = ExternalTool(
-    id = "black-forest-labs/flux-kontext-pro",
-    name = "Black Forest Labs: Flux Kontext Pro",
-    provider = REPLICATE,
-    types = [ToolType.images_gen],
-    cost_estimate = CostEstimate(
-        output_image_1k = 4,
-        output_image_2k = 4,
-        output_image_4k = 4,
-    ),
-    max_input_images = 1,
-)
-
-IMAGE_GEN_EDIT_FLUX_2_PRO = ExternalTool(
+IMAGE_FLUX_2_PRO = ExternalTool(
     id = "black-forest-labs/flux-2-pro",
     name = "Black Forest Labs: Flux 2 Pro",
     provider = REPLICATE,
@@ -447,7 +389,7 @@ IMAGE_GEN_EDIT_FLUX_2_PRO = ExternalTool(
     max_input_images = 8,
 )
 
-IMAGE_GEN_EDIT_FLUX_2_MAX = ExternalTool(
+IMAGE_FLUX_2_MAX = ExternalTool(
     id = "black-forest-labs/flux-2-max",
     name = "Black Forest Labs: Flux 2 Max",
     provider = REPLICATE,
@@ -466,34 +408,46 @@ IMAGE_GEN_EDIT_FLUX_2_MAX = ExternalTool(
     max_input_images = 8,
 )
 
-IMAGE_GEN_EDIT_GPT_IMAGE_1_5 = ExternalTool(
-    id = "openai/gpt-image-1.5",
-    name = "OpenAI: GPT Image 1.5",
+IMAGE_FLUX_3 = ExternalTool(
+    id = "black-forest-labs/flux-3-image",
+    name = "Black Forest Labs: Flux 3 Image",
     provider = REPLICATE,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
-        output_image_1k = 14,
-        output_image_2k = 14,
-        output_image_4k = 14,
+        output_image_1k = 3,
+        output_image_2k = 5,
+        output_image_4k = 32,
     ),
-    max_input_images = 16,
+    max_input_images = 10,
 )
 
-IMAGE_GEN_EDIT_GPT_IMAGE_2 = ExternalTool(
-    id = "openai/gpt-image-2",
-    name = "OpenAI: GPT Image 2",
+IMAGE_GPT_IMAGE_2_5_FLARE = ExternalTool(
+    id = "openai/gpt-image-2.5-flare",
+    name = "OpenAI: Image 2.5 Flare",
     provider = REPLICATE,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
-        output_image_1k = 13,
-        output_image_2k = 13,
-        output_image_4k = 13,
+        output_image_1k = 30,
+        output_image_2k = 30,
+        output_image_4k = 30,
     ),
-    max_input_images = 16,
+    max_input_images = 10,
 )
 
+IMAGE_GPT_IMAGE_2_5_SUNBURST = ExternalTool(
+    id = "openai/gpt-image-2.5-sunburst",
+    name = "OpenAI: Image 2.5 Sunburst",
+    provider = REPLICATE,
+    types = [ToolType.images_gen],
+    cost_estimate = CostEstimate(
+        output_image_1k = 50,
+        output_image_2k = 50,
+        output_image_4k = 50,
+    ),
+    max_input_images = 10,
+)
 
-IMAGE_GEN_EDIT_SEEDREAM_4 = ExternalTool(
+IMAGE_SEEDREAM_4 = ExternalTool(
     id = "bytedance/seedream-4",
     name = "ByteDance: SeeDream 4",
     provider = REPLICATE,
@@ -506,7 +460,7 @@ IMAGE_GEN_EDIT_SEEDREAM_4 = ExternalTool(
     max_input_images = 10,
 )
 
-IMAGE_GEN_EDIT_SEEDREAM_4_5 = ExternalTool(
+IMAGE_SEEDREAM_4_5 = ExternalTool(
     id = "bytedance/seedream-4.5",
     name = "ByteDance: SeeDream 4.5",
     provider = REPLICATE,
@@ -519,7 +473,7 @@ IMAGE_GEN_EDIT_SEEDREAM_4_5 = ExternalTool(
     max_input_images = 14,
 )
 
-IMAGE_GEN_EDIT_SEEDREAM_5_PRO = ExternalTool(
+IMAGE_SEEDREAM_5_PRO = ExternalTool(
     id = "bytedance/seedream-5-pro",
     name = "ByteDance: SeeDream 5 Pro",
     provider = REPLICATE,
@@ -532,20 +486,20 @@ IMAGE_GEN_EDIT_SEEDREAM_5_PRO = ExternalTool(
     max_input_images = 10,
 )
 
-IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA = ExternalTool(
-    id = "google/nano-banana",
-    name = "Google: Nano Banana",
+IMAGE_GOOGLE_NANO_BANANA_2_1 = ExternalTool(
+    id = "google/nano-banana-2.1",
+    name = "Google: Nano Banana 2.1",
     provider = REPLICATE,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
         output_image_1k = 4,
-        output_image_2k = 4,
-        output_image_4k = 4,
+        output_image_2k = 6,
+        output_image_4k = 12,
     ),
-    max_input_images = 3,
+    max_input_images = 14,
 )
 
-IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO = ExternalTool(
+IMAGE_GOOGLE_NANO_BANANA_PRO = ExternalTool(
     id = "google/nano-banana-pro",
     name = "Google: Nano Banana Pro",
     provider = REPLICATE,
@@ -556,19 +510,6 @@ IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO = ExternalTool(
         output_image_4k = 30,
     ),
     max_input_images = 5,
-)
-
-IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2 = ExternalTool(
-    id = "google/nano-banana-2",
-    name = "Google: Nano Banana 2",
-    provider = REPLICATE,
-    types = [ToolType.images_gen],
-    cost_estimate = CostEstimate(
-        output_image_1k = 7,
-        output_image_2k = 11,
-        output_image_4k = 16,
-    ),
-    max_input_images = 14,
 )
 
 VIDEO_GEN_P_VIDEO = ExternalTool(
@@ -584,17 +525,17 @@ VIDEO_GEN_P_VIDEO = ExternalTool(
     max_input_images = 1,
 )
 
-VIDEO_GEN_SEEDANCE_2_0 = ExternalTool(
-    id = "bytedance/seedance-2.0",
-    name = "ByteDance: Seedance 2.0",
+VIDEO_GEN_RAY_3_2 = ExternalTool(
+    id = "luma/ray-3.2",
+    name = "Luma: Ray 3.2",
     provider = REPLICATE,
     types = [ToolType.videos_gen],
     cost_estimate = CostEstimate(
-        output_video_1k_second = 18,
-        output_video_2k_second = 45,
-        output_video_4k_second = 100,
+        output_video_1k_second = 8,
+        output_video_2k_second = 30,
+        output_video_4k_second = 30,
     ),
-    max_input_images = 9,
+    max_input_images = 1,
 )
 
 VIDEO_GEN_SEEDANCE_2_0_FAST = ExternalTool(
@@ -610,19 +551,6 @@ VIDEO_GEN_SEEDANCE_2_0_FAST = ExternalTool(
     max_input_images = 9,
 )
 
-VIDEO_GEN_VEO_3_1 = ExternalTool(
-    id = "google/veo-3.1",
-    name = "Google: Veo 3.1",
-    provider = REPLICATE,
-    types = [ToolType.videos_gen],
-    cost_estimate = CostEstimate(
-        output_video_1k_second = 40,
-        output_video_2k_second = 40,
-        output_video_4k_second = 40,
-    ),
-    max_input_images = 3,
-)
-
 VIDEO_GEN_VEO_3_1_FAST = ExternalTool(
     id = "google/veo-3.1-fast",
     name = "Google: Veo 3.1 Fast",
@@ -636,17 +564,43 @@ VIDEO_GEN_VEO_3_1_FAST = ExternalTool(
     max_input_images = 1,
 )
 
-VIDEO_GEN_RAY_3_2 = ExternalTool(
-    id = "luma/ray-3.2",
-    name = "Luma: Ray 3.2",
+VIDEO_GEN_GEMINI_OMNI_1_1 = ExternalTool(
+    id = "google/gemini-omni-1.1",
+    name = "Google: Gemini Omni 1.1 Flash",
     provider = REPLICATE,
     types = [ToolType.videos_gen],
     cost_estimate = CostEstimate(
         output_video_1k_second = 15,
-        output_video_2k_second = 50,
-        output_video_4k_second = 50,
+        output_video_2k_second = 25,
+        output_video_4k_second = 45,
     ),
     max_input_images = 1,
+)
+
+VIDEO_GEN_SEEDANCE_2_5 = ExternalTool(
+    id = "bytedance/seedance-2.5",
+    name = "ByteDance: Seedance 2.5",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 25,
+        output_video_2k_second = 25,
+        output_video_4k_second = 25,
+    ),
+    max_input_images = 30,
+)
+
+VIDEO_GEN_VEO_3_1 = ExternalTool(
+    id = "google/veo-3.1",
+    name = "Google: Veo 3.1",
+    provider = REPLICATE,
+    types = [ToolType.videos_gen],
+    cost_estimate = CostEstimate(
+        output_video_1k_second = 40,
+        output_video_2k_second = 40,
+        output_video_4k_second = 40,
+    ),
+    max_input_images = 3,
 )
 
 ###  API Integrations  ###
@@ -725,59 +679,55 @@ TRANSFER_TOOL = ExternalTool(
 
 ALL_EXTERNAL_TOOLS = [
     # Open AI
-    GPT_5_NANO,
-    GPT_5_4,
-    GPT_5_5,
-    GPT_5_6_SOL,
-    GPT_5_6_TERRA,
     GPT_5_6_LUNA,
-    GPT_4O_TRANSCRIBE,
-    GPT_4O_MINI_TRANSCRIBE,
-    WHISPER_1,
+    GPT_5_6_TERRA,
+    GPT_5_6_SOL,
+    GPT_6_LUNA,
+    GPT_TRANSCRIBE,
     TEXT_EMBEDDING_3_SMALL,
     TEXT_EMBEDDING_5_LARGE,
     # Anthropic
-    CLAUDE_4_5_HAIKU,
     CLAUDE_4_6_SONNET,
-    CLAUDE_5_SONNET,
     CLAUDE_4_8_OPUS,
-    CLAUDE_5_OPUS,
-    CLAUDE_5_FABLE,
+    CLAUDE_5_5_HAIKU,
+    CLAUDE_5_5_SONNET,
+    CLAUDE_5_5_OPUS,
+    CLAUDE_5_1_FABLE,
     # Google AI
     GEMINI_FLASH_LITE_LATEST,
     GEMINI_FLASH_LATEST,
     GEMINI_PRO_LATEST,
-    NANO_BANANA,
+    NANO_BANANA_2_LITE,
+    NANO_BANANA_2_1,
     NANO_BANANA_PRO,
-    NANO_BANANA_2,
     # xAI
-    GROK_4_5,
     GROK_4_3,
-    IMAGE_GEN_GROK_IMAGINE,
-    IMAGE_GEN_GROK_IMAGINE_QUALITY,
+    GROK_4_7,
+    IMAGE_GROK_IMAGINE,
+    IMAGE_GROK_IMAGINE_2,
     # Perplexity
     SONAR,
     SONAR_PRO,
     SONAR_REASONING_PRO,
     SONAR_DEEP_RESEARCH,
     # Replicate
-    IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO,
-    IMAGE_GEN_EDIT_FLUX_2_PRO,
-    IMAGE_GEN_EDIT_FLUX_2_MAX,
-    IMAGE_GEN_EDIT_GPT_IMAGE_1_5,
-    IMAGE_GEN_EDIT_GPT_IMAGE_2,
-    IMAGE_GEN_EDIT_SEEDREAM_4,
-    IMAGE_GEN_EDIT_SEEDREAM_4_5,
-    IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
-    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA,
-    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
-    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2,
+    IMAGE_FLUX_2_PRO,
+    IMAGE_FLUX_2_MAX,
+    IMAGE_FLUX_3,
+    IMAGE_GPT_IMAGE_2_5_FLARE,
+    IMAGE_GPT_IMAGE_2_5_SUNBURST,
+    IMAGE_SEEDREAM_4,
+    IMAGE_SEEDREAM_4_5,
+    IMAGE_SEEDREAM_5_PRO,
+    IMAGE_GOOGLE_NANO_BANANA_2_1,
+    IMAGE_GOOGLE_NANO_BANANA_PRO,
     VIDEO_GEN_P_VIDEO,
-    VIDEO_GEN_SEEDANCE_2_0,
-    VIDEO_GEN_SEEDANCE_2_0_FAST,
-    VIDEO_GEN_VEO_3_1,
-    VIDEO_GEN_VEO_3_1_FAST,
     VIDEO_GEN_RAY_3_2,
+    VIDEO_GEN_SEEDANCE_2_0_FAST,
+    VIDEO_GEN_VEO_3_1_FAST,
+    VIDEO_GEN_GEMINI_OMNI_1_1,
+    VIDEO_GEN_SEEDANCE_2_5,
+    VIDEO_GEN_VEO_3_1,
     # API Integrations
     FIAT_CURRENCY_EXCHANGE,
     X_READ_POST,

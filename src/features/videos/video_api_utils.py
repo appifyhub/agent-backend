@@ -2,10 +2,11 @@ from dataclasses import asdict, dataclass, replace
 
 from features.external_tools.external_tool import ExternalTool
 from features.external_tools.external_tool_library import (
+    VIDEO_GEN_GEMINI_OMNI_1_1,
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
-    VIDEO_GEN_SEEDANCE_2_0,
     VIDEO_GEN_SEEDANCE_2_0_FAST,
+    VIDEO_GEN_SEEDANCE_2_5,
     VIDEO_GEN_VEO_3_1,
     VIDEO_GEN_VEO_3_1_FAST,
 )
@@ -23,11 +24,14 @@ VALID_ASPECT_RATIOS = list(dict.fromkeys(P_VIDEO_ASPECT_RATIOS + SEEDANCE_ASPECT
 VALID_DURATIONS = {"short", "medium", "long"}
 
 ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
+    VIDEO_GEN_GEMINI_OMNI_1_1.id: {
+        "prompt", "image", "aspect_ratio", "resolution",
+    },
     VIDEO_GEN_P_VIDEO.id: {
         "prompt", "image", "duration", "aspect_ratio", "resolution",
         "fps", "draft", "prompt_upsampling", "disable_safety_filter", "save_audio",
     },
-    VIDEO_GEN_SEEDANCE_2_0.id: {
+    VIDEO_GEN_SEEDANCE_2_5.id: {
         "prompt", "image", "reference_images", "duration", "aspect_ratio", "resolution", "generate_audio",
     },
     VIDEO_GEN_SEEDANCE_2_0_FAST.id: {
@@ -95,7 +99,9 @@ def map_to_model_parameters(
         reference_images = multi_images,
     )
 
-    if tool == VIDEO_GEN_P_VIDEO:
+    if tool == VIDEO_GEN_GEMINI_OMNI_1_1:
+        return unified_params
+    elif tool == VIDEO_GEN_P_VIDEO:
         size = "2K" if normalized_size == "4K" else normalized_size
         resolution = "1080p" if size == "2K" else "720p"
         return replace(
@@ -108,8 +114,8 @@ def map_to_model_parameters(
             disable_safety_filter = True,
             save_audio = True,
         )
-    elif tool == VIDEO_GEN_SEEDANCE_2_0:
-        return replace(unified_params, generate_audio = True)
+    elif tool == VIDEO_GEN_SEEDANCE_2_5:
+        return replace(unified_params, size = "1K", resolution = "720p", generate_audio = True)
     elif tool == VIDEO_GEN_SEEDANCE_2_0_FAST:
         return replace(unified_params, size = "1K", resolution = "720p", generate_audio = True)
     elif tool in (VIDEO_GEN_VEO_3_1, VIDEO_GEN_VEO_3_1_FAST):
@@ -152,7 +158,9 @@ def resolve_duration(
     if semantic_duration not in VALID_DURATIONS:
         semantic_duration = "medium"
 
-    if tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+    if tool == VIDEO_GEN_GEMINI_OMNI_1_1:
+        return 10
+    elif tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
         return {"short": 4, "medium": 5, "long": 10}[semantic_duration]
     elif tool == VIDEO_GEN_VEO_3_1 and has_reference_images:
         return 8
@@ -184,7 +192,7 @@ def resolve_aspect_ratio(
     if not aspect_ratio:
         if not references:
             return DEFAULT_ASPECT_RATIO
-        if tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        if tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             return "adaptive"
         return None
 
@@ -193,15 +201,15 @@ def resolve_aspect_ratio(
         if not references:
             log.w(f"'match_input_image' not supported for '{tool.id}' without reference images, using '{DEFAULT_ASPECT_RATIO}'")
             return DEFAULT_ASPECT_RATIO
-        if tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        if tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             return "adaptive"
         return None
 
     if tool == VIDEO_GEN_P_VIDEO:
         supported_aspect_ratios = P_VIDEO_ASPECT_RATIOS
-    elif tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+    elif tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
         supported_aspect_ratios = SEEDANCE_ASPECT_RATIOS
-    elif tool in (VIDEO_GEN_VEO_3_1, VIDEO_GEN_VEO_3_1_FAST):
+    elif tool in (VIDEO_GEN_GEMINI_OMNI_1_1, VIDEO_GEN_VEO_3_1, VIDEO_GEN_VEO_3_1_FAST):
         supported_aspect_ratios = VEO_ASPECT_RATIOS
     elif tool == VIDEO_GEN_RAY_3_2:
         supported_aspect_ratios = RAY_ASPECT_RATIOS

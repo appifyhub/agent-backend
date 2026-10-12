@@ -19,7 +19,7 @@ from util.di_utils import di_for_tests
 from di.di import DI
 from features.chat.llm_tools.llm_tool_library import render_social_post
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_5_5, X_READ_POST
+from features.external_tools.external_tool_library import GPT_5_6_TERRA, X_READ_POST
 from features.social_cards import card_template
 from features.social_cards.providers.twitter_social_post_provider import TwitterSocialPostProvider
 from features.social_cards.social_card_models import SocialCardMode, SocialMediaKind
@@ -54,7 +54,7 @@ class SocialCardOrchestratorTest(TestCase):
         self.bot = cast(FakeTelegramBotAPI, self.di.telegram_bot_api)
         self.shortener = cast(FakeUrlShortener, self.di.url_shortener(self.post_url))
         api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
-        vision_tool = stubs.domain.configured_tool(definition = GPT_5_5, purpose = ToolType.vision)
+        vision_tool = stubs.domain.configured_tool(definition = GPT_5_6_TERRA, purpose = ToolType.vision)
         self.orchestrator = self.di.social_card_orchestrator([api_tool], vision_tool)
         self.provider = self.di.social_post_provider(TwitterSocialPostProvider, api_tool, vision_tool)
         self.tweet = stubs.external.tweet_data(

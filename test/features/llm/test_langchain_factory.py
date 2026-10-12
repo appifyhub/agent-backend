@@ -10,10 +10,14 @@ from util.di_utils import di_for_tests
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_8_OPUS,
-    CLAUDE_5_OPUS,
+    CLAUDE_5_1_FABLE,
+    CLAUDE_5_5_HAIKU,
+    CLAUDE_5_5_OPUS,
+    CLAUDE_5_5_SONNET,
     GPT_5_6_LUNA,
     GPT_5_6_SOL,
     GPT_5_6_TERRA,
+    GPT_6_LUNA,
 )
 from features.external_tools.external_tool_provider_library import ANTHROPIC, GOOGLE_AI, OPEN_AI, PERPLEXITY
 from features.llm.langchain_factory import create
@@ -36,8 +40,8 @@ class LangchainFactoryTest(TestCase):
 
         self.assertIsInstance(result, ChatOpenAI)
 
-    def test_create_gpt_5_6_models_without_reasoning(self):
-        for tool in (GPT_5_6_SOL, GPT_5_6_TERRA, GPT_5_6_LUNA):
+    def test_create_non_reasoning_openai_models_without_reasoning(self):
+        for tool in (GPT_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, GPT_5_6_LUNA):
             with self.subTest(tool = tool.id):
                 configured_tool = domain.configured_tool(definition = tool)
 
@@ -58,8 +62,14 @@ class LangchainFactoryTest(TestCase):
 
         self.assertIsInstance(result, ChatAnthropic)
 
-    def test_create_current_opus_models_without_temperature(self):
-        for tool in (CLAUDE_4_8_OPUS, CLAUDE_5_OPUS):
+    def test_create_current_claude_models_without_temperature(self):
+        for tool in (
+            CLAUDE_5_5_HAIKU,
+            CLAUDE_5_5_SONNET,
+            CLAUDE_5_5_OPUS,
+            CLAUDE_5_1_FABLE,
+            CLAUDE_4_8_OPUS,
+        ):
             with self.subTest(tool = tool.id):
                 configured_tool = domain.configured_tool(definition = tool, purpose = ToolType.reasoning)
 

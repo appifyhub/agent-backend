@@ -2,21 +2,20 @@ from dataclasses import asdict, dataclass, replace
 
 from features.external_tools.external_tool import ExternalTool
 from features.external_tools.external_tool_library import (
-    IMAGE_GEN_EDIT_FLUX_2_MAX,
-    IMAGE_GEN_EDIT_FLUX_2_PRO,
-    IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO,
-    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA,
-    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2,
-    IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO,
-    IMAGE_GEN_EDIT_GPT_IMAGE_1_5,
-    IMAGE_GEN_EDIT_GPT_IMAGE_2,
-    IMAGE_GEN_EDIT_SEEDREAM_4,
-    IMAGE_GEN_EDIT_SEEDREAM_4_5,
-    IMAGE_GEN_EDIT_SEEDREAM_5_PRO,
-    IMAGE_GEN_GROK_IMAGINE,
-    IMAGE_GEN_GROK_IMAGINE_QUALITY,
-    NANO_BANANA,
-    NANO_BANANA_2,
+    IMAGE_FLUX_2_MAX,
+    IMAGE_FLUX_2_PRO,
+    IMAGE_FLUX_3,
+    IMAGE_GOOGLE_NANO_BANANA_2_1,
+    IMAGE_GOOGLE_NANO_BANANA_PRO,
+    IMAGE_GPT_IMAGE_2_5_FLARE,
+    IMAGE_GPT_IMAGE_2_5_SUNBURST,
+    IMAGE_GROK_IMAGINE,
+    IMAGE_GROK_IMAGINE_2,
+    IMAGE_SEEDREAM_4,
+    IMAGE_SEEDREAM_4_5,
+    IMAGE_SEEDREAM_5_PRO,
+    NANO_BANANA_2_1,
+    NANO_BANANA_2_LITE,
     NANO_BANANA_PRO,
 )
 from features.images.image_size_utils import convert_size_to_k, convert_size_to_mp, resolve_closest_aspect_ratio
@@ -33,11 +32,27 @@ VALID_ASPECT_RATIOS = [
 ]
 
 ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
-    IMAGE_GEN_EDIT_SEEDREAM_4_5.id: {
+    IMAGE_FLUX_3.id: {
+        "prompt", "images", "aspect_ratio", "resolution", "grounding",
+        "safety_tolerance", "output_format", "output_quality",
+    },
+    IMAGE_GPT_IMAGE_2_5_FLARE.id: {
+        "prompt", "input_images", "aspect_ratio", "number_of_images", "quality",
+        "background", "output_compression", "output_format", "moderation",
+    },
+    IMAGE_GPT_IMAGE_2_5_SUNBURST.id: {
+        "prompt", "input_images", "aspect_ratio", "number_of_images", "quality",
+        "background", "output_compression", "output_format", "moderation",
+    },
+    IMAGE_GOOGLE_NANO_BANANA_2_1.id: {
+        "prompt", "image_input", "aspect_ratio", "resolution",
+        "google_search", "image_search", "output_format",
+    },
+    IMAGE_SEEDREAM_4_5.id: {
         "prompt", "image_input", "size", "aspect_ratio",
         "sequential_image_generation", "max_images", "disable_safety_checker",
     },
-    IMAGE_GEN_EDIT_SEEDREAM_5_PRO.id: {
+    IMAGE_SEEDREAM_5_PRO.id: {
         "prompt", "image_input", "size", "aspect_ratio", "output_format",
     },
 }
@@ -51,6 +66,7 @@ class UnifiedImageParameters:
     enhance_prompt: bool = False
     # output
     aspect_ratio: str = "2:3"
+    match_input_image: bool = False
     size: str = "2K"
     resolution: str | None = None
     image_size: str | None = None
@@ -76,6 +92,7 @@ class UnifiedImageParameters:
     # search
     google_search: bool = False
     image_search: bool = False
+    grounding: bool = False
     # input
     input_fidelity: str = "high"
     guidance_scale: float = 5.5
@@ -84,6 +101,7 @@ class UnifiedImageParameters:
     input_image: str | None = None
     image_input: list[str] | None = None
     input_images: list[str] | None = None
+    images: list[str] | None = None
 
 
 def map_to_model_parameters(
@@ -105,49 +123,61 @@ def map_to_model_parameters(
         input_image = single_image,
         image_input = multi_images,
         input_images = multi_images,
+        images = multi_images,
     )
 
-    if tool == IMAGE_GEN_EDIT_FLUX_2_PRO:
+    if tool == IMAGE_FLUX_2_PRO:
         return replace(unified_params, resolution = convert_size_to_mp(unified_params.size), safety_tolerance = 5)
-    elif tool == IMAGE_GEN_EDIT_FLUX_2_MAX:
+    elif tool == IMAGE_FLUX_2_MAX:
         return replace(unified_params, resolution = convert_size_to_mp(unified_params.size), safety_tolerance = 5)
-    elif tool == IMAGE_GEN_EDIT_FLUX_KONTEXT_PRO:
-        return unified_params
-    elif tool == IMAGE_GEN_EDIT_GPT_IMAGE_1_5:
-        return unified_params
-    elif tool == IMAGE_GEN_EDIT_GPT_IMAGE_2:
-        return unified_params
-    elif tool == IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA:
-        return unified_params
-    elif tool == IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_PRO:
+    elif tool == IMAGE_FLUX_3:
+        ar = "auto" if unified_params.aspect_ratio == "match_input_image" else unified_params.aspect_ratio
+        normalized_size = convert_size_to_k(unified_params.size)
+        clamped_size = normalized_size if normalized_size in {"1K", "2K", "4K"} else "2K"
+        return replace(
+            unified_params,
+            aspect_ratio = ar,
+            size = clamped_size,
+            resolution = clamped_size.lower(),
+            safety_tolerance = 4,
+        )
+    elif tool == IMAGE_GPT_IMAGE_2_5_FLARE:
+        ar = "auto" if unified_params.aspect_ratio == "match_input_image" else unified_params.aspect_ratio
+        return replace(unified_params, aspect_ratio = ar, quality = "auto")
+    elif tool == IMAGE_GPT_IMAGE_2_5_SUNBURST:
+        ar = "auto" if unified_params.aspect_ratio == "match_input_image" else unified_params.aspect_ratio
+        return replace(unified_params, aspect_ratio = ar, quality = "max")
+    elif tool == IMAGE_GOOGLE_NANO_BANANA_PRO:
         return replace(unified_params, resolution = convert_size_to_k(unified_params.size))
-    elif tool == IMAGE_GEN_EDIT_GOOGLE_NANO_BANANA_2:
+    elif tool == IMAGE_GOOGLE_NANO_BANANA_2_1:
         return replace(unified_params, resolution = convert_size_to_k(unified_params.size))
-    elif tool == IMAGE_GEN_EDIT_SEEDREAM_4:
+    elif tool == IMAGE_SEEDREAM_4:
         return replace(unified_params, size = convert_size_to_k(unified_params.size))
-    elif tool == IMAGE_GEN_EDIT_SEEDREAM_4_5:
+    elif tool == IMAGE_SEEDREAM_4_5:
         normalized_size = convert_size_to_k(unified_params.size)
         clamped_size = "2K" if normalized_size == "1K" else normalized_size
         return replace(unified_params, size = clamped_size)
-    elif tool == IMAGE_GEN_EDIT_SEEDREAM_5_PRO:
+    elif tool == IMAGE_SEEDREAM_5_PRO:
         normalized_size = convert_size_to_k(unified_params.size)
         clamped_size = "2K" if normalized_size == "4K" else normalized_size
         return replace(unified_params, size = clamped_size)
-    elif tool == NANO_BANANA:
+    elif tool == NANO_BANANA_2_LITE:
+        ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
+        return replace(unified_params, size = "1K", aspect_ratio = ar)
+    elif tool == NANO_BANANA_2_1:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
         return replace(unified_params, size = convert_size_to_k(unified_params.size), aspect_ratio = ar)
     elif tool == NANO_BANANA_PRO:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
         return replace(unified_params, size = convert_size_to_k(unified_params.size), aspect_ratio = ar)
-    elif tool == NANO_BANANA_2:
-        ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
-        return replace(unified_params, size = convert_size_to_k(unified_params.size), aspect_ratio = ar)
-    elif tool == IMAGE_GEN_GROK_IMAGINE:
+    elif tool == IMAGE_GROK_IMAGINE:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
         return replace(unified_params, resolution = convert_size_to_k(unified_params.size).lower(), aspect_ratio = ar)
-    elif tool == IMAGE_GEN_GROK_IMAGINE_QUALITY:
+    elif tool == IMAGE_GROK_IMAGINE_2:
         ar = unified_params.aspect_ratio if unified_params.aspect_ratio != "match_input_image" else None
-        return replace(unified_params, resolution = convert_size_to_k(unified_params.size).lower(), aspect_ratio = ar)
+        normalized_size = convert_size_to_k(unified_params.size)
+        clamped_size = "2K" if normalized_size == "4K" else normalized_size
+        return replace(unified_params, size = clamped_size, resolution = clamped_size.lower(), aspect_ratio = ar)
     else:
         log.w(f"Unknown model '{tool.id}', using default mapping")
         return unified_params

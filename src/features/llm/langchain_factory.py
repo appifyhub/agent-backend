@@ -9,12 +9,14 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ExternalTool, ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_8_OPUS,
-    CLAUDE_5_FABLE,
-    CLAUDE_5_OPUS,
-    CLAUDE_5_SONNET,
+    CLAUDE_5_1_FABLE,
+    CLAUDE_5_5_HAIKU,
+    CLAUDE_5_5_OPUS,
+    CLAUDE_5_5_SONNET,
     GPT_5_6_LUNA,
     GPT_5_6_SOL,
     GPT_5_6_TERRA,
+    GPT_6_LUNA,
 )
 from features.external_tools.external_tool_provider_library import (
     ANTHROPIC,
@@ -29,15 +31,17 @@ from util.errors import ConfigurationError
 
 NO_TEMPERATURE_MODELS = {
     CLAUDE_4_8_OPUS.id,
-    CLAUDE_5_OPUS.id,
-    CLAUDE_5_SONNET.id,
-    CLAUDE_5_FABLE.id,
+    CLAUDE_5_1_FABLE.id,
+    CLAUDE_5_5_HAIKU.id,
+    CLAUDE_5_5_OPUS.id,
+    CLAUDE_5_5_SONNET.id,
 }
 
 NO_REASONING_MODELS = {
     GPT_5_6_SOL.id,
     GPT_5_6_TERRA.id,
     GPT_5_6_LUNA.id,
+    GPT_6_LUNA.id,
 }
 
 
