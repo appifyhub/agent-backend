@@ -19,7 +19,7 @@ from di.di import DI
 from features.chat.llm_tools.llm_tool_library import ALL_LLM_TOOLS, generate_video
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GPT_5_NANO, VIDEO_GEN_P_VIDEO
+from features.external_tools.external_tool_library import GPT_6_LUNA, VIDEO_GEN_P_VIDEO
 from features.videos import smart_video_generator
 from features.videos.smart_video_generator import SmartVideoGenerator
 from util.error_codes import INSUFFICIENT_CREDITS, MISSING_CONTENT, VIDEO_GENERATION_FAILED
@@ -44,7 +44,7 @@ class SmartVideoGeneratorTest(TestCase):
             tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
         )))
         self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config(external_id = "12345")))
-        self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_5_NANO, purpose = ToolType.copywriting)
+        self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_6_LUNA, purpose = ToolType.copywriting)
         self.video_tool = stubs.domain.configured_tool(
             definition = VIDEO_GEN_P_VIDEO,
             purpose = ToolType.videos_gen,

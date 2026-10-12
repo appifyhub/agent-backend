@@ -13,8 +13,8 @@ from features.accounting.usage.usage_record_repo import UsageRecordRepository
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
-    CLAUDE_4_5_HAIKU,
-    GPT_5_5,
+    CLAUDE_5_5_HAIKU,
+    GPT_5_6_TERRA,
     TRANSFER_TOOL,
     WHATSAPP_MESSAGE_DELIVERY,
 )
@@ -36,7 +36,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         record = stubs.domain.usage_record(
             user_id = self.user.id,
             payer_id = self.user.id,
-            tool = GPT_5_5,
+            tool = GPT_5_6_TERRA,
             tool_purpose = ToolType.vision,
             model_cost_credits = 0.5,
             remote_runtime_cost_credits = 0.1,
@@ -235,7 +235,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 10,
                 runtime_seconds = 1.0,
             ),
@@ -244,7 +244,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 5,
                 runtime_seconds = 1.0,
             ),
@@ -253,7 +253,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = CLAUDE_4_5_HAIKU,
+                tool = CLAUDE_5_5_HAIKU,
                 tool_purpose = ToolType.images_gen,
                 total_cost_credits = 20,
                 runtime_seconds = 1.0,
@@ -268,10 +268,10 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
         # by_tool (keyed by tool_id)
         self.assertEqual(len(stats.by_tool), 2)
-        self.assertEqual(stats.by_tool[GPT_5_5.id].record_count, 2)
-        self.assertEqual(stats.by_tool[GPT_5_5.id].total_cost, 15.0)
-        self.assertEqual(stats.by_tool[CLAUDE_4_5_HAIKU.id].record_count, 1)
-        self.assertEqual(stats.by_tool[CLAUDE_4_5_HAIKU.id].total_cost, 20.0)
+        self.assertEqual(stats.by_tool[GPT_5_6_TERRA.id].record_count, 2)
+        self.assertEqual(stats.by_tool[GPT_5_6_TERRA.id].total_cost, 15.0)
+        self.assertEqual(stats.by_tool[CLAUDE_5_5_HAIKU.id].record_count, 1)
+        self.assertEqual(stats.by_tool[CLAUDE_5_5_HAIKU.id].total_cost, 20.0)
 
         # by_purpose
         self.assertEqual(len(stats.by_purpose), 2)
@@ -282,15 +282,15 @@ class UsageRecordRepositoryTest(unittest.TestCase):
 
         # by_provider (keyed by provider_id)
         self.assertEqual(len(stats.by_provider), 2)
-        self.assertEqual(stats.by_provider[GPT_5_5.provider.id].record_count, 2)
-        self.assertEqual(stats.by_provider[GPT_5_5.provider.id].total_cost, 15.0)
-        self.assertEqual(stats.by_provider[CLAUDE_4_5_HAIKU.provider.id].record_count, 1)
-        self.assertEqual(stats.by_provider[CLAUDE_4_5_HAIKU.provider.id].total_cost, 20.0)
+        self.assertEqual(stats.by_provider[GPT_5_6_TERRA.provider.id].record_count, 2)
+        self.assertEqual(stats.by_provider[GPT_5_6_TERRA.provider.id].total_cost, 15.0)
+        self.assertEqual(stats.by_provider[CLAUDE_5_5_HAIKU.provider.id].record_count, 1)
+        self.assertEqual(stats.by_provider[CLAUDE_5_5_HAIKU.provider.id].total_cost, 20.0)
 
         # all_tools_used (list of ToolInfo)
         tool_ids = [t.id for t in stats.all_tools_used]
-        self.assertIn(GPT_5_5.id, tool_ids)
-        self.assertIn(CLAUDE_4_5_HAIKU.id, tool_ids)
+        self.assertIn(GPT_5_6_TERRA.id, tool_ids)
+        self.assertIn(CLAUDE_5_5_HAIKU.id, tool_ids)
         self.assertIn(ToolType.chat.value, stats.all_purposes_used)
         self.assertIn(ToolType.images_gen.value, stats.all_purposes_used)
 
@@ -365,21 +365,21 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         self.assertEqual(stats.total_cost_credits, 30.0)
 
     def test_get_by_user_tool_filter(self):
-        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_5))
-        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_5))
+        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_6_TERRA))
+        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_6_TERRA))
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = CLAUDE_4_5_HAIKU,
+                tool = CLAUDE_5_5_HAIKU,
             ),
         )
 
-        records = self.repo.get_by_user(self.user.id, tool_id = GPT_5_5.id)
+        records = self.repo.get_by_user(self.user.id, tool_id = GPT_5_6_TERRA.id)
 
         self.assertEqual(len(records), 2)
         for r in records:
-            self.assertEqual(r.tool.id, GPT_5_5.id)
+            self.assertEqual(r.tool.id, GPT_5_6_TERRA.id)
 
     def test_get_by_user_purpose_filter(self):
         self.repo.create(
@@ -409,21 +409,21 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             self.assertEqual(r.tool_purpose, ToolType.chat)
 
     def test_get_by_user_provider_filter(self):
-        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_5))
-        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_5))
+        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_6_TERRA))
+        self.repo.create(stubs.domain.usage_record(user_id = self.user.id, payer_id = self.user.id, tool = GPT_5_6_TERRA))
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = CLAUDE_4_5_HAIKU,
+                tool = CLAUDE_5_5_HAIKU,
             ),
         )
 
-        records = self.repo.get_by_user(self.user.id, provider_id = GPT_5_5.provider.id)
+        records = self.repo.get_by_user(self.user.id, provider_id = GPT_5_6_TERRA.provider.id)
 
         self.assertEqual(len(records), 2)
         for r in records:
-            self.assertEqual(r.tool.provider.id, GPT_5_5.provider.id)
+            self.assertEqual(r.tool.provider.id, GPT_5_6_TERRA.provider.id)
 
     def test_get_aggregates_by_user_with_filter_keeps_all_lists_unfiltered(self):
         # Create records with different tools
@@ -431,7 +431,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 10,
             ),
         )
@@ -439,26 +439,26 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = CLAUDE_4_5_HAIKU,
+                tool = CLAUDE_5_5_HAIKU,
                 tool_purpose = ToolType.images_gen,
                 total_cost_credits = 20,
             ),
         )
 
-        # Filter by GPT_5_5 only
-        stats = self.repo.get_aggregates_by_user(self.user.id, tool_id = GPT_5_5.id)
+        # Filter by GPT_5_6_TERRA only
+        stats = self.repo.get_aggregates_by_user(self.user.id, tool_id = GPT_5_6_TERRA.id)
 
-        # Totals should be filtered (only GPT_5_5)
+        # Totals should be filtered (only GPT_5_6_TERRA)
         self.assertEqual(stats.total_records, 1)
         self.assertEqual(stats.total_cost_credits, 10.0)
         self.assertEqual(len(stats.by_tool), 1)
-        self.assertIn(GPT_5_5.id, stats.by_tool)
+        self.assertIn(GPT_5_6_TERRA.id, stats.by_tool)
 
         # But all_*_used lists should include ALL tools in the date range (unfiltered)
         tool_ids = [t.id for t in stats.all_tools_used]
         self.assertEqual(len(tool_ids), 2)
-        self.assertIn(GPT_5_5.id, tool_ids)
-        self.assertIn(CLAUDE_4_5_HAIKU.id, tool_ids)
+        self.assertIn(GPT_5_6_TERRA.id, tool_ids)
+        self.assertIn(CLAUDE_5_5_HAIKU.id, tool_ids)
 
         # Same for purposes
         self.assertEqual(len(stats.all_purposes_used), 2)
@@ -468,15 +468,15 @@ class UsageRecordRepositoryTest(unittest.TestCase):
         # Same for providers
         provider_ids = [p.id for p in stats.all_providers_used]
         self.assertEqual(len(provider_ids), 2)
-        self.assertIn(GPT_5_5.provider.id, provider_ids)
-        self.assertIn(CLAUDE_4_5_HAIKU.provider.id, provider_ids)
+        self.assertIn(GPT_5_6_TERRA.provider.id, provider_ids)
+        self.assertIn(CLAUDE_5_5_HAIKU.provider.id, provider_ids)
 
     def test_get_by_user_includes_transfers_by_default(self):
         self.repo.create(
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
             ),
         )
         self.repo.create(
@@ -497,7 +497,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
             ),
         )
         self.repo.create(
@@ -519,7 +519,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
             ),
         )
         self.repo.create(
@@ -550,7 +550,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 10,
             ),
         )
@@ -575,7 +575,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 10,
             ),
         )
@@ -600,7 +600,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 10,
             ),
         )
@@ -633,7 +633,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
             ),
         )
         self.repo.create(
@@ -667,7 +667,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
             ),
         )
         self.repo.create(
@@ -699,7 +699,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
             ),
         )
         self.repo.create(
@@ -732,7 +732,7 @@ class UsageRecordRepositoryTest(unittest.TestCase):
             stubs.domain.usage_record(
                 user_id = self.user.id,
                 payer_id = self.user.id,
-                tool = GPT_5_5,
+                tool = GPT_5_6_TERRA,
                 total_cost_credits = 10,
             ),
         )

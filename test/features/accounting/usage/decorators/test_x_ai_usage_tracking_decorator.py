@@ -11,7 +11,7 @@ from di.di import DI
 from features.accounting.usage.decorators.x_ai_usage_tracking_decorator import XAIUsageTrackingDecorator
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
-from features.external_tools.external_tool_library import GROK_4_3, IMAGE_GEN_GROK_IMAGINE
+from features.external_tools.external_tool_library import GROK_4_3, IMAGE_GROK_IMAGINE
 from features.users.user import User
 from util.config import config
 from util.error_codes import INSUFFICIENT_CREDITS, UNEXPECTED_ERROR
@@ -31,7 +31,7 @@ class XAIUsageTrackingDecoratorTest(TestCase):
         self.user = self.di.user_repo.save(stubs.domain.user())
         self.di.inject_invoker(self.user)
         self.tool = stubs.domain.configured_tool(
-            definition = stubs.domain.external_tool(id = IMAGE_GEN_GROK_IMAGINE.id),
+            definition = stubs.domain.external_tool(id = IMAGE_GROK_IMAGINE.id),
             purpose = ToolType.images_gen,
             uses_credits = True,
         )

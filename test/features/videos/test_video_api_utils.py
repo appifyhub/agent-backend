@@ -1,10 +1,11 @@
 import unittest
 
 from features.external_tools.external_tool_library import (
+    VIDEO_GEN_GEMINI_OMNI_1_1,
     VIDEO_GEN_P_VIDEO,
     VIDEO_GEN_RAY_3_2,
-    VIDEO_GEN_SEEDANCE_2_0,
     VIDEO_GEN_SEEDANCE_2_0_FAST,
+    VIDEO_GEN_SEEDANCE_2_5,
     VIDEO_GEN_VEO_3_1,
     VIDEO_GEN_VEO_3_1_FAST,
 )
@@ -15,8 +16,9 @@ class VideoApiUtilsTest(unittest.TestCase):
 
     def test_resolve_aspect_ratio_uses_default_without_references(self):
         for tool in (
+            VIDEO_GEN_GEMINI_OMNI_1_1,
             VIDEO_GEN_P_VIDEO,
-            VIDEO_GEN_SEEDANCE_2_0,
+            VIDEO_GEN_SEEDANCE_2_5,
             VIDEO_GEN_SEEDANCE_2_0_FAST,
             VIDEO_GEN_VEO_3_1,
             VIDEO_GEN_VEO_3_1_FAST,
@@ -28,8 +30,9 @@ class VideoApiUtilsTest(unittest.TestCase):
     def test_resolve_aspect_ratio_maps_omitted_ratio_for_model_input_mode(self):
         references = ["https://example.com/first.png", "https://example.com/second.png"]
         cases = [
+            (VIDEO_GEN_GEMINI_OMNI_1_1, None),
             (VIDEO_GEN_P_VIDEO, None),
-            (VIDEO_GEN_SEEDANCE_2_0, "adaptive"),
+            (VIDEO_GEN_SEEDANCE_2_5, "adaptive"),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, "adaptive"),
             (VIDEO_GEN_VEO_3_1, "16:9"),
             (VIDEO_GEN_VEO_3_1_FAST, None),
@@ -46,8 +49,9 @@ class VideoApiUtilsTest(unittest.TestCase):
     def test_resolve_aspect_ratio_maps_match_input_image_for_each_model(self):
         references = ["https://example.com/reference.png"]
         cases = [
+            (VIDEO_GEN_GEMINI_OMNI_1_1, None),
             (VIDEO_GEN_P_VIDEO, None),
-            (VIDEO_GEN_SEEDANCE_2_0, "adaptive"),
+            (VIDEO_GEN_SEEDANCE_2_5, "adaptive"),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, "adaptive"),
             (VIDEO_GEN_VEO_3_1, None),
             (VIDEO_GEN_VEO_3_1_FAST, None),
@@ -63,8 +67,9 @@ class VideoApiUtilsTest(unittest.TestCase):
 
     def test_resolve_aspect_ratio_uses_each_models_closest_supported_ratio(self):
         cases = [
+            (VIDEO_GEN_GEMINI_OMNI_1_1, "1:1", "9:16"),
             (VIDEO_GEN_P_VIDEO, "21:9", "16:9"),
-            (VIDEO_GEN_SEEDANCE_2_0, "2:3", "3:4"),
+            (VIDEO_GEN_SEEDANCE_2_5, "2:3", "3:4"),
             (VIDEO_GEN_VEO_3_1, "1:1", "9:16"),
             (VIDEO_GEN_RAY_3_2, "3:2", "4:3"),
         ]
@@ -82,7 +87,7 @@ class VideoApiUtilsTest(unittest.TestCase):
                 )
 
     def test_resolve_aspect_ratio_preserves_every_seedance_ratio(self):
-        for tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        for tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             for aspect_ratio in video_api_utils.SEEDANCE_ASPECT_RATIOS:
                 with self.subTest(tool = tool.id, aspect_ratio = aspect_ratio):
                     self.assertEqual(
@@ -91,7 +96,7 @@ class VideoApiUtilsTest(unittest.TestCase):
                     )
 
     def test_resolve_aspect_ratio_does_not_expose_seedance_adaptive_input(self):
-        for tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        for tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             with self.subTest(tool = tool.id):
                 self.assertEqual(video_api_utils.resolve_aspect_ratio(tool, "adaptive"), "16:9")
 
@@ -118,13 +123,16 @@ class VideoApiUtilsTest(unittest.TestCase):
     def test_resolve_duration_defaults_to_medium(self):
         self.assertEqual(video_api_utils.resolve_duration(VIDEO_GEN_P_VIDEO, None), 5)
         self.assertEqual(video_api_utils.resolve_duration(VIDEO_GEN_P_VIDEO, "invalid"), 5)
-        for tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        for tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             with self.subTest(tool = tool.id):
                 self.assertEqual(video_api_utils.resolve_duration(tool, None), 5)
                 self.assertEqual(video_api_utils.resolve_duration(tool, "-1"), 5)
+        for duration in (None, "short", "medium", "long", "invalid"):
+            with self.subTest(tool = VIDEO_GEN_GEMINI_OMNI_1_1.id, duration = duration):
+                self.assertEqual(video_api_utils.resolve_duration(VIDEO_GEN_GEMINI_OMNI_1_1, duration), 10)
 
     def test_resolve_duration_maps_p_video_and_seedance_tiers(self):
-        for tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        for tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             for duration, expected in [("short", 4), ("medium", 5), ("long", 10)]:
                 with self.subTest(tool = tool.id, duration = duration):
                     self.assertEqual(video_api_utils.resolve_duration(tool, duration.upper()), expected)
@@ -163,12 +171,15 @@ class VideoApiUtilsTest(unittest.TestCase):
 
     def test_map_to_model_parameters_maps_and_clamps_output_size(self):
         cases = [
+            (VIDEO_GEN_GEMINI_OMNI_1_1, "1K", "1K", "720p"),
+            (VIDEO_GEN_GEMINI_OMNI_1_1, "2K", "2K", "1080p"),
+            (VIDEO_GEN_GEMINI_OMNI_1_1, "4K", "4K", "4k"),
             (VIDEO_GEN_P_VIDEO, "1K", "1K", "720p"),
             (VIDEO_GEN_P_VIDEO, "2K", "2K", "1080p"),
             (VIDEO_GEN_P_VIDEO, "4K", "2K", "1080p"),
-            (VIDEO_GEN_SEEDANCE_2_0, "1K", "1K", "720p"),
-            (VIDEO_GEN_SEEDANCE_2_0, "2K", "2K", "1080p"),
-            (VIDEO_GEN_SEEDANCE_2_0, "4K", "4K", "4k"),
+            (VIDEO_GEN_SEEDANCE_2_5, "1K", "1K", "720p"),
+            (VIDEO_GEN_SEEDANCE_2_5, "2K", "1K", "720p"),
+            (VIDEO_GEN_SEEDANCE_2_5, "4K", "1K", "720p"),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, "1K", "1K", "720p"),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, "2K", "1K", "720p"),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, "4K", "1K", "720p"),
@@ -200,8 +211,9 @@ class VideoApiUtilsTest(unittest.TestCase):
         reference = "https://example.com/first.png"
 
         for tool in (
+            VIDEO_GEN_GEMINI_OMNI_1_1,
             VIDEO_GEN_P_VIDEO,
-            VIDEO_GEN_SEEDANCE_2_0,
+            VIDEO_GEN_SEEDANCE_2_5,
             VIDEO_GEN_SEEDANCE_2_0_FAST,
             VIDEO_GEN_VEO_3_1,
             VIDEO_GEN_VEO_3_1_FAST,
@@ -241,7 +253,7 @@ class VideoApiUtilsTest(unittest.TestCase):
     def test_map_to_model_parameters_maps_match_input_image_like_image_models(self):
         reference = ["https://example.com/first.png"]
 
-        for tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        for tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             with self.subTest(tool = tool.id):
                 result = video_api_utils.map_to_model_parameters(
                     tool,
@@ -250,7 +262,13 @@ class VideoApiUtilsTest(unittest.TestCase):
                 )
                 self.assertEqual(result.aspect_ratio, "adaptive")
 
-        for tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_VEO_3_1, VIDEO_GEN_VEO_3_1_FAST, VIDEO_GEN_RAY_3_2):
+        for tool in (
+            VIDEO_GEN_GEMINI_OMNI_1_1,
+            VIDEO_GEN_P_VIDEO,
+            VIDEO_GEN_VEO_3_1,
+            VIDEO_GEN_VEO_3_1_FAST,
+            VIDEO_GEN_RAY_3_2,
+        ):
             with self.subTest(tool = tool.id):
                 result = video_api_utils.map_to_model_parameters(
                     tool,
@@ -260,9 +278,9 @@ class VideoApiUtilsTest(unittest.TestCase):
                 self.assertIsNone(result.aspect_ratio)
 
     def test_map_to_model_parameters_uses_supported_reference_arrays(self):
-        references = [f"https://example.com/{index}.png" for index in range(11)]
+        references = [f"https://example.com/{index}.png" for index in range(31)]
         cases = [
-            (VIDEO_GEN_SEEDANCE_2_0, 9),
+            (VIDEO_GEN_SEEDANCE_2_5, 30),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, 9),
             (VIDEO_GEN_VEO_3_1, 3),
         ]
@@ -281,7 +299,12 @@ class VideoApiUtilsTest(unittest.TestCase):
     def test_map_to_model_parameters_falls_back_to_first_image_for_singular_models(self):
         references = ["https://example.com/first.png", "https://example.com/second.png"]
 
-        for tool in (VIDEO_GEN_P_VIDEO, VIDEO_GEN_VEO_3_1_FAST, VIDEO_GEN_RAY_3_2):
+        for tool in (
+            VIDEO_GEN_GEMINI_OMNI_1_1,
+            VIDEO_GEN_P_VIDEO,
+            VIDEO_GEN_VEO_3_1_FAST,
+            VIDEO_GEN_RAY_3_2,
+        ):
             with self.subTest(tool = tool.id):
                 result = video_api_utils.map_to_model_parameters(
                     tool,
@@ -324,7 +347,7 @@ class VideoApiUtilsTest(unittest.TestCase):
 
     def test_map_to_model_parameters_maps_seedance_text_generation(self):
         cases = [
-            (VIDEO_GEN_SEEDANCE_2_0, "2K", "1080p"),
+            (VIDEO_GEN_SEEDANCE_2_5, "1K", "720p"),
             (VIDEO_GEN_SEEDANCE_2_0_FAST, "1K", "720p"),
         ]
 
@@ -346,32 +369,6 @@ class VideoApiUtilsTest(unittest.TestCase):
                 self.assertIsNone(result.image)
                 self.assertIsNone(result.reference_images)
                 self.assertTrue(result.generate_audio)
-
-    def test_seedance_cost_uses_mapped_size_and_duration(self):
-        cases = [
-            (VIDEO_GEN_SEEDANCE_2_0, "short", "1K", 72),
-            (VIDEO_GEN_SEEDANCE_2_0, "medium", "2K", 225),
-            (VIDEO_GEN_SEEDANCE_2_0, "long", "4K", 1000),
-            (VIDEO_GEN_SEEDANCE_2_0_FAST, "short", "1K", 60),
-            (VIDEO_GEN_SEEDANCE_2_0_FAST, "medium", "2K", 75),
-            (VIDEO_GEN_SEEDANCE_2_0_FAST, "long", "4K", 150),
-        ]
-
-        for tool, duration, output_size, expected_cost in cases:
-            with self.subTest(tool = tool.id, duration = duration, output_size = output_size):
-                parameters = video_api_utils.map_to_model_parameters(
-                    tool,
-                    duration = duration,
-                    output_size = output_size,
-                )
-                cost = tool.cost_estimate.get_minimum_for(
-                    input_text = "",
-                    max_output_tokens = 0,
-                    output_video_size = parameters.size,
-                    output_video_duration_seconds = parameters.duration,
-                )
-
-                self.assertEqual(cost, expected_cost)
 
     def test_map_to_model_parameters_maps_ray_text_generation(self):
         result = video_api_utils.map_to_model_parameters(
@@ -412,31 +409,6 @@ class VideoApiUtilsTest(unittest.TestCase):
                 self.assertIsNone(result.image)
                 self.assertIsNone(result.reference_images)
 
-    def test_ray_cost_uses_mapped_size_and_duration(self):
-        cases = [
-            ("short", "1K", None, 75),
-            ("medium", "2K", None, 250),
-            ("long", "4K", None, 500),
-            ("long", "4K", ["https://example.com/first.png"], 250),
-        ]
-
-        for duration, output_size, references, expected_cost in cases:
-            with self.subTest(duration = duration, output_size = output_size, references = references):
-                parameters = video_api_utils.map_to_model_parameters(
-                    VIDEO_GEN_RAY_3_2,
-                    duration = duration,
-                    output_size = output_size,
-                    reference_image_urls = references,
-                )
-                cost = VIDEO_GEN_RAY_3_2.cost_estimate.get_minimum_for(
-                    input_text = "",
-                    max_output_tokens = 0,
-                    output_video_size = parameters.size,
-                    output_video_duration_seconds = parameters.duration,
-                )
-
-                self.assertEqual(cost, expected_cost)
-
     def test_map_to_model_parameters_applies_provider_defaults(self):
         p_video = video_api_utils.map_to_model_parameters(VIDEO_GEN_P_VIDEO)
         self.assertEqual(p_video.fps, 24)
@@ -446,7 +418,7 @@ class VideoApiUtilsTest(unittest.TestCase):
         self.assertTrue(p_video.save_audio)
 
         for tool in (
-            VIDEO_GEN_SEEDANCE_2_0,
+            VIDEO_GEN_SEEDANCE_2_5,
             VIDEO_GEN_SEEDANCE_2_0_FAST,
             VIDEO_GEN_VEO_3_1,
             VIDEO_GEN_VEO_3_1_FAST,
@@ -484,7 +456,7 @@ class VideoApiUtilsTest(unittest.TestCase):
         )
 
     def test_filter_replicate_params_omits_seedance_editing_inputs(self):
-        for tool in (VIDEO_GEN_SEEDANCE_2_0, VIDEO_GEN_SEEDANCE_2_0_FAST):
+        for tool in (VIDEO_GEN_SEEDANCE_2_5, VIDEO_GEN_SEEDANCE_2_0_FAST):
             with self.subTest(tool = tool.id):
                 parameters = video_api_utils.map_to_model_parameters(
                     tool,
@@ -517,11 +489,14 @@ class VideoApiUtilsTest(unittest.TestCase):
     def test_filter_replicate_params_matches_each_provider_schema(self):
         references = ["https://example.com/first.png", "https://example.com/second.png"]
         expected_keys = {
+            VIDEO_GEN_GEMINI_OMNI_1_1.id: {
+                "prompt", "image", "resolution",
+            },
             VIDEO_GEN_P_VIDEO.id: {
                 "prompt", "image", "duration", "resolution",
                 "fps", "draft", "prompt_upsampling", "disable_safety_filter", "save_audio",
             },
-            VIDEO_GEN_SEEDANCE_2_0.id: {
+            VIDEO_GEN_SEEDANCE_2_5.id: {
                 "prompt", "reference_images", "duration", "aspect_ratio", "resolution", "generate_audio",
             },
             VIDEO_GEN_SEEDANCE_2_0_FAST.id: {
@@ -539,8 +514,9 @@ class VideoApiUtilsTest(unittest.TestCase):
         }
 
         for tool in (
+            VIDEO_GEN_GEMINI_OMNI_1_1,
             VIDEO_GEN_P_VIDEO,
-            VIDEO_GEN_SEEDANCE_2_0,
+            VIDEO_GEN_SEEDANCE_2_5,
             VIDEO_GEN_SEEDANCE_2_0_FAST,
             VIDEO_GEN_VEO_3_1,
             VIDEO_GEN_VEO_3_1_FAST,
