@@ -33,6 +33,9 @@ class ChatAttachmentProcessorTest(TestCase):
         self.di = self.enterContext(di_for_tests())
         self.di.inject_invoker(self.di.user_repo.save(domain.user()))
         self.di.inject_invoker_chat(self.di.chat_config_repo.save(domain.chat_config()))
+        self.di.chat_membership_repo.save(
+            domain.chat_membership(user_id = self.di.invoker.id, chat_id = self.di.require_invoker_chat().chat_id),
+        )
         self.attachments = self.di.chat_attachment_service
         self.cache = self.di.tools_cache_repo
         tool = domain.configured_tool()

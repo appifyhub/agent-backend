@@ -59,6 +59,13 @@ class ChatAttachmentService:
             raise NotFoundError(f"Attachment '{attachment}' not found", ATTACHMENT_NOT_FOUND)
         return stored_attachment
 
+    def __require_membership(self, attachment: ChatAttachment) -> ChatAttachment:
+        membership = self.__di.chat_membership_service.get(self.__di.invoker.id, attachment.chat_id)
+        if membership is None:
+            message = f"User '{self.__di.invoker.id.hex}' is not a member of chat '{attachment.chat_id.hex}'"
+            raise AuthorizationError(message, NOT_CHAT_MEMBER)
+        return attachment
+
     def stream_attachment(self, attachment: ChatAttachment | str) -> ResolvedAttachmentStream:
         attachment = self.get(attachment)
 
@@ -197,7 +204,7 @@ class ChatAttachmentService:
         chat_id = self.__di.require_invoker_chat().chat_id
         # resolve local attachments by fetching from the DB
         local_attachments: list[ChatAttachment] = [
-            self.get(attachment_id)
+            self.__require_membership(self.get(attachment_id))
             for attachment_id in (attachment_ids or [])
         ]
         # resolve the remote attachments by pulling content for each
