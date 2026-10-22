@@ -11,9 +11,12 @@ TRACKING_PARAMS = [
     "action_source", "action_object", "action_ref", "action_click", "action", "ref_component",
     "gclid", "fbclid", "s", "sid", "si", "igshid", "sessionid", "session_id",
     "shareId", "share_id", "shareid", "ref", "ref_src", "hl",
+]
+
+CREDENTIAL_PARAMS = frozenset({
     "PHPSESSID", "JSESSIONID", "ASP.NET_SessionId", "ASPSESSIONID",
     "token", "access_token", "auth_token", "oauth_token", "oauth_verifier",
-]
+})
 
 
 def simplify_url(url: str, strip_subdomains: bool = True) -> str:
