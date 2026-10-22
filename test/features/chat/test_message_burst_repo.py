@@ -171,3 +171,31 @@ class ChatMessageBurstRepositoryTest(unittest.TestCase):
         claim = self.repo.claim(second_scheduled)
         self.assertIsNotNone(claim)
         self.assertTrue(claim.is_addressed)
+
+    def test_reset_stuck_processing_resets_old_stuck_rows(self):
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = None))
+        author = self.di.user_repo.save(stubs.domain.user())
+        message = self.message_repo.save(stubs.domain.chat_message(chat_id = chat.chat_id, author_id = author.id))
+        scheduled = self.repo.record_message(message, is_addressed = True, quiet_period_s = 0)
+        self.repo.claim(scheduled)
+        stuck_row = self.di.db.query(ChatMessageBurstDB).one()
+        self.assertTrue(stuck_row.is_processing)
+
+        reset = self.repo.reset_stuck_processing(stuck_before = datetime.now() + timedelta(minutes = 1))
+
+        self.assertEqual(reset, 1)
+        self.assertFalse(self.di.db.query(ChatMessageBurstDB).one().is_processing)
+
+    def test_reset_stuck_processing_ignores_recent_rows(self):
+        chat = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = None))
+        author = self.di.user_repo.save(stubs.domain.user())
+        message = self.message_repo.save(stubs.domain.chat_message(chat_id = chat.chat_id, author_id = author.id))
+        scheduled = self.repo.record_message(message, is_addressed = True, quiet_period_s = 0)
+        self.repo.claim(scheduled)
+        self.di.db.query(ChatMessageBurstDB).update({"process_after": datetime.now() + timedelta(minutes = 5)})
+        self.di.db.commit()
+
+        reset = self.repo.reset_stuck_processing(stuck_before = datetime.now())
+
+        self.assertEqual(reset, 0)
+        self.assertTrue(self.di.db.query(ChatMessageBurstDB).one().is_processing)

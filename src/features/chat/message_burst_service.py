@@ -336,7 +336,10 @@ class MessageBurstService:
 
     def __claim(self, scheduled: ScheduledChatMessageBurst) -> ClaimedChatMessageBurst | None:
         with self.__di.new_session() as db:
-            return self.__di.clone(db).chat_message_burst_repo.claim(scheduled)
+            claimed = self.__di.clone(db).chat_message_burst_repo.claim(scheduled)
+            if claimed is None:
+                log.w(f"Burst claim returned None for chat {scheduled.chat_id}, author {scheduled.author_id}, count {scheduled.message_count} — may be superseded or stuck")  # ruff: ignore[line-too-long]
+            return claimed
 
     def __finalize(self, claimed: ClaimedChatMessageBurst) -> ScheduledChatMessageBurst | None:
         with self.__di.new_session() as db:
