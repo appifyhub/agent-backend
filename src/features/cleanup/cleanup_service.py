@@ -15,6 +15,7 @@ class CleanupResult:
     usage_records_deleted: int = field(default = 0)
     price_alerts_deleted: int = field(default = 0)
     sponsorships_deleted: int = field(default = 0)
+    stuck_bursts_reset: int = field(default = 0)
 
 
 class CleanupService:
@@ -40,6 +41,10 @@ class CleanupService:
         try:
             result.message_bursts_deleted = self.__di.chat_message_burst_repo.delete_older_than(message_cutoff)
             log.i(f"  Cleanup phase 1D: deleted {result.message_bursts_deleted} message bursts")
+            stuck_cutoff = datetime.now() - timedelta(minutes = 5)
+            result.stuck_bursts_reset = self.__di.chat_message_burst_repo.reset_stuck_processing(stuck_cutoff)
+            if result.stuck_bursts_reset:
+                log.w(f"  Cleanup phase 1D: reset {result.stuck_bursts_reset} stuck burst(s) — check for upstream errors")
         except Exception as e:
             log.e(f"  Cleanup phase 1D (message bursts) failed: {e}")
 
