@@ -6,6 +6,7 @@ from uuid import uuid4
 import stubs
 from util.di_utils import di_for_tests
 
+from db.model.chat_message_burst import ChatMessageBurstDB
 from di.di import DI
 from features.cleanup.cleanup_service import CleanupService
 from util.config import config
@@ -89,6 +90,7 @@ class CleanupServiceTest(TestCase):
             "usage_records_deleted": 7,
             "price_alerts_deleted": 2,
             "sponsorships_deleted": 1,
+            "stuck_bursts_reset": 0,
         })
         self.assertEqual(self.di.chat_message_repo.get_all(), [])
         self.assertEqual(self.di.tools_cache_repo.get_all(), [])
@@ -125,3 +127,17 @@ class CleanupServiceTest(TestCase):
         self.assertEqual(self.di.usage_record_repo.get_by_user(self.di.invoker.id), [usage])
         self.assertEqual(self.di.price_alert_repo.get(alert.chat_id, alert.asset_type, alert.asset_id, alert.currency), alert)
         self.assertEqual(self.di.sponsorship_repo.get(sponsorship.sponsor_id, sponsorship.receiver_id), sponsorship)
+
+    def test_run_resets_stuck_bursts_older_than_five_minutes(self):
+        message = self.di.chat_message_repo.save(stubs.domain.chat_message(
+            chat_id = self.di.require_invoker_chat().chat_id,
+        ))
+        scheduled = self.di.chat_message_burst_repo.record_message(message, is_addressed = True, quiet_period_s = 0)
+        self.di.chat_message_burst_repo.claim(scheduled)
+        self.di.db.query(ChatMessageBurstDB).update({"process_after": datetime.now() - timedelta(minutes = 10)})
+        self.di.db.commit()
+
+        result = self.service.run()
+
+        self.assertEqual(result.stuck_bursts_reset, 1)
+        self.assertFalse(self.di.db.query(ChatMessageBurstDB).one().is_processing)

@@ -162,3 +162,11 @@ class ChatMessageBurstRepository:
         ).delete(synchronize_session = False)
         self._db.commit()
         return deleted_count
+
+    def reset_stuck_processing(self, stuck_before: datetime) -> int:
+        reset_count = self._db.query(ChatMessageBurstDB).filter(
+            ChatMessageBurstDB.is_processing.is_(True),
+            ChatMessageBurstDB.process_after < stuck_before,
+        ).update({"is_processing": False}, synchronize_session = False)
+        self._db.commit()
+        return reset_count

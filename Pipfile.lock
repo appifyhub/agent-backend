@@ -691,12 +691,12 @@
         },
         "fastapi": {
             "hashes": [
-                "sha256:843d71746b18a3349e2c0b56993631788e6d89381c1973d7d8f4aa098f623ecb",
-                "sha256:c65a5226b55061349a5d5f4940a1c45da6c08ec40e58211aed9e3e1baa4e7ba5"
+                "sha256:4076b88434452e20289379068e976c4a04c65ffc8e6be31510106e150a422f0f",
+                "sha256:a1363080cf9aeedecd99f4e1a23669d7e77542227f6536f4d7bbd59f07ecaa94"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.10'",
-            "version": "==0.161.0"
+            "version": "==0.161.1"
         },
         "filetype": {
             "hashes": [
@@ -1947,11 +1947,11 @@
         },
         "openai": {
             "hashes": [
-                "sha256:4c15b6765fe1792c5ad753556f44c7f82c2920c5e9e40219c0fca97369e923d3",
-                "sha256:ad8e5d56f20198915d98726ac1edb12ae38e7ecfa9bd560057e84642168b20c9"
+                "sha256:670bd6f699000d43a2073bcf94374a55bb133bfe5de0d084d47eb9bb9f6a8e5d",
+                "sha256:d9f5b000f52397a7f9f946012744c5bc4c962eed3c100385252464c273a63e57"
             ],
             "markers": "python_version >= '3.10'",
-            "version": "==3.36.1"
+            "version": "==3.37.0"
         },
         "opentelemetry-api": {
             "hashes": [
@@ -2255,10 +2255,10 @@
         },
         "perplexityai": {
             "hashes": [
-                "sha256:9935d136055009409b8ad1d1b158c6f5b1e9cfbc3f5cad01da65d77cbe6266da"
+                "sha256:81f5dfd4f0e99ae1f40c1d09160358c85ab8dbb8f1c5b79468f04d54ef9717d2"
             ],
             "markers": "python_version >= '3.10'",
-            "version": "==0.45.0"
+            "version": "==0.46.0"
         },
         "pillow": {
             "hashes": [
