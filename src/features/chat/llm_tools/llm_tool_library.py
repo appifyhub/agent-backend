@@ -4,6 +4,7 @@ import functools
 import inspect
 import json
 import re
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
@@ -11,6 +12,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
+from db.model.user import UserDB
 from di.di import DI
 from features.chat.chat_agent import ChatAgent
 from features.chat.chat_attachment_processor import ChatAttachmentProcessor
@@ -22,6 +24,7 @@ from features.integrations.integrations import add_messaging_frequency_warning, 
 from features.social_cards.social_card_models import SocialCardMode
 from features.social_cards.social_card_orchestrator import SocialCardOrchestrator
 from features.support.user_support_service import UserSupportService
+from features.tools_cache.tools_cache import ToolsCache
 from features.videos.smart_video_generator import SmartVideoGenerator
 from features.web_browsing.ai_web_search import AIWebSearch
 from util import log
@@ -35,6 +38,10 @@ from util.error_codes import (
 from util.errors import ExternalServiceError, InternalError, ServiceError, ValidationError
 
 TOOL_TRUNCATE_LENGTH = 8192  # to save some tokens
+_SENSITIVE_TOOLS = frozenset({"transfer_credits_to_user", "connect_profiles"})
+_DEVELOPER_ONLY_TOOLS = frozenset({"announce_maintenance_or_news", "deliver_message"})
+_PENDING_INTENT_PREFIX = "pending-intent"
+_PENDING_INTENT_TTL = timedelta(minutes = 5)
 
 
 def analyze_attachments(
@@ -596,6 +603,17 @@ def __error(message: str | Exception) -> str:
     return json.dumps({"result": "Error", "information": f"Tool call failed: {message}"})
 
 
+def _describe_sensitive_action(tool_name: str, args: dict) -> str:
+    if tool_name == "transfer_credits_to_user":
+        recipient = args.get("recipient_handle", "?")
+        amount = args.get("amount", "?")
+        note = args.get("note")
+        note_part = f' with note: "{note}"' if note else ""
+        return f"Do you want to send {amount} credits to @{recipient}{note_part}?"
+    if tool_name == "connect_profiles":
+        return "Do you want to connect your profiles using the provided key?"
+    return "Do you want to proceed with this action?"
+
 # === Tool Bindings ===
 
 
@@ -632,7 +650,10 @@ class LLMToolLibrary:
         self._di = di
         self._impls = {}
         self._wrapped_tools = {}
+        is_developer = di.invoker.group >= UserDB.Group.developer
         for name, func in ALL_LLM_TOOLS.items():
+            if name in _DEVELOPER_ONLY_TOOLS and not is_developer:
+                continue
             wrapped = self._wrap_with_di(func)
             self._impls[name] = wrapped
             self._wrapped_tools[name] = tool(wrapped)
@@ -660,6 +681,19 @@ class LLMToolLibrary:
         if impl is None:
             log.w(f"Tool {tool_name} not found for invocation")
             return None
+        if tool_name in _SENSITIVE_TOOLS:
+            normalized = json.dumps(args, sort_keys = True) if isinstance(args, dict) else str(args)
+            cache_key = ToolsCache.create_key(_PENDING_INTENT_PREFIX, f"{self._di.require_invoker_chat().chat_id}|{self._di.invoker.id}|{tool_name}")
+            pending = self._di.tools_cache_repo.get(cache_key)
+            if pending and not pending.is_expired() and pending.value == normalized:
+                self._di.tools_cache_repo.delete(cache_key)
+            else:
+                self._di.tools_cache_repo.save(ToolsCache(key = cache_key, value = normalized, expires_at = datetime.now() + _PENDING_INTENT_TTL))
+                description = _describe_sensitive_action(tool_name, args if isinstance(args, dict) else {})
+                return json.dumps({
+                    "result": "Pending",
+                    "information": f"This action requires explicit user confirmation before proceeding. Ask the user directly: {description}",
+                })
         if isinstance(args, dict):
             return impl(**args)
         return impl(args)

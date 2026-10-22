@@ -17,7 +17,7 @@ from features.chat.attachment.chat_attachment_repo import ChatAttachmentReposito
 from features.chat.attachment.chat_attachment_service import ChatAttachmentService
 from features.chat.attachment.storage.attachment_storage import AttachmentStorage
 from util.config import config
-from util.errors import ExternalServiceError, NotFoundError, ValidationError
+from util.errors import AuthorizationError, ExternalServiceError, NotFoundError, ValidationError
 
 
 class ChatAttachmentServiceTest(unittest.TestCase):
@@ -32,6 +32,7 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.repo = self.di.chat_attachment_repo
         self.di.inject_invoker(stubs.domain.user())
         self.di.inject_invoker_chat(stubs.domain.chat_config())
+        self.di.chat_membership_service.save(stubs.domain.chat_membership())
         self.storage = self.di.attachment_storage
         self.service = self.di.chat_attachment_service
 
@@ -795,6 +796,15 @@ class ChatAttachmentServiceTest(unittest.TestCase):
         self.assertEqual(self.repo.get(result[1].id), result[1])
         with self.storage.open(result[1]) as stream:
             self.assertEqual(stream.read(), b"\x89PNG\r\n\x1a\ncontent")
+
+    def test_resolve_attachments_rejects_non_member(self):
+        attachment = stubs.domain.chat_attachment(id = "attachment-id")
+        self.repo.save(attachment)
+        non_member = self.di.user_repo.save(stubs.domain.user(id = uuid4()))
+        self.di.inject_invoker(non_member)
+
+        with self.assertRaises(AuthorizationError):
+            self.service.resolve_attachments(["attachment-id"], None)
 
     def test_resolve_image_attachments_accepts_supported_mime_type_or_extension(self):
         attachment = stubs.domain.chat_attachment(

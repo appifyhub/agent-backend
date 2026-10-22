@@ -32,6 +32,14 @@ VALID_ASPECT_RATIOS = [
 ]
 
 ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
+    IMAGE_FLUX_2_PRO.id: {
+        "prompt", "input_images", "aspect_ratio", "resolution",
+        "output_format", "output_quality", "safety_tolerance",
+    },
+    IMAGE_FLUX_2_MAX.id: {
+        "prompt", "input_images", "aspect_ratio", "resolution",
+        "output_format", "output_quality", "safety_tolerance",
+    },
     IMAGE_FLUX_3.id: {
         "prompt", "images", "aspect_ratio", "resolution", "grounding",
         "safety_tolerance", "output_format", "output_quality",
@@ -47,6 +55,10 @@ ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
     IMAGE_GOOGLE_NANO_BANANA_2_1.id: {
         "prompt", "image_input", "aspect_ratio", "resolution",
         "google_search", "image_search", "output_format",
+    },
+    IMAGE_GOOGLE_NANO_BANANA_PRO.id: {
+        "prompt", "image_input", "aspect_ratio", "resolution",
+        "output_format", "safety_filter_level",
     },
     IMAGE_SEEDREAM_4_5.id: {
         "prompt", "image_input", "size", "aspect_ratio",

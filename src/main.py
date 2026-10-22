@@ -151,7 +151,14 @@ async def whatsapp_chat_update(
     update_dict = await request.json()
     update = WhatsAppUpdate.model_validate(update_dict)
     log.d(f"Received WhatsApp update: {update}")
-    offloader.add_task(respond_to_whatsapp_update, update)
+
+    async def _traced_respond():
+        try:
+            await respond_to_whatsapp_update(update)
+        except Exception as e:
+            log.e("Unhandled exception in WhatsApp background task", e)
+            raise
+    offloader.add_task(_traced_respond)
     return {"status": "ok"}
 
 

@@ -5,8 +5,9 @@ from contextvars import ContextVar
 from functools import cache, wraps
 from importlib import import_module
 from inspect import getsource
+from ipaddress import ip_address
 from pathlib import Path
-from socket import socket
+from socket import AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, socket
 from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import patch
@@ -91,8 +92,39 @@ class FakeInterceptor:
         return factory(request) if factory is not None else None
 
 
+# A guarded outbound fetch resolves its destination, so tests need a deterministic answer that still
+# passes the production "is this address public?" check. Every documentation range (TEST-NET-1/2/3,
+# 2001:db8::) is classified private by `ipaddress`, so the guard would refuse it and no fetch could be
+# tested. This is the 6to4 relay anycast prefix, deprecated by RFC 7526: classified global, assigned to
+# no host. Nothing ever connects to it - `socket.connect`/`connect_ex` stay blocked and both HTTP
+# clients are faked, so resolution is the only step that happens.
+_DEPRECATED_GLOBAL_ADDRESS = "192.88.99.1"
+
+
 def _block_network(*args: Any, **kwargs: Any) -> None:
     raise InternalError("Live network access is disabled in the test DI environment", DI_DEPENDENCY_NOT_MET)
+
+
+def _offline_resolve(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+    """Resolve names offline so production destination guards can run under tests.
+
+    Name resolution is not traffic and this performs none: live access stays blocked by the
+    socket connect guards and the HTTP fakes below. IP literals resolve to themselves and
+    "localhost" resolves to loopback, so a test can assert a guard refusal; every other name
+    resolves to the deprecated global address above so ordinary fetches pass the guard.
+    """
+    text = str(host)
+    if text == "localhost":
+        address = "127.0.0.1"
+    else:
+        try:
+            address = str(ip_address(text))
+        except ValueError:
+            address = _DEPRECATED_GLOBAL_ADDRESS
+    resolved_port = int(port) if isinstance(port, int) or str(port).isdigit() else 0
+    if ":" in address:
+        return [(AF_INET6, SOCK_STREAM, IPPROTO_TCP, "", (address, resolved_port, 0, 0))]
+    return [(AF_INET, SOCK_STREAM, IPPROTO_TCP, "", (address, resolved_port))]
 
 
 def _sqlite_metadata() -> MetaData:
@@ -166,7 +198,7 @@ def di_for_tests(
         # system socket guards prevent accidental live traffic from an unhandled external dependency
         resources.enter_context(patch.object(socket, "connect", new = _block_network))
         resources.enter_context(patch.object(socket, "connect_ex", new = _block_network))
-        resources.enter_context(patch("socket.getaddrinfo", new = _block_network))
+        resources.enter_context(patch("socket.getaddrinfo", new = _offline_resolve))
         root = Path(resources.enter_context(TemporaryDirectory()))
         db = resources.enter_context(_sqlite_session(root / "database.sqlite"))
         storage = LocalAttachmentStorage(root = root / "attachments")

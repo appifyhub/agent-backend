@@ -8,7 +8,6 @@ from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations.integrations import delivery_tool_for, is_the_agent, resolve_private_chat_id
 from features.users.user import User
-from util import log
 from util.config import config
 from util.error_codes import INSUFFICIENT_CREDITS, USER_NOT_FOUND
 from util.errors import NotFoundError, ValidationError
@@ -66,13 +65,10 @@ class SpendingService:
         if not configured_tool.uses_credits:
             return
 
-        def apply(user):
+        def apply(user: User) -> User:
             available = user.credit_balance or 0.0
             if amount > available:
-                log.w(
-                    f"Actual cost {amount} exceeds pre-flight estimate for user "
-                    f"{configured_tool.payer_id}; balance will go negative",
-                )
+                raise ValidationError(f"Insufficient credits: required {amount}, available {available}", INSUFFICIENT_CREDITS)
             return replace(user, credit_balance = available - amount)
         self.__di.user_repo.update_locked(configured_tool.payer_id, apply)
 

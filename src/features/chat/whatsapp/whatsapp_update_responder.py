@@ -10,6 +10,11 @@ from features.chat.whatsapp.model.update import Update
 from features.integrations.integrations import resolve_agent_user, resolve_external_handle
 from util import log
 from util.config import config
+from util.error_codes import INVALID_LIMIT
+from util.errors import ValidationError
+
+_MAX_MESSAGES_PER_PAYLOAD = 10
+_BURST_SEMAPHORE = asyncio.Semaphore(_MAX_MESSAGES_PER_PAYLOAD)
 
 
 @dataclass(frozen = True, kw_only = True)
@@ -22,7 +27,12 @@ async def respond_to_update(update: Update) -> bool:
     outcome = await asyncio.to_thread(_ingest_update, update)
     if not outcome.scheduled_bursts:
         return outcome.processed
-    results = await asyncio.gather(*(_process_scheduled_burst(scheduled) for scheduled in outcome.scheduled_bursts))
+
+    async def _guarded(scheduled: ScheduledChatMessageBurst) -> bool:
+        async with _BURST_SEMAPHORE:
+            return await _process_scheduled_burst(scheduled)
+
+    results = await asyncio.gather(*(_guarded(scheduled) for scheduled in outcome.scheduled_bursts))
     return outcome.processed or any(results)
 
 
@@ -52,6 +62,8 @@ def _ingest_update(update: Update) -> _IngressOutcome:
             if not resolved_domain_data_all:
                 log.w("No messages to process in this WhatsApp update (likely a status update or notification)")
                 return _IngressOutcome(processed = processed)
+            if len(resolved_domain_data_all) > _MAX_MESSAGES_PER_PAYLOAD:
+                raise ValidationError(f"Payload contains {len(resolved_domain_data_all)} messages; limit is {_MAX_MESSAGES_PER_PAYLOAD}", INVALID_LIMIT)  # ruff: ignore[line-too-long]
 
             scheduled_bursts: list[ScheduledChatMessageBurst] = []
             for resolved_domain_data in resolved_domain_data_all:

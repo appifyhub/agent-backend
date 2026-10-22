@@ -1,5 +1,4 @@
 import re
-import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -17,6 +16,7 @@ from features.social_cards.social_card_models import SocialLinkPreviewAsset
 from features.social_cards.theme import ThemeColors
 from util import log
 from util.config import config
+from util.url_guard import guarded_urlopen
 
 LINK_ASPECT_W = 3
 LINK_ASPECT_H = 2
@@ -38,7 +38,6 @@ TEXT_LINE_HEIGHT_DOMAIN = 18
 DESC_TOP_GAP = 8
 LINK_PREVIEW_CORNER_RADIUS = 20
 
-_OG_FETCH_TIMEOUT_S = 8
 _OG_HEAD_READ_BYTES = 32 * 1024
 _OG_META_RE = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', re.IGNORECASE)
 _OG_META_RE_ALT = re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', re.IGNORECASE)
@@ -46,8 +45,7 @@ _OG_META_RE_ALT = re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+propert
 
 def fetch_og_image_url(page_url: str) -> str | None:
     try:
-        req = urllib.request.Request(page_url, headers = {"User-Agent": config.user_agent})
-        with urllib.request.urlopen(req, timeout = _OG_FETCH_TIMEOUT_S) as resp:
+        with guarded_urlopen(page_url, timeout = config.web_timeout_s, headers = {"User-Agent": config.user_agent}) as resp:
             head = resp.read(_OG_HEAD_READ_BYTES).decode("utf-8", errors = "ignore")
         match = _OG_META_RE.search(head) or _OG_META_RE_ALT.search(head)
         if match:
@@ -80,8 +78,7 @@ def find_favicon_urls(domain: str, expanded_url: str | None = None) -> list[str]
 
 def _find_favicon_url(page_url: str) -> str | None:
     try:
-        req = urllib.request.Request(page_url, headers = {"User-Agent": config.user_agent})
-        with urllib.request.urlopen(req, timeout = _OG_FETCH_TIMEOUT_S) as resp:
+        with guarded_urlopen(page_url, timeout = config.web_timeout_s, headers = {"User-Agent": config.user_agent}) as resp:
             final_url = resp.url
             head = resp.read(_OG_HEAD_READ_BYTES).decode("utf-8", errors = "ignore")
         matches = _FAVICON_LINK_RE.findall(head)

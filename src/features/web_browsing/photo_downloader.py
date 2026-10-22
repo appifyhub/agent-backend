@@ -6,6 +6,7 @@ from util import log
 from util.config import config
 from util.error_codes import WEB_FETCH_FAILED
 from util.errors import ExternalServiceError
+from util.url_guard import guarded_get
 
 
 class PhotoDownloader:
@@ -20,7 +21,7 @@ class PhotoDownloader:
             headers = {"User-Agent": config.user_agent}
             if self.__bearer_token:
                 headers["Authorization"] = f"Bearer {self.__bearer_token}"
-            response = requests.get(url, headers = headers, timeout = config.web_timeout_s)
+            response = guarded_get(requests, url, headers = headers, timeout = config.web_timeout_s)
             response.raise_for_status()
             return response.content
         except Exception as e:
@@ -32,7 +33,8 @@ class PhotoDownloader:
             headers = {"User-Agent": config.user_agent}
             if self.__bearer_token:
                 headers["Authorization"] = f"Bearer {self.__bearer_token}"
-            with requests.get(
+            with guarded_get(
+                requests,
                 url,
                 headers = headers,
                 timeout = config.web_timeout_s,

@@ -44,6 +44,9 @@ class SmartVideoGeneratorTest(TestCase):
             tool_choice_videos_gen = VIDEO_GEN_P_VIDEO.id,
         )))
         self.di.inject_invoker_chat(self.di.chat_config_repo.save(stubs.domain.chat_config(external_id = "12345")))
+        self.di.chat_membership_repo.save(
+            stubs.domain.chat_membership(user_id = self.di.invoker.id, chat_id = self.di.require_invoker_chat().chat_id),
+        )
         self.copywriter_tool = stubs.domain.configured_tool(definition = GPT_6_LUNA, purpose = ToolType.copywriting)
         self.video_tool = stubs.domain.configured_tool(
             definition = VIDEO_GEN_P_VIDEO,
