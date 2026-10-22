@@ -128,13 +128,15 @@ class SpendingServiceDeductTest(TestCase):
 
         self.assertEqual(self.di.user_repo.get(user.id), replace(user, credit_balance = 40.0))
 
-    def test_deduct_allows_negative_balance(self):
+    def test_deduct_raises_when_balance_insufficient(self):
         user = self.di.user_repo.save(stubs.domain.user(credit_balance = 5.0))
         tool = stubs.domain.configured_tool(uses_credits = True, payer_id = user.id)
 
-        self.service.deduct(tool, 50.0)
+        with self.assertRaises(ValidationError) as context:
+            self.service.deduct(tool, 50.0)
 
-        self.assertEqual(self.di.user_repo.get(user.id), replace(user, credit_balance = -45.0))
+        self.assertEqual(context.exception.error_code, INSUFFICIENT_CREDITS)
+        self.assertEqual(self.di.user_repo.get(user.id), user)
 
 
 class SpendingServiceDeliveryTest(TestCase):
