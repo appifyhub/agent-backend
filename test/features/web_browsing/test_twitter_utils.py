@@ -32,4 +32,4 @@ class TwitterUtilsTest(TestCase):
             with self.subTest(url = url):
                 self.assertEqual(resolve_tweet_id(url, http_client = self.http), expected_id)
 
-        self.assertEqual(self.http.requests, [("https://t.co/abcdefg", {"timeout": config.web_timeout_s})])
+        self.assertEqual(self.http.requests, [("https://t.co/abcdefg", {"allow_redirects": False, "timeout": config.web_timeout_s})])  # ruff: ignore[line-too-long]

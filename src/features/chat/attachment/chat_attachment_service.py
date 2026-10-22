@@ -24,6 +24,7 @@ from util.error_codes import (
     UNSUPPORTED_MEDIA_TYPE,
 )
 from util.errors import AuthorizationError, ExternalServiceError, NotFoundError, ValidationError
+from util.url_guard import guarded_get
 
 
 @dataclass(frozen = True)
@@ -250,7 +251,7 @@ class ChatAttachmentService:
     @staticmethod
     def __fetch_remote_url(remote_url: str) -> RemoteAttachmentContent:
         try:
-            response = requests.get(remote_url, headers = DEFAULT_HEADERS, timeout = config.web_timeout_s * 4)
+            response = guarded_get(requests, remote_url, headers = DEFAULT_HEADERS, timeout = config.web_timeout_s * 4)
             if response.status_code != 200 or not response.content:
                 raise ExternalServiceError("Attachment content could not be accessed", MEDIA_DOWNLOAD_FAILED)
 

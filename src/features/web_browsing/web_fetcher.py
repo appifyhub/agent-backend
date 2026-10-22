@@ -14,6 +14,7 @@ from features.web_browsing.uri_cleanup import simplify_url
 from util import log
 from util.config import config
 from util.http_client import HTTPClient
+from util.url_guard import guarded_get
 
 DEFAULT_HEADERS = {"User-Agent": config.user_agent}
 CACHE_PREFIX = "web-fetcher"
@@ -123,7 +124,8 @@ class WebFetcher:
                     self.html = f"<html><body>\n<p>\n{response_text}\n</p>\n</body></html>"
                 else:
                     # run a standard request for a web page
-                    response = self.__http_client.get(
+                    response = guarded_get(
+                        self.__http_client,
                         self.url,
                         headers = self.__headers,
                         params = self.__params,
@@ -184,7 +186,8 @@ class WebFetcher:
                     response_text = self.__tweet_fetcher.execute()
                     self.json = {"content": response_text}
                 else:
-                    response = self.__http_client.get(
+                    response = guarded_get(
+                        self.__http_client,
                         self.url,
                         headers = self.__headers,
                         params = self.__params,

@@ -189,7 +189,7 @@ class WebFetcherTest(TestCase):
 
         self.assertEqual(fetcher.html, "data")
         self.assertEqual(self.http.requests, [(
-            DEFAULT_URL, {"headers": DEFAULT_HEADERS | custom_headers, "params": {}, "timeout": 1},
+            DEFAULT_URL, {"allow_redirects": False, "headers": DEFAULT_HEADERS | custom_headers, "params": {}, "timeout": 1},
         )])
 
     def test_custom_params(self):
@@ -199,7 +199,7 @@ class WebFetcherTest(TestCase):
         fetcher = self.di.web_fetcher(DEFAULT_URL, params = params, auto_fetch_html = True)
 
         self.assertEqual(fetcher.html, "data")
-        self.assertEqual(self.http.requests, [(DEFAULT_URL, {"headers": DEFAULT_HEADERS, "params": params, "timeout": 1})])
+        self.assertEqual(self.http.requests, [(DEFAULT_URL, {"allow_redirects": False, "headers": DEFAULT_HEADERS, "params": params, "timeout": 1})])  # ruff: ignore[line-too-long]
 
     def test_fetch_html_with_headers_and_params(self):
         headers = {"X-Custom-Header": "test_value"}
@@ -208,8 +208,7 @@ class WebFetcherTest(TestCase):
 
         self.assertEqual(self.di.web_fetcher(DEFAULT_URL, headers = headers, params = params).fetch_html(), "data")
         self.assertEqual(self.http.requests, [(
-            DEFAULT_URL, {"headers": DEFAULT_HEADERS | headers, "params": params, "timeout": 1},
-        )])
+            DEFAULT_URL, {"allow_redirects": False, "headers": DEFAULT_HEADERS | headers, "params": params, "timeout": 1})])
 
     def test_fetch_json_with_headers_and_params(self):
         headers = {"X-Custom-Header": "test_value"}
@@ -221,8 +220,7 @@ class WebFetcherTest(TestCase):
             {"value": "data"},
         )
         self.assertEqual(self.http.requests, [(
-            DEFAULT_URL, {"headers": DEFAULT_HEADERS | headers, "params": params, "timeout": 1},
-        )])
+            DEFAULT_URL, {"allow_redirects": False, "headers": DEFAULT_HEADERS | headers, "params": params, "timeout": 1})])
 
     def test_fetch_html_twitter(self):
         self.__seed_tweet()
@@ -256,7 +254,7 @@ class WebFetcherTest(TestCase):
         self.http.responses[short_url].append(external.http_response(url = TWEET_URL))
 
         self.assertEqual(self.di.web_fetcher(short_url).fetch_json(), {"content": "Tweet content"})
-        self.assertEqual(self.http.requests, [(short_url, {"timeout": 1})])
+        self.assertEqual(self.http.requests, [(short_url, {"allow_redirects": False, "timeout": 1})])
 
     def test_fetch_html_retries_transport_failure_and_caches_success(self):
         config.web_retries = 2
