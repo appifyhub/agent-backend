@@ -1,4 +1,5 @@
 import os
+import re
 from enum import Enum
 
 import requests
@@ -20,6 +21,7 @@ GITHUB_BASE_URL = "https://api.github.com"
 class UserSupportService:
 
     TOOL_TYPE: ToolType = ToolType.copywriting
+    __GITHUB_USERNAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 
     class RequestType(Enum):
         bug = "bug_report"
@@ -45,7 +47,7 @@ class UserSupportService:
         di: DI,
     ):
         self.__user_input = user_input
-        self.__github_author = github_author
+        self.__github_author = github_author if github_author and self.__GITHUB_USERNAME_RE.match(github_author) else None
         self.__include_platform_handle = include_platform_handle
         self.__include_full_name = include_full_name
         self.__request_type = self.__resolve_request_type(request_type_str)

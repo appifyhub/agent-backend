@@ -204,12 +204,14 @@ class ImageApiUtilsTest(unittest.TestCase):
             "image_input": input_urls,
         })
 
-    def test_filter_replicate_params_non_allowlisted_model_passes_through(self):
+    def test_filter_replicate_params_allowlisted_model_filters_to_allowed_set(self):
         parameters = image_api_utils.map_to_model_parameters(IMAGE_FLUX_2_PRO, prompt = "test")
 
         result = image_api_utils.filter_replicate_params(IMAGE_FLUX_2_PRO, parameters)
 
         self.assertEqual(result["prompt"], "test")
-        self.assertEqual(result["quality"], "high")
-        self.assertEqual(result["num_inference_steps"], 30)
-        self.assertNotIn("image", result)
+        self.assertIn("resolution", result)
+        self.assertIn("safety_tolerance", result)
+        self.assertNotIn("size", result)
+        self.assertNotIn("quality", result)
+        self.assertNotIn("num_inference_steps", result)

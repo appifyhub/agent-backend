@@ -2,6 +2,7 @@ import json
 import time
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from requests.exceptions import RequestException, Timeout
 
@@ -10,10 +11,11 @@ from features.external_tools.intelligence_presets import default_tool_for
 from features.tools_cache.tools_cache import ToolsCache
 from features.web_browsing.twitter_status_fetcher import TwitterStatusFetcher
 from features.web_browsing.twitter_utils import resolve_tweet_id
-from features.web_browsing.uri_cleanup import simplify_url
+from features.web_browsing.uri_cleanup import CREDENTIAL_PARAMS, simplify_url
 from util import log
 from util.config import config
 from util.http_client import HTTPClient
+from util.url_guard import guarded_get
 
 DEFAULT_HEADERS = {"User-Agent": config.user_agent}
 CACHE_PREFIX = "web-fetcher"
@@ -36,6 +38,7 @@ class WebFetcher:
     __cache_ttl_html: timedelta
     __cache_ttl_json: timedelta
     __force: bool
+    __is_credential_url: bool
     __tweet_fetcher: TwitterStatusFetcher | None
     __http_client: HTTPClient
     __di: DI
@@ -66,6 +69,7 @@ class WebFetcher:
         self.__cache_ttl_html = cache_ttl_html or DEFAULT_CACHE_TTL_HTML
         self.__cache_ttl_json = cache_ttl_json or DEFAULT_CACHE_TTL_JSON
         self.__force = force
+        self.__is_credential_url = bool(parse_qs(urlparse(url).query).keys() & CREDENTIAL_PARAMS)
         self.__tweet_id = resolve_tweet_id(self.url, http_client = self.__http_client)
         if self.__tweet_id:
             log.t(f"Resolved tweet ID: {self.__tweet_id}")
@@ -102,7 +106,7 @@ class WebFetcher:
         self.__made_request = False
         self.status_code = None
 
-        if not self.__force:
+        if not self.__force and not self.__is_credential_url:
             cache_entry = self.__di.tools_cache_repo.get(self.__cache_key)
             if cache_entry:
                 if not cache_entry.is_expired():
@@ -112,7 +116,7 @@ class WebFetcher:
                 log.t(f"Cache expired for '{self.__cache_key}'")
             log.t(f"Cache miss for '{self.__cache_key}'")
         else:
-            log.t(f"Skipping cache read for forced fetch of '{self.__cache_key}'")
+            log.t(f"Skipping cache read for {'forced' if self.__force else 'credential'} fetch of '{self.__cache_key}'")
 
         attempts = 0
         for _ in range(config.web_retries):
@@ -123,7 +127,8 @@ class WebFetcher:
                     self.html = f"<html><body>\n<p>\n{response_text}\n</p>\n</body></html>"
                 else:
                     # run a standard request for a web page
-                    response = self.__http_client.get(
+                    response = guarded_get(
+                        self.__http_client,
                         self.url,
                         headers = self.__headers,
                         params = self.__params,
@@ -143,13 +148,14 @@ class WebFetcher:
                         self.html = None
                         break
                     self.html = content_text
-                self.__di.tools_cache_repo.save(
-                    ToolsCache(
-                        key = self.__cache_key,
-                        value = self.html or "",
-                        expires_at = datetime.now() + self.__cache_ttl_html,
-                    ),
-                )
+                if not self.__is_credential_url:
+                    self.__di.tools_cache_repo.save(
+                        ToolsCache(
+                            key = self.__cache_key,
+                            value = self.html or "",
+                            expires_at = datetime.now() + self.__cache_ttl_html,
+                        ),
+                    )
                 break
             except (RequestException, Timeout) as e:
                 attempts += 1
@@ -164,7 +170,7 @@ class WebFetcher:
         self.status_code = None
         self.error_json = None
 
-        if not self.__force:
+        if not self.__force and not self.__is_credential_url:
             cache_entry = self.__di.tools_cache_repo.get(self.__cache_key)
             if cache_entry:
                 if not cache_entry.is_expired():
@@ -174,7 +180,7 @@ class WebFetcher:
                 log.t(f"Cache expired for '{self.__cache_key}'")
             log.t(f"Cache miss for '{self.__cache_key}'")
         else:
-            log.t(f"Skipping cache read for forced fetch of '{self.__cache_key}'")
+            log.t(f"Skipping cache read for {'forced' if self.__force else 'credential'} fetch of '{self.__cache_key}'")
 
         attempts = 0
         for _ in range(config.web_retries):
@@ -184,7 +190,8 @@ class WebFetcher:
                     response_text = self.__tweet_fetcher.execute()
                     self.json = {"content": response_text}
                 else:
-                    response = self.__http_client.get(
+                    response = guarded_get(
+                        self.__http_client,
                         self.url,
                         headers = self.__headers,
                         params = self.__params,
@@ -196,13 +203,14 @@ class WebFetcher:
                         self.error_json = response_json if isinstance(response_json, dict) else None
                     response.raise_for_status()
                     self.json = response.json()
-                self.__di.tools_cache_repo.save(
-                    ToolsCache(
-                        key = self.__cache_key,
-                        value = json.dumps(self.json),
-                        expires_at = datetime.now() + self.__cache_ttl_json,
-                    ),
-                )
+                if not self.__is_credential_url:
+                    self.__di.tools_cache_repo.save(
+                        ToolsCache(
+                            key = self.__cache_key,
+                            value = json.dumps(self.json),
+                            expires_at = datetime.now() + self.__cache_ttl_json,
+                        ),
+                    )
                 break
             except (RequestException, Timeout) as e:
                 attempts += 1

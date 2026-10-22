@@ -35,7 +35,7 @@ class UserSupportServiceTest(TestCase):
         self.model = cast(FakeChatModel, self.di.base_chat_langchain_model(self.tool))
         self.service = self.di.user_support_service(
             user_input = "Test input",
-            github_author = "test_github",
+            github_author = "test-github",
             include_platform_handle = True,
             include_full_name = True,
             request_type_str = "bug",
@@ -60,7 +60,7 @@ class UserSupportServiceTest(TestCase):
                 ])
                 service = self.di.user_support_service(
                     user_input = "Test input",
-                    github_author = "test_github",
+                    github_author = "test-github",
                     include_platform_handle = True,
                     include_full_name = True,
                     request_type_str = request_type,
@@ -96,7 +96,7 @@ class UserSupportServiceTest(TestCase):
         self.assertEqual(self.http.post_requests[-1][1]["json"]["body"], "Generated description")
         reporter = self.model.prompts[0][-1].content
         self.assertIn("Test input", reporter)
-        self.assertIn("GitHub author: @test_github", reporter)
+        self.assertIn("GitHub author: @test-github", reporter)
         self.assertIn("Full name: Mark Johnson", reporter)
         self.assertIn("Platform user: telegram/", reporter)
         self.assertIn("mark_johnson", reporter)

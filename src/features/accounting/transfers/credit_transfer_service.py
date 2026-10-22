@@ -1,3 +1,4 @@
+import math
 from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
@@ -198,7 +199,7 @@ class CreditTransferService:
         chat_type: ChatConfigDB.ChatType,
         amount: float,
     ) -> tuple[User, User]:
-        if amount < MIN_TRANSFER_AMOUNT:
+        if not math.isfinite(amount) or amount < MIN_TRANSFER_AMOUNT:
             raise ValidationError(
                 f"Transfer amount must be at least {MIN_TRANSFER_AMOUNT} credits",
                 INVALID_TRANSFER_AMOUNT,

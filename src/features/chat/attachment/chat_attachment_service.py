@@ -24,6 +24,7 @@ from util.error_codes import (
     UNSUPPORTED_MEDIA_TYPE,
 )
 from util.errors import AuthorizationError, ExternalServiceError, NotFoundError, ValidationError
+from util.url_guard import guarded_get
 
 
 @dataclass(frozen = True)
@@ -57,6 +58,13 @@ class ChatAttachmentService:
         if stored_attachment is None:
             raise NotFoundError(f"Attachment '{attachment}' not found", ATTACHMENT_NOT_FOUND)
         return stored_attachment
+
+    def __require_membership(self, attachment: ChatAttachment) -> ChatAttachment:
+        membership = self.__di.chat_membership_service.get(self.__di.invoker.id, attachment.chat_id)
+        if membership is None:
+            message = f"User '{self.__di.invoker.id.hex}' is not a member of chat '{attachment.chat_id.hex}'"
+            raise AuthorizationError(message, NOT_CHAT_MEMBER)
+        return attachment
 
     def stream_attachment(self, attachment: ChatAttachment | str) -> ResolvedAttachmentStream:
         attachment = self.get(attachment)
@@ -196,7 +204,7 @@ class ChatAttachmentService:
         chat_id = self.__di.require_invoker_chat().chat_id
         # resolve local attachments by fetching from the DB
         local_attachments: list[ChatAttachment] = [
-            self.get(attachment_id)
+            self.__require_membership(self.get(attachment_id))
             for attachment_id in (attachment_ids or [])
         ]
         # resolve the remote attachments by pulling content for each
@@ -250,7 +258,7 @@ class ChatAttachmentService:
     @staticmethod
     def __fetch_remote_url(remote_url: str) -> RemoteAttachmentContent:
         try:
-            response = requests.get(remote_url, headers = DEFAULT_HEADERS, timeout = config.web_timeout_s * 4)
+            response = guarded_get(requests, remote_url, headers = DEFAULT_HEADERS, timeout = config.web_timeout_s * 4)
             if response.status_code != 200 or not response.content:
                 raise ExternalServiceError("Attachment content could not be accessed", MEDIA_DOWNLOAD_FAILED)
 
