@@ -2,7 +2,7 @@ from base64 import b64encode
 from json import dumps
 from typing import Any
 
-from api.auth import PublicAttachmentTokenClaims
+from api.auth import CliTokenClaims, PublicAttachmentTokenClaims
 from api.model.chat_config_payload import ChatConfigPayload
 from api.model.chat_config_response import ChatConfigResponse
 from api.model.chat_settings_payload import ChatSettingsPayload
@@ -246,5 +246,30 @@ def jwt_claims(**overrides: Any) -> dict[str, Any]:
     defaults = {
         "sub": "11111111111141118111a11111111111",
         "platform": "telegram",
+    }
+    return defaults | overrides
+
+
+def cli_token_claims(**overrides: Any) -> CliTokenClaims:
+    defaults = {
+        "user_id": "11111111111141118111a11111111111",
+        "generation": 0,
+        "device_id": "33333333-3333-4333-8333-333333333333",
+        "hostname": "milos-mbp.local",
+        "os": "darwin",
+    }
+    return CliTokenClaims(**(defaults | overrides))
+
+
+def cli_jwt_claims(**overrides: Any) -> dict[str, Any]:
+    claims = cli_token_claims()
+    defaults = {
+        "iss": "The Agent",
+        "sub": claims.user_id,
+        "scope": "cli",
+        "cli_generation": claims.generation,
+        "device_id": claims.device_id,
+        "hostname": claims.hostname,
+        "os": claims.os,
     }
     return defaults | overrides

@@ -1,5 +1,5 @@
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from hmac import HMAC
 from unittest import TestCase
@@ -11,21 +11,23 @@ from pydantic import SecretStr
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from api.auth import (
+    create_cli_jwt_token,
     create_jwt_token,
     create_public_attachment_token,
     get_chat_type_from_jwt,
     get_user_id_from_jwt,
     verify_api_key,
+    verify_cli_jwt_credentials,
     verify_gumroad_auth_key,
-    verify_jwt_credentials,
     verify_jwt_token,
     verify_public_attachment_token,
     verify_telegram_auth_key,
+    verify_web_jwt_credentials,
     verify_whatsapp_signature,
     verify_whatsapp_webhook_challenge,
 )
 from util.config import config
-from util.error_codes import EMPTY_TOKEN, INVALID_RESOURCE_TOKEN, NO_USER_ID_IN_TOKEN
+from util.error_codes import EMPTY_TOKEN, INVALID_CLI_TOKEN, INVALID_RESOURCE_TOKEN, NO_USER_ID_IN_TOKEN
 from util.errors import AuthenticationError
 
 
@@ -86,13 +88,13 @@ class AuthTest(TestCase):
     def test_missing_jwt_token(self):
         with self.assertRaises(HTTPException) as context:
             # noinspection PyTypeChecker
-            verify_jwt_credentials(None)
+            verify_web_jwt_credentials(None)
         self.assertEqual(context.exception.status_code, HTTP_401_UNAUTHORIZED)
         self.assertEqual(context.exception.detail, "Could not validate access credentials")
 
     def test_invalid_jwt_token(self):
         with self.assertRaises(HTTPException) as context:
-            verify_jwt_credentials(stubs.external.http_authorization_credentials(credentials = "invalid-token"))
+            verify_web_jwt_credentials(stubs.external.http_authorization_credentials(credentials = "invalid-token"))
         self.assertEqual(context.exception.status_code, HTTP_401_UNAUTHORIZED)
         self.assertEqual(context.exception.detail, "Could not validate access credentials")
 
@@ -100,7 +102,7 @@ class AuthTest(TestCase):
         payload = stubs.api.jwt_claims()
         token = create_jwt_token(payload, expires_in = timedelta(minutes = 1))
 
-        result = verify_jwt_credentials(stubs.external.http_authorization_credentials(credentials = token))
+        result = verify_web_jwt_credentials(stubs.external.http_authorization_credentials(credentials = token))
 
         self.assertEqual(result["sub"], payload["sub"])
         self.assertEqual(result["platform"], payload["platform"])
@@ -192,6 +194,71 @@ class AuthTest(TestCase):
             verify_public_attachment_token(encoded_token)
 
         self.assertEqual(context.exception.error_code, INVALID_RESOURCE_TOKEN)
+
+    def test_create_cli_jwt_token_issues_expected_claims(self):
+        expected = stubs.api.cli_token_claims(generation = 4)
+        expires_at = datetime.now(timezone.utc) + timedelta(days = 30)
+
+        token = create_cli_jwt_token(
+            expected.user_id,
+            expected.generation,
+            expected.device_id,
+            expected.hostname,
+            expected.os,
+            expires_at,
+        )
+
+        decoded = verify_jwt_token(token)
+        self.assertEqual(
+            set(decoded),
+            {"iss", "sub", "scope", "cli_generation", "device_id", "hostname", "os", "exp", "iat", "version"},
+        )
+        self.assertEqual(decoded["iss"], config.agent_bot_name)
+        self.assertEqual(decoded["scope"], "cli")
+        self.assertEqual(decoded["version"], config.version)
+        self.assertLessEqual(abs(decoded["exp"] - expires_at.timestamp()), 1)
+        self.assertEqual(
+            verify_cli_jwt_credentials(stubs.external.http_authorization_credentials(credentials = token)),
+            expected,
+        )
+
+    def test_verify_cli_jwt_credentials_rejects_other_tokens(self):
+        one_minute = timedelta(minutes = 1)
+        claims = stubs.api.cli_jwt_claims()
+        cases = {
+            "web": create_jwt_token(stubs.api.jwt_claims(), one_minute),
+            "attachment": create_public_attachment_token("chat", "attachment", "user", ttl_seconds = 60),
+            "expired": create_jwt_token(claims, -one_minute),
+            "wrong signature": jwt.encode(
+                {**claims, "exp": datetime.now(timezone.utc) + one_minute},
+                "not-the-signing-secret",
+                algorithm = "HS256",
+            ),
+            "wrong scope": create_jwt_token(stubs.api.cli_jwt_claims(scope = "other"), one_minute),
+            "string generation": create_jwt_token(stubs.api.cli_jwt_claims(cli_generation = "1"), one_minute),
+            "float generation": create_jwt_token(stubs.api.cli_jwt_claims(cli_generation = 1.5), one_minute),
+            "boolean generation": create_jwt_token(stubs.api.cli_jwt_claims(cli_generation = True), one_minute),
+            "empty subject": create_jwt_token(stubs.api.cli_jwt_claims(sub = ""), one_minute),
+            "garbage": "invalid-token",
+        }
+        for name in ("sub", "scope", "cli_generation", "device_id", "hostname", "os"):
+            cases[f"missing {name}"] = create_jwt_token({k: v for k, v in claims.items() if k != name}, one_minute)
+
+        for name, token in cases.items():
+            with self.subTest(name = name):
+                with self.assertRaises(AuthenticationError) as context:
+                    verify_cli_jwt_credentials(stubs.external.http_authorization_credentials(credentials = token))
+                self.assertEqual(context.exception.error_code, INVALID_CLI_TOKEN)
+                self.assertEqual(context.exception.http_status, 401)
+
+    def test_verify_web_jwt_credentials_rejects_scoped_tokens(self):
+        scoped_token = create_jwt_token(stubs.api.cli_jwt_claims(), timedelta(minutes = 1))
+        other_scope_token = create_jwt_token(stubs.api.jwt_claims(scope = "future"), timedelta(minutes = 1))
+        for token in (scoped_token, other_scope_token):
+            with self.assertRaises(HTTPException) as context:
+                verify_web_jwt_credentials(stubs.external.http_authorization_credentials(credentials = token))
+            self.assertEqual(context.exception.status_code, HTTP_401_UNAUTHORIZED)
+            self.assertEqual(context.exception.detail, "Could not validate access credentials")
 
     def test_get_user_id_from_jwt_valid(self):
         claims = stubs.api.jwt_claims()

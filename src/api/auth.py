@@ -11,12 +11,18 @@ from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from util import log
 from util.config import config
-from util.error_codes import EMPTY_TOKEN, INVALID_RESOURCE_TOKEN, NO_USER_ID_IN_TOKEN
+from util.error_codes import EMPTY_TOKEN, INVALID_CLI_TOKEN, INVALID_RESOURCE_TOKEN, NO_USER_ID_IN_TOKEN
 from util.errors import AuthenticationError
 
 __CLAIM_CHAT_ID = "chat_id"
 __CLAIM_ATTACHMENT_ID = "attachment_id"
 __CLAIM_ISSUER_USER_ID = "issuer_user_id"
+__CLAIM_SCOPE = "scope"
+__CLAIM_CLI_GENERATION = "cli_generation"
+__CLAIM_DEVICE_ID = "device_id"
+__CLAIM_HOSTNAME = "hostname"
+__CLAIM_OS = "os"
+__SCOPE_CLI = "cli"
 __JWT_ALGORITHM = "HS256"
 
 api_key_header = APIKeyHeader(name = "X-API-Key", auto_error = True)
@@ -29,6 +35,15 @@ class PublicAttachmentTokenClaims:
     chat_id: str
     attachment_id: str
     issuer_user_id: str
+
+
+@dataclass(frozen = True)
+class CliTokenClaims:
+    user_id: str
+    generation: int
+    device_id: str
+    hostname: str
+    os: str
 
 
 def verify_api_key(api_key: str = Security(api_key_header)) -> str:
@@ -84,9 +99,12 @@ def verify_gumroad_auth_key(auth_key: str) -> None:
     log.i("Gumroad auth verified successfully")
 
 
-def verify_jwt_credentials(authorization: HTTPAuthorizationCredentials = Security(jwt_header)) -> Dict[str, Any]:
+def verify_web_jwt_credentials(authorization: HTTPAuthorizationCredentials = Security(jwt_header)) -> Dict[str, Any]:
     try:
-        return verify_jwt_token(authorization.credentials)
+        claims = verify_jwt_token(authorization.credentials)
+        if __CLAIM_SCOPE in claims:
+            raise AuthenticationError("Scoped tokens are not accepted here", INVALID_CLI_TOKEN)
+        return claims
     except ExpiredSignatureError as e:
         message = "Token has expired"
         log.w(message, e)
@@ -154,6 +172,21 @@ def create_public_attachment_token(chat_id: str, attachment_id: str, issuer_user
     )
 
 
+def create_cli_jwt_token(user_id: str, generation: int, device_id: str, hostname: str, os: str, expires_at: datetime) -> str:
+    return create_jwt_token(
+        {
+            "iss": config.agent_bot_name,
+            "sub": user_id,
+            __CLAIM_SCOPE: __SCOPE_CLI,
+            __CLAIM_CLI_GENERATION: generation,
+            __CLAIM_DEVICE_ID: device_id,
+            __CLAIM_HOSTNAME: hostname,
+            __CLAIM_OS: os,
+        },
+        expires_at - datetime.now(timezone.utc),
+    )
+
+
 def verify_public_attachment_token(token: str) -> PublicAttachmentTokenClaims:
     try:
         claims = verify_jwt_token(token)
@@ -177,3 +210,24 @@ def verify_public_attachment_token(token: str) -> PublicAttachmentTokenClaims:
         attachment_id = str(attachment_id),
         issuer_user_id = str(issuer_user_id),
     )
+
+
+def verify_cli_jwt_credentials(authorization: HTTPAuthorizationCredentials = Security(jwt_header)) -> CliTokenClaims:
+    try:
+        claims = verify_jwt_token(authorization.credentials)
+    except ExpiredSignatureError as e:
+        raise AuthenticationError("CLI token expired", INVALID_CLI_TOKEN) from e
+    except Exception as e:
+        raise AuthenticationError("Invalid CLI token", INVALID_CLI_TOKEN) from e
+
+    if claims.get(__CLAIM_SCOPE) != __SCOPE_CLI:
+        raise AuthenticationError("Token is not a CLI token", INVALID_CLI_TOKEN)
+    generation = claims.get(__CLAIM_CLI_GENERATION)
+    if not isinstance(generation, int) or isinstance(generation, bool):
+        raise AuthenticationError("CLI token has an invalid generation", INVALID_CLI_TOKEN)
+    values = [claims.get(name) for name in ("sub", __CLAIM_DEVICE_ID, __CLAIM_HOSTNAME, __CLAIM_OS)]
+    if not all(isinstance(value, str) and value for value in values):
+        raise AuthenticationError("CLI token is missing required claims", INVALID_CLI_TOKEN)
+
+    user_id, device_id, hostname, os = values
+    return CliTokenClaims(user_id = user_id, generation = generation, device_id = device_id, hostname = hostname, os = os)

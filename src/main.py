@@ -23,9 +23,9 @@ from api.auth import (
     get_user_id_from_jwt,
     verify_api_key,
     verify_gumroad_auth_key,
-    verify_jwt_credentials,
     verify_public_attachment_token,
     verify_telegram_auth_key,
+    verify_web_jwt_credentials,
     verify_whatsapp_signature,
     verify_whatsapp_webhook_challenge,
 )
@@ -207,7 +207,7 @@ def cleanup(
 def get_private_attachment(
     attachment_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> StreamingResponse:
     invoker_id_hex = get_user_id_from_jwt(token)
     return AttachmentsController(DI(db, invoker_id_hex)).stream_private_attachment(attachment_id)
@@ -227,7 +227,7 @@ def get_public_attachment(
 def get_user_settings(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> UserSettingsResponse:
     log.d(f"Fetching user settings for '{user_id}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -241,7 +241,7 @@ def save_user_settings(
     user_id_hex: str,
     payload: UserSettingsPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Saving user settings for user '{user_id_hex}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -254,7 +254,7 @@ def save_user_settings(
 @app.get("/settings/chats")
 def get_chats(
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> list[ChatSettingsResponse]:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -266,7 +266,7 @@ def get_chats(
 def get_chat_settings(
     chat_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ChatSettingsResponse:
     log.d(f"Fetching chat settings for chat '{chat_id}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -280,7 +280,7 @@ def save_chat_settings(
     chat_id: str,
     payload: ChatSettingsPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Saving chat settings for chat '{chat_id}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -294,7 +294,7 @@ def save_chat_settings(
 def get_tools(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ExternalToolsResponse:
     log.d(f"Fetching tools for {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -307,7 +307,7 @@ def get_tools(
 def get_products(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ProductsResponse:
     log.d(f"Fetching products for {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -320,7 +320,7 @@ def get_products(
 def get_sponsorships(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Fetching sponsorships for {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -334,7 +334,7 @@ def sponsor_user(
     user_id: str,
     payload: SponsorshipPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Sponsoring user from {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -349,7 +349,7 @@ def unsponsor_user(
     platform: str,
     platform_handle: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Unsponsoring user from {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -363,7 +363,7 @@ def unsponsor_user(
 def unsponsor_self(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"User {user_id} is unsponsoring themselves")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -378,7 +378,7 @@ def transfer_credits(
     user_id: str,
     payload: CreditTransferPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Transferring credits from {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -403,7 +403,7 @@ def get_usage_records(
     purpose: str | None = None,
     provider_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> list[UsageRecord]:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -439,7 +439,7 @@ def get_usage_stats(
     purpose: str | None = None,
     provider_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> UsageAggregates:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -469,7 +469,7 @@ def get_purchase_records(
     end_date: str | None = None,
     product_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> list[PurchaseRecord]:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -493,7 +493,7 @@ def get_purchase_stats(
     end_date: str | None = None,
     product_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> PurchaseAggregates:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -513,7 +513,7 @@ def bind_purchase_license_key(
     user_id: str,
     payload: BindLicenseKeyPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> PurchaseRecord:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -528,7 +528,7 @@ def bind_purchase_license_key(
 def get_connect_key(
     user_id_hex: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ConnectKeyResponse:
     log.d(f"Fetching connect key for user '{user_id_hex}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -541,7 +541,7 @@ def get_connect_key(
 def regenerate_connect_key(
     user_id_hex: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ConnectKeyResponse:
     log.d(f"Regenerating connect key for user '{user_id_hex}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -555,7 +555,7 @@ def connect_profiles(
     user_id_hex: str,
     connect_key: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> SettingsLinkResponse:
     log.d(f"Executing profile connect for user '{user_id_hex}' with key '{connect_key}'")
     invoker_id_hex = get_user_id_from_jwt(token)
