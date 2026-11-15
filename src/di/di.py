@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from xai_sdk import Client as XAISDKClient
 
     from api.authorization_service import AuthorizationService
+    from api.cli_controller import CliController
     from api.gumroad_controller import GumroadController
     from api.profile_connect_controller import ProfileConnectController
     from api.purchases_controller import PurchasesController
@@ -81,6 +82,8 @@ if TYPE_CHECKING:
     from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
+    from features.cli.cli_access_service import CliAccessService
+    from features.cli.cli_notify_service import CliNotifyService
     from features.connect.profile_connect_service import ProfileConnectService
     from features.currencies.asset_alert_service import AssetAlertService
     from features.currencies.asset_price_service import AssetPriceService
@@ -157,6 +160,8 @@ class DI:
     _sponsorship_service: "SponsorshipService | None"
     _credit_transfer_service: "CreditTransferService | None"
     _profile_connect_service: "ProfileConnectService | None"
+    _cli_access_service: "CliAccessService | None"
+    _cli_notify_service: "CliNotifyService | None"
     _authorization_service: "AuthorizationService | None"
     _usage_tracking_service: "UsageTrackingService | None"
     _purchase_service: "PurchaseService | None"
@@ -168,6 +173,7 @@ class DI:
     _transfers_controller: "TransfersController | None"
     _usage_controller: "UsageController | None"
     _profile_connect_controller: "ProfileConnectController | None"
+    _cli_controller: "CliController | None"
     _gumroad_controller: "GumroadController | None"
     _purchases_controller: "PurchasesController | None"
     # Internal tools
@@ -226,6 +232,8 @@ class DI:
         self._sponsorship_service = None
         self._credit_transfer_service = None
         self._profile_connect_service = None
+        self._cli_access_service = None
+        self._cli_notify_service = None
         self._authorization_service = None
         self._usage_tracking_service = None
         self._purchase_service = None
@@ -237,6 +245,7 @@ class DI:
         self._transfers_controller = None
         self._usage_controller = None
         self._profile_connect_controller = None
+        self._cli_controller = None
         self._gumroad_controller = None
         self._purchases_controller = None
         # Internal tools
@@ -632,6 +641,22 @@ class DI:
         return self._profile_connect_service
 
     @property
+    @dependency(cache = "_cli_access_service")
+    def cli_access_service(self) -> "CliAccessService":
+        if self._cli_access_service is None:
+            from features.cli.cli_access_service import CliAccessService
+            self._cli_access_service = CliAccessService(self)
+        return self._cli_access_service
+
+    @property
+    @dependency(cache = "_cli_notify_service")
+    def cli_notify_service(self) -> "CliNotifyService":
+        if self._cli_notify_service is None:
+            from features.cli.cli_notify_service import CliNotifyService
+            self._cli_notify_service = CliNotifyService(self)
+        return self._cli_notify_service
+
+    @property
     @dependency(cache = "_purchase_service")
     def purchase_service(self) -> "PurchaseService":
         if self._purchase_service is None:
@@ -696,6 +721,14 @@ class DI:
             from api.profile_connect_controller import ProfileConnectController
             self._profile_connect_controller = ProfileConnectController(self)
         return self._profile_connect_controller
+
+    @property
+    @dependency(cache = "_cli_controller")
+    def cli_controller(self) -> "CliController":
+        if self._cli_controller is None:
+            from api.cli_controller import CliController
+            self._cli_controller = CliController(self)
+        return self._cli_controller
 
     @property
     @dependency(cache = "_gumroad_controller")

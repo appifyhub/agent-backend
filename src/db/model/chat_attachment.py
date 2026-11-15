@@ -1,8 +1,8 @@
-from sqlalchemy import Column, DateTime, ForeignKeyConstraint, Integer, PrimaryKeyConstraint, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, PrimaryKeyConstraint, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 from util.functions import generate_short_uuid
 
 

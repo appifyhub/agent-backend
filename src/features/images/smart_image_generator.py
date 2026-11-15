@@ -2,11 +2,11 @@ from dataclasses import replace
 from threading import BoundedSemaphore, Thread
 from uuid import UUID
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.announcements.sys_announcements_service import SysAnnouncementsService
 from features.chat.attachment.chat_attachment import ChatAttachment
 from features.external_tools.configured_tool import ConfiguredTool
@@ -33,7 +33,7 @@ class SmartImageGenerator:
 
     __raw_prompt: str
     __all_attachments: list[ChatAttachment]
-    __copywriter: BaseChatModel
+    __copywriter: ChatModelUsageTrackingDecorator
     __image_gen_tool: ConfiguredTool
     __aspect_ratio: str | None
     __output_size: str | None

@@ -1,11 +1,11 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import Boolean, Column, Index, Integer, String
+from sqlalchemy import Boolean, Index, Integer, String
 from sqlalchemy import Enum as EnumSQL
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class ChatConfigDB(BaseModel):

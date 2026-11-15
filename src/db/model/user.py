@@ -2,11 +2,11 @@ import uuid
 from datetime import date
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, Column, Date, Float, String, text
+from sqlalchemy import BigInteger, Boolean, Date, Float, Integer, String, text
 from sqlalchemy import Enum as EnumSQL
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 from db.model.encrypted_string import EncryptedString
 
 
@@ -49,6 +49,8 @@ class UserDB(BaseModel):
 
     # not secret, used to connect multiple user profiles
     connect_key = Column(String, nullable = False, unique = True, index = True)
+    # used for invalidating the previous generation's tokens
+    cli_token_generation = Column(Integer, nullable = False, default = 0, server_default = text("0"))
 
     open_ai_key = Column(EncryptedString, nullable = True)
     anthropic_key = Column(EncryptedString, nullable = True)

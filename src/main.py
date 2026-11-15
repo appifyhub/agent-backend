@@ -19,19 +19,27 @@ from starlette.responses import JSONResponse, PlainTextResponse, RedirectRespons
 
 from api.attachments_controller import AttachmentsController
 from api.auth import (
+    CliTokenClaims,
     get_chat_type_from_jwt,
     get_user_id_from_jwt,
     verify_api_key,
+    verify_cli_jwt_credentials,
     verify_gumroad_auth_key,
-    verify_jwt_credentials,
     verify_public_attachment_token,
     verify_telegram_auth_key,
+    verify_web_jwt_credentials,
     verify_whatsapp_signature,
     verify_whatsapp_webhook_challenge,
 )
 from api.model.bind_license_key_payload import BindLicenseKeyPayload
 from api.model.chat_settings_payload import ChatSettingsPayload
 from api.model.chat_settings_response import ChatSettingsResponse
+from api.model.cli_chat_response import CliChatResponse
+from api.model.cli_connect_payload import CliConnectPayload
+from api.model.cli_connect_response import CliConnectResponse
+from api.model.cli_notify_chat_payload import CliNotifyChatPayload
+from api.model.cli_notify_response import CliNotifyResponse
+from api.model.cli_notify_user_payload import CliNotifyUserPayload
 from api.model.connect_key_response import ConnectKeyResponse
 from api.model.credit_transfer_payload import CreditTransferPayload
 from api.model.external_tools_response import ExternalToolsResponse
@@ -54,6 +62,7 @@ from features.chat.telegram.model.update import Update as TelegramUpdate
 from features.chat.telegram.telegram_update_responder import respond_to_update
 from features.chat.whatsapp.model.update import Update as WhatsAppUpdate
 from features.chat.whatsapp.whatsapp_update_responder import respond_to_update as respond_to_whatsapp_update
+from features.connect.connect_key_resolver import require_user_by_connect_key
 from features.currencies.asset_alert_responder import respond_with_asset_alerts
 from features.integrations.integrations import resolve_agent_user
 from util import log
@@ -207,7 +216,7 @@ def cleanup(
 def get_private_attachment(
     attachment_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> StreamingResponse:
     invoker_id_hex = get_user_id_from_jwt(token)
     return AttachmentsController(DI(db, invoker_id_hex)).stream_private_attachment(attachment_id)
@@ -227,7 +236,7 @@ def get_public_attachment(
 def get_user_settings(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> UserSettingsResponse:
     log.d(f"Fetching user settings for '{user_id}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -241,7 +250,7 @@ def save_user_settings(
     user_id_hex: str,
     payload: UserSettingsPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Saving user settings for user '{user_id_hex}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -254,7 +263,7 @@ def save_user_settings(
 @app.get("/settings/chats")
 def get_chats(
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> list[ChatSettingsResponse]:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -266,7 +275,7 @@ def get_chats(
 def get_chat_settings(
     chat_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ChatSettingsResponse:
     log.d(f"Fetching chat settings for chat '{chat_id}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -280,7 +289,7 @@ def save_chat_settings(
     chat_id: str,
     payload: ChatSettingsPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Saving chat settings for chat '{chat_id}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -294,7 +303,7 @@ def save_chat_settings(
 def get_tools(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ExternalToolsResponse:
     log.d(f"Fetching tools for {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -307,7 +316,7 @@ def get_tools(
 def get_products(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ProductsResponse:
     log.d(f"Fetching products for {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -320,7 +329,7 @@ def get_products(
 def get_sponsorships(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Fetching sponsorships for {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -334,7 +343,7 @@ def sponsor_user(
     user_id: str,
     payload: SponsorshipPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Sponsoring user from {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -349,7 +358,7 @@ def unsponsor_user(
     platform: str,
     platform_handle: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Unsponsoring user from {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -363,7 +372,7 @@ def unsponsor_user(
 def unsponsor_self(
     user_id: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"User {user_id} is unsponsoring themselves")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -378,7 +387,7 @@ def transfer_credits(
     user_id: str,
     payload: CreditTransferPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> dict:
     log.d(f"Transferring credits from {user_id}")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -403,7 +412,7 @@ def get_usage_records(
     purpose: str | None = None,
     provider_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> list[UsageRecord]:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -439,7 +448,7 @@ def get_usage_stats(
     purpose: str | None = None,
     provider_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> UsageAggregates:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -469,7 +478,7 @@ def get_purchase_records(
     end_date: str | None = None,
     product_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> list[PurchaseRecord]:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -493,7 +502,7 @@ def get_purchase_stats(
     end_date: str | None = None,
     product_id: str | None = None,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> PurchaseAggregates:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -513,7 +522,7 @@ def bind_purchase_license_key(
     user_id: str,
     payload: BindLicenseKeyPayload,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> PurchaseRecord:
     invoker_id_hex = get_user_id_from_jwt(token)
     log.d(f"  Invoker ID: {invoker_id_hex}")
@@ -528,7 +537,7 @@ def bind_purchase_license_key(
 def get_connect_key(
     user_id_hex: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ConnectKeyResponse:
     log.d(f"Fetching connect key for user '{user_id_hex}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -541,7 +550,7 @@ def get_connect_key(
 def regenerate_connect_key(
     user_id_hex: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> ConnectKeyResponse:
     log.d(f"Regenerating connect key for user '{user_id_hex}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -555,7 +564,7 @@ def connect_profiles(
     user_id_hex: str,
     connect_key: str,
     db = Depends(get_session),
-    token: dict[str, Any] = Depends(verify_jwt_credentials),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
 ) -> SettingsLinkResponse:
     log.d(f"Executing profile connect for user '{user_id_hex}' with key '{connect_key}'")
     invoker_id_hex = get_user_id_from_jwt(token)
@@ -568,7 +577,84 @@ def connect_profiles(
     return di.profile_connect_controller.connect_profiles(user_id_hex, connect_key, chat_type)
 
 
+@app.post("/cli/connect")
+def cli_connect(
+    payload: CliConnectPayload,
+    db = Depends(get_session),
+) -> CliConnectResponse:
+    log.d("Connecting a CLI")
+    owner = require_user_by_connect_key(payload.connect_key, db)
+    di = DI(db, owner.id.hex)
+    di.inject_invoker(owner)
+    return di.cli_controller.connect(payload)
+
+
+@app.get("/cli/chats")
+def cli_chats(
+    db = Depends(get_session),
+    claims: CliTokenClaims = Depends(verify_cli_jwt_credentials),
+) -> list[CliChatResponse]:
+    log.d("Listing chats for a CLI")
+    di = DI(db, claims.user_id)
+    di.cli_controller.require_valid_cli_token(claims)
+    return di.cli_controller.list_chats()
+
+
+@app.post("/cli/notify/user/{user_id_hex}")
+def cli_notify_user(
+    user_id_hex: str,
+    payload: CliNotifyUserPayload,
+    db = Depends(get_session),
+    claims: CliTokenClaims = Depends(verify_cli_jwt_credentials),
+) -> CliNotifyResponse:
+    log.d(f"Notifying user '{user_id_hex}' from a CLI")
+    di = DI(db, claims.user_id)
+    di.cli_controller.require_valid_cli_token(claims)
+    return di.cli_controller.notify_user(claims.hostname, user_id_hex, payload)
+
+
+@app.post("/cli/notify/chat/{chat_id}")
+def cli_notify_chat(
+    chat_id: str,
+    payload: CliNotifyChatPayload,
+    db = Depends(get_session),
+    claims: CliTokenClaims = Depends(verify_cli_jwt_credentials),
+) -> CliNotifyResponse:
+    log.d(f"Notifying chat '{chat_id}' from a CLI")
+    di = DI(db, claims.user_id)
+    di.cli_controller.require_valid_cli_token(claims)
+    return di.cli_controller.notify_chat(claims.hostname, chat_id, payload)
+
+
+@app.delete("/cli/user/{user_id_hex}/devices")
+def revoke_cli_tokens_from_cli(
+    user_id_hex: str,
+    db = Depends(get_session),
+    claims: CliTokenClaims = Depends(verify_cli_jwt_credentials),
+) -> dict[str, str]:
+    log.d(f"Revoking all CLI access for user '{user_id_hex}'")
+    di = DI(db, claims.user_id)
+    di.cli_controller.require_valid_cli_token(claims)
+    di.cli_controller.revoke_all(user_id_hex)
+    return {"status": "OK"}
+
+
+@app.delete("/user/{user_id_hex}/cli/devices")
+def revoke_cli_tokens_from_web(
+    user_id_hex: str,
+    db = Depends(get_session),
+    token: dict[str, Any] = Depends(verify_web_jwt_credentials),
+) -> dict[str, str]:
+    log.d(f"Revoking CLI tokens for user '{user_id_hex}'")
+    invoker_id_hex = get_user_id_from_jwt(token)
+    log.d(f"  Invoker ID: {invoker_id_hex}")
+    di = DI(db, invoker_id_hex)
+    di.cli_controller.revoke_all(user_id_hex)
+    return {"status": "OK"}
+
+
 # The main runner
+
 if __name__ == "__main__":
     if "--dev" in sys.argv:  # when running locally...
         os.environ["LOG_LEVEL"] = "debug"

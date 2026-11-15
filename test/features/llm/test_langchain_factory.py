@@ -1,3 +1,4 @@
+from typing import cast
 from unittest import TestCase
 
 from langchain_anthropic import ChatAnthropic
@@ -7,6 +8,7 @@ from langchain_perplexity import ChatPerplexity
 from stubs import domain
 from util.di_utils import di_for_tests
 
+from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.external_tools.external_tool_library import (
     CLAUDE_4_8_OPUS,
@@ -23,6 +25,10 @@ from features.external_tools.external_tool_provider_library import ANTHROPIC, GO
 from features.llm.langchain_factory import create
 from util.config import config
 from util.errors import ConfigurationError
+
+
+def create_openai(configured_tool: ConfiguredTool, max_tokens: int) -> ChatOpenAI:
+    return cast(ChatOpenAI, create(configured_tool, max_tokens))
 
 
 class LangchainFactoryTest(TestCase):
@@ -45,7 +51,7 @@ class LangchainFactoryTest(TestCase):
             with self.subTest(tool = tool.id):
                 configured_tool = domain.configured_tool(definition = tool)
 
-                result = create(configured_tool, 4096)
+                result = create_openai(configured_tool, 4096)
 
                 self.assertEqual(result.reasoning_effort, "none")
 
@@ -73,7 +79,7 @@ class LangchainFactoryTest(TestCase):
             with self.subTest(tool = tool.id):
                 configured_tool = domain.configured_tool(definition = tool, purpose = ToolType.reasoning)
 
-                result = create(configured_tool, 4096)
+                result = cast(ChatAnthropic, create(configured_tool, 4096))
 
                 self.assertNotIn("temperature", result.model_fields_set)
                 self.assertIsNone(result.temperature)
@@ -259,7 +265,7 @@ class LangchainFactoryTest(TestCase):
             definition = domain.external_tool(provider = OPEN_AI),
         )
 
-        result = create(configured_tool, 4096)
+        result = create_openai(configured_tool, 4096)
 
         self.assertEqual(result.max_retries, 7)
         self.assertEqual(result.request_timeout, 42)
@@ -271,7 +277,7 @@ class LangchainFactoryTest(TestCase):
         configured_tool = domain.configured_tool(
             definition = domain.external_tool(provider = OPEN_AI),
         )
-        chat_result = create(configured_tool, 4096)
+        chat_result = create_openai(configured_tool, 4096)
         configured_tool = domain.configured_tool(
             definition = domain.external_tool(
                 provider = OPEN_AI,
@@ -279,12 +285,12 @@ class LangchainFactoryTest(TestCase):
             ),
             purpose = ToolType.reasoning,
         )
-        reasoning_result = create(configured_tool, 4096)
+        reasoning_result = create_openai(configured_tool, 4096)
         configured_tool = domain.configured_tool(
             definition = domain.external_tool(provider = OPEN_AI),
             purpose = ToolType.copywriting,
         )
-        copywriting_result = create(configured_tool, 4096)
+        copywriting_result = create_openai(configured_tool, 4096)
 
         self.assertEqual(chat_result.temperature, 0.5)
         self.assertEqual(reasoning_result.temperature, 0.5)
@@ -301,7 +307,7 @@ class LangchainFactoryTest(TestCase):
                 types = [ToolType.chat, ToolType.reasoning],
             ),
         )
-        result_chat = create(configured_tool_chat, 4096)
+        result_chat = create_openai(configured_tool_chat, 4096)
         self.assertEqual(result_chat.request_timeout, 30)  # 10 * 3
 
         # [2] reasoning requested -> 3x timeout
@@ -312,11 +318,11 @@ class LangchainFactoryTest(TestCase):
             ),
             purpose = ToolType.reasoning,
         )
-        result_reasoning = create(configured_tool_reasoning, 4096)
+        result_reasoning = create_openai(configured_tool_reasoning, 4096)
         self.assertEqual(result_reasoning.request_timeout, 30)  # 10 * 3
 
         # [3] chat requested, tool does not support reasoning -> 1x timeout
         chat_only_tool = domain.external_tool(provider = OPEN_AI)
         configured_tool_chat_only = domain.configured_tool(definition = chat_only_tool)
-        result_chat_only = create(configured_tool_chat_only, 4096)
+        result_chat_only = create_openai(configured_tool_chat_only, 4096)
         self.assertEqual(result_chat_only.request_timeout, 10)  # 10 * 1

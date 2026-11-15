@@ -107,7 +107,7 @@ class HTMLContentCleanerTest(TestCase):
     def test_remove_navigational_elements(self):
         html = "<nav>Navigation</nav><header>Header</header><menu>Menu</menu><div class=\"menu\">Menu div</div>"
         # noinspection PyUnresolvedReferences
-        content = HTMLContentCleaner._HTMLContentCleaner__remove_menus(html)
+        content = HTMLContentCleaner._HTMLContentCleaner__remove_menus(html)  # pyright: ignore[reportAttributeAccessIssue]
         self.assertNotIn("Navigation", content)
         self.assertNotIn("Header", content)
         self.assertNotIn("Menu", content)

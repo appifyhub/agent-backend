@@ -1,9 +1,9 @@
 import uuid
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKeyConstraint, Index, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKeyConstraint, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class PurchaseRecordDB(BaseModel):

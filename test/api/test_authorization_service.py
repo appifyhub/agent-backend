@@ -111,6 +111,20 @@ class AuthorizationServiceTest(TestCase):
 
         self.assertEqual([chat.chat_id for chat in admin_chats], [own_chat.chat_id, group.chat_id])
 
+    def test_get_authorized_chats_skips_chat_when_platform_lookup_fails(self):
+        failing_group = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-000000000031"), external_id = "failing-group", is_private = False,
+        ))
+        admin_group = self.di.chat_config_repo.save(stubs.domain.chat_config(
+            chat_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-000000000032"), external_id = "admin-group", is_private = False,
+        ))
+        self.bot.members[(failing_group.external_id, str(self.user.telegram_user_id))] = Exception("Telegram unavailable")
+        self.bot.members[(admin_group.external_id, str(self.user.telegram_user_id))] = stubs.external.telegram_chat_administrator()  # ruff: ignore[line-too-long]
+
+        admin_chats = self.service.get_authorized_chats(self.user)
+
+        self.assertEqual([chat.chat_id for chat in admin_chats], [admin_group.chat_id])
+
     def test_get_authorized_chats_user_no_telegram_id(self):
         user = stubs.domain.user(telegram_chat_id = None, telegram_user_id = None)
         self.di.chat_config_repo.save(stubs.domain.chat_config(is_private = False))

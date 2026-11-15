@@ -1,8 +1,8 @@
-from sqlalchemy import Column, DateTime, ForeignKeyConstraint, PrimaryKeyConstraint
+from sqlalchemy import DateTime, ForeignKeyConstraint, PrimaryKeyConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class SponsorshipDB(BaseModel):

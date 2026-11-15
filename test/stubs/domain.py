@@ -119,6 +119,7 @@ def user(**overrides: Any) -> User:
         "is_invited_to_start": True,
         "are_policies_accepted": True,
         "connect_key": "MARK-JHNS-2026",
+        "cli_token_generation": 0,
         "group": UserDB.Group.standard,
     }
     return User(**(defaults | overrides))

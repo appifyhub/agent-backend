@@ -1,7 +1,7 @@
-from sqlalchemy import Column, DateTime, Float, ForeignKeyConstraint, Integer, PrimaryKeyConstraint, String
+from sqlalchemy import DateTime, Float, ForeignKeyConstraint, Integer, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class PriceAlertDB(BaseModel):

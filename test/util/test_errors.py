@@ -6,6 +6,7 @@ from util.config import config
 from util.errors import (
     AuthenticationError,
     AuthorizationError,
+    BadRequestError,
     ConfigurationError,
     ExternalServiceError,
     InternalError,
@@ -73,6 +74,12 @@ class SubclassDefaultsTest(unittest.TestCase):
         error = ValidationError("msg", error_code = 1)
 
         self.assertEqual(error.http_status, 422)
+        self.assertEqual(error.emoji, "✏️")
+
+    def test_bad_request_error(self):
+        error = BadRequestError("msg", error_code = 1)
+
+        self.assertEqual(error.http_status, 400)
         self.assertEqual(error.emoji, "✏️")
 
     def test_not_found_error(self):

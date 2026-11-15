@@ -52,6 +52,11 @@ class ValidationError(ServiceError):
         super().__init__(message, error_code, http_status = 422, emoji = emoji)
 
 
+class BadRequestError(ServiceError):
+    def __init__(self, message: str, error_code: int, emoji: str = "✏️"):
+        super().__init__(message, error_code, http_status = 400, emoji = emoji)
+
+
 class NotFoundError(ServiceError):
     def __init__(self, message: str, error_code: int, emoji: str = "🔍"):
         super().__init__(message, error_code, http_status = 404, emoji = emoji)

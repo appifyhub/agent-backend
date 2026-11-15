@@ -3,10 +3,10 @@ import re
 from enum import Enum
 
 import requests
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
@@ -33,7 +33,7 @@ class UserSupportService:
     __include_platform_handle: bool
     __include_full_name: bool
     __request_type: RequestType
-    __copywriter: BaseChatModel
+    __copywriter: ChatModelUsageTrackingDecorator
     __di: DI
 
     def __init__(

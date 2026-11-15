@@ -35,6 +35,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertIsNotNone(result.id)
         self.assertIsNotNone(result.created_at)
         self.assertIsNotNone(result.connect_key)
+        self.assertEqual(result.cli_token_generation, 0)
         self.assertEqual(result.full_name, "Test User")
         self.assertEqual(result.credit_balance, 0.0)
         self.assertEqual(result.group, UserDB.Group.standard)
@@ -190,6 +191,7 @@ class UserRepositoryTest(unittest.TestCase):
             about_me = None,
             telegram_username = "updated-telegram",
             credit_balance = 500.0,
+            cli_token_generation = 2,
             group = UserDB.Group.developer,
         )
 
@@ -198,6 +200,7 @@ class UserRepositoryTest(unittest.TestCase):
         self.assertEqual(result.id, created.id)
         self.assertEqual(result.created_at, created.created_at)
         self.assertEqual(result.connect_key, "UPDATE-KEY-001")
+        self.assertEqual(result.cli_token_generation, 2)
         self.assertEqual(result.full_name, "Updated")
         self.assertIsNone(result.about_me)
         self.assertEqual(result.telegram_username, "updated-telegram")

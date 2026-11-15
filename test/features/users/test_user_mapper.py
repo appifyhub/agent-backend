@@ -51,6 +51,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_api_stock_quote = "db-stock-tool",
             tool_choice_api_twitter = "db-twitter-tool",
             connect_key = "DB-CONNECT-KEY",
+            cli_token_generation = 4,
         )
 
         result = domain(db_model)
@@ -93,6 +94,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.is_invited_to_start, db_model.is_invited_to_start)
         self.assertEqual(result.are_policies_accepted, db_model.are_policies_accepted)
         self.assertEqual(result.connect_key, db_model.connect_key)
+        self.assertEqual(result.cli_token_generation, 4)
         self.assertEqual(result.group, db_model.group)
 
     def test_db_maps_all_fields_and_unwraps_secrets(self):
@@ -128,6 +130,7 @@ class UserMapperTest(unittest.TestCase):
             tool_choice_api_stock_quote = "domain-stock-tool",
             tool_choice_api_twitter = "domain-twitter-tool",
             connect_key = "DOMAIN-CONNECT-KEY",
+            cli_token_generation = 5,
         )
 
         result = db(domain_model)
@@ -170,6 +173,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertEqual(result.is_invited_to_start, domain_model.is_invited_to_start)
         self.assertEqual(result.are_policies_accepted, domain_model.are_policies_accepted)
         self.assertEqual(result.connect_key, domain_model.connect_key)
+        self.assertEqual(result.cli_token_generation, 5)
         self.assertEqual(result.group, domain_model.group)
 
     def test_apply_to_db_model_updates_mutable_fields_and_preserves_identity(self):
@@ -194,6 +198,7 @@ class UserMapperTest(unittest.TestCase):
             is_invited_to_start = False,
             are_policies_accepted = False,
             connect_key = "UPDATED-KEY",
+            cli_token_generation = 6,
         )
 
         apply_to_db_model(replacement, db_model)
@@ -216,6 +221,7 @@ class UserMapperTest(unittest.TestCase):
         self.assertFalse(db_model.is_invited_to_start)
         self.assertFalse(db_model.are_policies_accepted)
         self.assertEqual(db_model.connect_key, "UPDATED-KEY")
+        self.assertEqual(db_model.cli_token_generation, 6)
         self.assertEqual(db_model.group, UserDB.Group.standard)
 
     def test_from_remote_data_uses_remote_fields_and_domain_defaults(self):

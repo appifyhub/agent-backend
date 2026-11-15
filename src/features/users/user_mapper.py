@@ -74,6 +74,7 @@ def domain(db_model: UserDB | None) -> User | None:
         are_policies_accepted = db_model.are_policies_accepted,
 
         connect_key = db_model.connect_key,
+        cli_token_generation = db_model.cli_token_generation,
         group = db_model.group,
     )
 
@@ -129,6 +130,7 @@ def db(domain_model: User | None) -> UserDB | None:
         are_policies_accepted = domain_model.are_policies_accepted,
 
         connect_key = domain_model.connect_key,
+        cli_token_generation = domain_model.cli_token_generation,
         group = domain_model.group,
     )
 
@@ -180,6 +182,7 @@ def apply_to_db_model(
     db_model.are_policies_accepted = domain_model.are_policies_accepted
 
     db_model.connect_key = domain_model.connect_key
+    db_model.cli_token_generation = domain_model.cli_token_generation
     db_model.group = domain_model.group
 
 

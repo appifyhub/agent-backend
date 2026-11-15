@@ -105,6 +105,7 @@ class ProfileConnectServiceTest(TestCase):
             self.requester,
             full_name = "Survivor",
             is_invited_to_start = False,
+            cli_token_generation = 3,
             open_ai_key = SecretStr("survivor-key"),
             anthropic_key = None,
             twelve_data_api_key = None,
@@ -123,6 +124,7 @@ class ProfileConnectServiceTest(TestCase):
             x_key = SecretStr("deleted-x-key"),
             x_ai_key = SecretStr("deleted-x-ai-key"),
             credit_balance = 50.0,
+            cli_token_generation = 7,
             group = UserDB.Group.developer,
         ))
 
@@ -145,6 +147,7 @@ class ProfileConnectServiceTest(TestCase):
         self.assertEqual(merged.tool_choice_videos_gen, casualty.tool_choice_videos_gen)
         self.assertEqual(merged.credit_balance, 150.0)
         self.assertEqual(merged.group, UserDB.Group.developer)
+        self.assertEqual(merged.cli_token_generation, 7)
         self.assertTrue(merged.are_policies_accepted)
         self.assertFalse(merged.is_on_waitlist)
         self.assertFalse(merged.is_invited_to_start)

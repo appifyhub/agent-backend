@@ -1,11 +1,11 @@
 import io
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from openai import OpenAI
 from pydub import AudioSegment
 
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
+from features.accounting.usage.decorators.openai_usage_tracking_decorator import OpenAIUsageTrackingDecorator
 from features.chat.supported_files import (
     EXTENSION_FORMAT_MAP,
     SUPPORTED_AUDIO_FORMATS,
@@ -31,8 +31,8 @@ class AudioTranscriber:
     __audio_content: bytes
     __extension: str
     __transcriber_tool: ConfiguredTool
-    __transcriber: OpenAI
-    __copywriter: BaseChatModel
+    __transcriber: OpenAIUsageTrackingDecorator
+    __copywriter: ChatModelUsageTrackingDecorator
     __di: DI
 
     def __init__(
