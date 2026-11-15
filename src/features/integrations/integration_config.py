@@ -17,6 +17,10 @@ TEXT_MESSAGE_LIMITS: dict[ChatConfigDB.ChatType, int] = {
     ChatConfigDB.ChatType.telegram: 4096,
     ChatConfigDB.ChatType.whatsapp: 4096,
 }
+CLI_NOTIFICATION_PLATFORMS: list[ChatConfigDB.ChatType] = [
+    ChatConfigDB.ChatType.telegram,
+    ChatConfigDB.ChatType.whatsapp,
+]
 
 
 # === Core Agent (chat and core operations) ===

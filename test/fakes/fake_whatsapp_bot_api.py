@@ -14,12 +14,14 @@ class FakeWhatsAppBotAPI:
     downloads: dict[str, bytes | Exception | None]
     reactions: dict[tuple[str, str], str]
     read_messages: set[str]
+    delivery_errors: dict[str, Exception]
 
     def __init__(self):
         self._messages = {}
         self.downloads = {}
         self.reactions = {}
         self.read_messages = set()
+        self.delivery_errors = {}
 
     def get_sent_message(self, message_id: str) -> dict[str, Any]:
         return deepcopy(self._messages[message_id])
@@ -62,6 +64,9 @@ class FakeWhatsAppBotAPI:
         return content
 
     def _send(self, message: dict[str, Any]) -> MessageResponse:
+        error = self.delivery_errors.get(message["recipient_id"])
+        if error is not None:
+            raise error
         message_id = f"whatsapp-message-{len(self._messages) + 1}"
         self._messages[message_id] = deepcopy(message)
         return external.whatsapp_message_response(messages = [external.whatsapp_sent_message_response(id = message_id)])

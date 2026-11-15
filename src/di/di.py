@@ -81,6 +81,8 @@ if TYPE_CHECKING:
     from features.chat.whatsapp.whatsapp_chat_inbound_service import WhatsAppChatInboundService
     from features.chat.whatsapp.whatsapp_domain_mapper import WhatsAppDomainMapper
     from features.cleanup.cleanup_service import CleanupService
+    from features.cli.cli_access_service import CliAccessService
+    from features.cli.cli_notify_service import CliNotifyService
     from features.connect.profile_connect_service import ProfileConnectService
     from features.currencies.asset_alert_service import AssetAlertService
     from features.currencies.asset_price_service import AssetPriceService
@@ -157,6 +159,8 @@ class DI:
     _sponsorship_service: "SponsorshipService | None"
     _credit_transfer_service: "CreditTransferService | None"
     _profile_connect_service: "ProfileConnectService | None"
+    _cli_access_service: "CliAccessService | None"
+    _cli_notify_service: "CliNotifyService | None"
     _authorization_service: "AuthorizationService | None"
     _usage_tracking_service: "UsageTrackingService | None"
     _purchase_service: "PurchaseService | None"
@@ -226,6 +230,8 @@ class DI:
         self._sponsorship_service = None
         self._credit_transfer_service = None
         self._profile_connect_service = None
+        self._cli_access_service = None
+        self._cli_notify_service = None
         self._authorization_service = None
         self._usage_tracking_service = None
         self._purchase_service = None
@@ -630,6 +636,22 @@ class DI:
             from features.connect.profile_connect_service import ProfileConnectService
             self._profile_connect_service = ProfileConnectService(self)
         return self._profile_connect_service
+
+    @property
+    @dependency(cache = "_cli_access_service")
+    def cli_access_service(self) -> "CliAccessService":
+        if self._cli_access_service is None:
+            from features.cli.cli_access_service import CliAccessService
+            self._cli_access_service = CliAccessService(self)
+        return self._cli_access_service
+
+    @property
+    @dependency(cache = "_cli_notify_service")
+    def cli_notify_service(self) -> "CliNotifyService":
+        if self._cli_notify_service is None:
+            from features.cli.cli_notify_service import CliNotifyService
+            self._cli_notify_service = CliNotifyService(self)
+        return self._cli_notify_service
 
     @property
     @dependency(cache = "_purchase_service")

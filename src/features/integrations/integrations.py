@@ -255,8 +255,8 @@ def resolve_reaction_timing(chat_type: ChatConfigDB.ChatType) -> tuple[int, int]
 
 
 def resolve_best_notification_chat(user: User, di: DI) -> ChatConfig | None:
-    telegram_chat = _find_private_chat(user, ChatConfigDB.ChatType.telegram, di)
-    whatsapp_chat = _find_private_chat(user, ChatConfigDB.ChatType.whatsapp, di)
+    telegram_chat = find_private_chat(user, ChatConfigDB.ChatType.telegram, di)
+    whatsapp_chat = find_private_chat(user, ChatConfigDB.ChatType.whatsapp, di)
 
     telegram_time = _get_last_user_message_time(telegram_chat, user, di) if telegram_chat else None
     whatsapp_time = _get_last_user_message_time(whatsapp_chat, user, di) if whatsapp_chat else None
@@ -276,7 +276,7 @@ def resolve_best_notification_chat(user: User, di: DI) -> ChatConfig | None:
     return None
 
 
-def _find_private_chat(user: User, chat_type: ChatConfigDB.ChatType, di: DI) -> ChatConfig | None:
+def find_private_chat(user: User, chat_type: ChatConfigDB.ChatType, di: DI) -> ChatConfig | None:
     external_id = resolve_external_id(user, chat_type)
     if not external_id:
         return None
