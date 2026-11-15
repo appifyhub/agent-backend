@@ -1,8 +1,8 @@
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -17,7 +17,7 @@ class ReleaseSummaryService:
     TOOL_TYPE: ToolType = ToolType.copywriting
 
     __llm_input: list[BaseMessage]
-    __copywriter: BaseChatModel
+    __copywriter: ChatModelUsageTrackingDecorator
 
     def __init__(
         self,

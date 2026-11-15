@@ -23,7 +23,7 @@ from PIL import Image
 from replicate.client import Client as ReplicateClient
 from replicate.helpers import FileOutput
 from replicate.prediction import Prediction
-from requests import Response
+from requests import HTTPError, Response
 from urllib3.response import HTTPResponse
 from xai_sdk.chat import Response as XAIChatResponse
 from xai_sdk.proto import chat_pb2, image_pb2
@@ -323,6 +323,14 @@ def http_json_response(payload: Any, status_code: int = 200, url: str = "https:/
     response = http_response(content = dumps(payload).encode("utf-8"), status_code = status_code, url = url)
     response.headers["Content-Type"] = "application/json"
     return response
+
+
+def provider_http_error(status_code: int, body: dict[str, Any] | str) -> HTTPError:
+    if isinstance(body, str):
+        response = http_response(content = body.encode("utf-8"), status_code = status_code)
+    else:
+        response = http_json_response(body, status_code = status_code)
+    return HTTPError(f"HTTP_{status_code}", response = response)
 
 
 def uploadcare_file(**overrides: Any) -> FakeUploadcareFile:

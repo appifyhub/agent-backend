@@ -56,7 +56,7 @@ class SocialCardOrchestratorTest(TestCase):
         api_tool = stubs.domain.configured_tool(definition = X_READ_POST, purpose = ToolType.api_twitter)
         vision_tool = stubs.domain.configured_tool(definition = GPT_5_6_TERRA, purpose = ToolType.vision)
         self.orchestrator = self.di.social_card_orchestrator([api_tool], vision_tool)
-        self.provider = self.di.social_post_provider(TwitterSocialPostProvider, api_tool, vision_tool)
+        self.provider = cast(TwitterSocialPostProvider, self.di.social_post_provider(TwitterSocialPostProvider, api_tool, vision_tool))
         self.tweet = stubs.external.tweet_data(
             user = stubs.external.tweet_user_data(profile_image_url = None), media = [], link_previews = [],
         )

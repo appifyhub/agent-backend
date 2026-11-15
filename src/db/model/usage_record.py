@@ -1,10 +1,10 @@
 import uuid
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Index, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class UsageRecordDB(BaseModel):

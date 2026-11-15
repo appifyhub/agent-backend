@@ -1,7 +1,7 @@
-from sqlalchemy import Boolean, Column, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, text
+from sqlalchemy import Boolean, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class ChatMembershipDB(BaseModel):

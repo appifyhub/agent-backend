@@ -1,9 +1,9 @@
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from db.model.chat_config import ChatConfigDB
 from db.model.user import UserDB
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.chat.config.chat_config import ChatConfig
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -20,7 +20,7 @@ class DevAnnouncementsService:
     TOOL_TYPE: ToolType = ToolType.copywriting
 
     __raw_message: str
-    __copywriter: BaseChatModel
+    __copywriter: ChatModelUsageTrackingDecorator
     __target_chat: ChatConfig | None
     __di: DI
 

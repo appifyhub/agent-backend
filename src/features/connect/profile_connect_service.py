@@ -198,6 +198,7 @@ class ProfileConnectService:
         if not merged.tool_choice_api_twitter and casualty.tool_choice_api_twitter:
             merged.tool_choice_api_twitter = casualty.tool_choice_api_twitter
         merged.credit_balance = survivor.credit_balance + casualty.credit_balance
+        merged.cli_token_generation = max(survivor.cli_token_generation, casualty.cli_token_generation)
 
         # optimize for keeping the account active
         merged.are_policies_accepted = survivor.are_policies_accepted or casualty.are_policies_accepted

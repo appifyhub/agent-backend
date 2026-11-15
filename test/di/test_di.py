@@ -340,7 +340,7 @@ class DITest(TestCase):
 
         with self.assertRaisesRegex(InternalError, "consumer failed"):
             with di_for_tests() as di:
-                database_path = Path(di.db.get_bind().url.database)
+                database_path = Path(di.db.get_bind().engine.url.database)
                 locator = di.attachment_storage.put(domain.chat_attachment(), b"temporary")
                 storage_path = Path(locator.removeprefix("file://"))
                 config.user_agent = "temporary setting"

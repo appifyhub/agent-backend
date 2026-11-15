@@ -2,11 +2,14 @@ from base64 import b64encode
 from json import dumps
 from typing import Any
 
-from api.auth import PublicAttachmentTokenClaims
+from api.auth import CliTokenClaims, PublicAttachmentTokenClaims
 from api.model.chat_config_payload import ChatConfigPayload
 from api.model.chat_config_response import ChatConfigResponse
 from api.model.chat_settings_payload import ChatSettingsPayload
 from api.model.chat_settings_response import ChatSettingsResponse
+from api.model.cli_connect_payload import CliConnectPayload
+from api.model.cli_notify_chat_payload import CliNotifyChatPayload
+from api.model.cli_notify_user_payload import CliNotifyUserPayload
 from api.model.credit_transfer_payload import CreditTransferPayload
 from api.model.gumroad_ping_payload import GumroadPingPayload
 from api.model.release_output_payload import ReleaseOutputPayload
@@ -248,3 +251,54 @@ def jwt_claims(**overrides: Any) -> dict[str, Any]:
         "platform": "telegram",
     }
     return defaults | overrides
+
+
+def cli_token_claims(**overrides: Any) -> CliTokenClaims:
+    defaults = {
+        "user_id": "11111111111141118111a11111111111",
+        "generation": 0,
+        "device_id": "33333333-3333-4333-8333-333333333333",
+        "hostname": "build-box-01",
+        "os": "darwin",
+    }
+    return CliTokenClaims(**(defaults | overrides))
+
+
+def cli_jwt_claims(**overrides: Any) -> dict[str, Any]:
+    claims = cli_token_claims()
+    defaults = {
+        "iss": "The Agent",
+        "sub": claims.user_id,
+        "scope": "cli",
+        "cli_generation": claims.generation,
+        "device_id": claims.device_id,
+        "hostname": claims.hostname,
+        "os": claims.os,
+    }
+    return defaults | overrides
+
+
+def cli_connect_payload(**overrides: Any) -> CliConnectPayload:
+    defaults = {
+        "connect_key": "MARK-JHNS-2026",
+        "ttl_as_text": None,
+        "device_id": "33333333-3333-4333-8333-333333333333",
+        "hostname": "build-box-01",
+        "os": "darwin",
+    }
+    return CliConnectPayload(**(defaults | overrides))
+
+
+def cli_notify_user_payload(**overrides: Any) -> CliNotifyUserPayload:
+    defaults = {
+        "message": "Build finished",
+        "platform": None,
+    }
+    return CliNotifyUserPayload(**(defaults | overrides))
+
+
+def cli_notify_chat_payload(**overrides: Any) -> CliNotifyChatPayload:
+    defaults = {
+        "message": "Build finished",
+    }
+    return CliNotifyChatPayload(**(defaults | overrides))

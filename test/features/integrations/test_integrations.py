@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest import TestCase
 from uuid import UUID
@@ -12,6 +13,7 @@ from di.di import DI
 from features.chat.config.chat_config import ChatConfig
 from features.integrations.integrations import (
     WHATSAPP_MESSAGING_WINDOW_HOURS,
+    find_private_chat,
     format_handle,
     is_own_chat,
     is_reaction_response,
@@ -562,6 +564,27 @@ class NotificationChatResolutionTest(TestCase):
 
     def test_no_platforms_available(self):
         result = resolve_best_notification_chat(self.user, self.di)
+
+        self.assertIsNone(result)
+
+    def test_find_private_chat_returns_private_chat(self):
+        chat = self.di.chat_config_repo.save(self.telegram_chat)
+
+        result = find_private_chat(self.user, ChatConfigDB.ChatType.telegram, self.di)
+
+        self.assertEqual(result, chat)
+
+    def test_find_private_chat_ignores_group_with_matching_external_id(self):
+        self.di.chat_config_repo.save(replace(self.telegram_chat, is_private = False))
+
+        result = find_private_chat(self.user, ChatConfigDB.ChatType.telegram, self.di)
+
+        self.assertIsNone(result)
+
+    def test_find_private_chat_without_platform_identity(self):
+        user = replace(self.user, telegram_user_id = None)
+
+        result = find_private_chat(user, ChatConfigDB.ChatType.telegram, self.di)
 
         self.assertIsNone(result)
 

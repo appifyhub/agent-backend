@@ -63,6 +63,8 @@ class User:
     are_policies_accepted: bool = False
 
     connect_key: str = field(default_factory = generate_connect_key)
+    cli_token_generation: int = 0
+
     group: UserDB.Group = UserDB.Group.standard
 
     def has_any_api_key(self) -> bool:

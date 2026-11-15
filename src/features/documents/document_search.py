@@ -1,10 +1,10 @@
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.vectorstores import InMemoryVectorStore
 
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
 from features.integrations import prompt_resolvers
@@ -27,7 +27,7 @@ class DocumentSearch:
     __embeddings: Embeddings
     __documents: list[Document]
     __additional_context: str
-    __copywriter: BaseChatModel
+    __copywriter: ChatModelUsageTrackingDecorator
     __di: DI
 
     def __init__(

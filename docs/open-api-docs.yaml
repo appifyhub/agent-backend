@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.40.2
+  version: 5.41.0
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -943,13 +943,269 @@ paths:
       security:
         - bearerAuth: []
 
+  /cli/connect:
+    post:
+      summary: Connect a command-line client
+      description: >
+        Redeem a connect key for a CLI token. The key is single-use and is replaced by a new one after a successful connect,
+        so other clients can still connect with the new key and existing tokens keep working. A best-effort alert about the new
+        device is sent to the owner's best private chat, and its cost is included in the returned balance.
+        This route needs no authentication and is not gated by EULA or waitlist state.
+      operationId: connectCli
+      tags: [CLI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CliConnectPayload"
+      responses:
+        "200":
+          description: Connected successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliConnectResponse"
+        "400":
+          description: >
+            The lifetime is malformed (error code 1043) or longer than two years (error code 1044)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "404":
+          description: The connect key is unknown or was already used (error code 2015)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "422":
+          description: >
+            The device ID is blank, or the host name or the operating system is not allowed (error code 1045).
+            Missing or mistyped fields get the framework's default validation body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      security: []
+
+  /cli/chats:
+    get:
+      summary: List chats available to the CLI
+      description: >
+        List the owner's private chats and the chats they administer, private chats first.
+        Chats whose platform lookup fails are left out of the list.
+      operationId: listCliChats
+      tags: [CLI]
+      responses:
+        "200":
+          description: Chats retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CliChatResponse"
+        "401":
+          $ref: "#/components/responses/CliUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      security:
+        - cliBearerAuth: []
+
+  /cli/notify/user/{user_id_hex}:
+    post:
+      summary: Send a notification to the owner
+      description: >
+        Send a plain-text message to the owner's private chat, starting with a `🖥️ ` prefix. Without a platform the best private chat is used.
+        The owner must have accepted the policies and be active (not on the waitlist). Normal delivery billing applies,
+        and the returned balance includes this delivery's charge.
+      operationId: notifyCliUser
+      tags: [CLI]
+      parameters:
+        - name: user_id_hex
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID in hexadecimal format (UUID without hyphens); must be the token's owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CliNotifyUserPayload"
+      responses:
+        "200":
+          description: Message delivered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliNotifyResponse"
+        "401":
+          $ref: "#/components/responses/CliUnauthorizedError"
+        "403":
+          description: >
+            The user ID is not the token's owner (error code 3002), the owner has not accepted the policies (error code 3008),
+            the owner is on the waitlist (error code 3007), or no private chat is available (error code 3004)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "422":
+          description: >
+            The message is empty or too long (error code 1046), the platform is not supported (error code 1019),
+            or the owner has insufficient credits (error code 1034)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          $ref: "#/components/responses/BadGatewayError"
+      security:
+        - cliBearerAuth: []
+
+  /cli/notify/chat/{chat_id}:
+    post:
+      summary: Send a notification to a chat
+      description: >
+        Send a plain-text message to a chat the owner administers. Every message starts with `🖥️ `, and in group chats it continues with a
+        `[<identity>@<hostname>] ` prefix naming the owner and the client's host, and messages that exceed the platform's limit
+        are cut at the end with an ellipsis, keeping the prefix whole. The owner must have accepted the policies and be active.
+        Normal delivery billing applies, and the returned balance includes this delivery's charge.
+      operationId: notifyCliChat
+      tags: [CLI]
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Chat ID in hexadecimal format (UUID without hyphens)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CliNotifyChatPayload"
+      responses:
+        "200":
+          description: Message delivered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliNotifyResponse"
+        "401":
+          $ref: "#/components/responses/CliUnauthorizedError"
+        "403":
+          description: >
+            The owner is not an administrator of the chat (error code 3001), is not a member (error code 3009),
+            has not accepted the policies (error code 3008), or is on the waitlist (error code 3007)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "422":
+          description: >
+            The chat ID is malformed (error code 1030), the message is empty or too long (error code 1046),
+            or the owner has insufficient credits (error code 1034)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          $ref: "#/components/responses/BadGatewayError"
+      security:
+        - cliBearerAuth: []
+
+  /cli/user/{user_id_hex}/devices:
+    delete:
+      summary: Revoke all CLI access (from a CLI)
+      description: >
+        Revoke every CLI token of the owner at once, including the one used for this request.
+        This route works for any owner, regardless of EULA or waitlist state.
+      operationId: revokeCliAccessFromCli
+      tags: [CLI]
+      parameters:
+        - name: user_id_hex
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID in hexadecimal format (UUID without hyphens); must be the token's owner
+      responses:
+        "200":
+          description: All CLI access revoked successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/CliUnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      security:
+        - cliBearerAuth: []
+
+  /user/{user_id_hex}/cli/devices:
+    delete:
+      summary: Revoke all CLI access (from the web)
+      description: Revoke every CLI token of the user at once, so the user can cut off command-line clients from the settings page
+      operationId: revokeCliAccessFromWeb
+      tags: [Profile Connection]
+      parameters:
+        - name: user_id_hex
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID in hexadecimal format (UUID without hyphens)
+      responses:
+        "200":
+          description: All CLI access revoked successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      security:
+        - bearerAuth: []
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT token obtained from one of the auth flows (usually via the chat)
+      description: JWT token obtained from the chat auth flow
+    cliBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: CLI token obtained from `POST /cli/connect`. Web tokens are not accepted on CLI routes, and CLI tokens are not accepted on web routes.
 
   schemas:
     JWTPayload:
@@ -967,7 +1223,7 @@ components:
         platform:
           type: string
           nullable: false
-          enum: [telegram, whatsapp]
+          enum: [telegram, whatsapp, github, background]
           description: Platform where the token was issued
         platform_id:
           type: string
@@ -2347,6 +2603,208 @@ components:
         - message
         - emoji
 
+    CliConnectPayload:
+      type: object
+      properties:
+        connect_key:
+          type: string
+          nullable: false
+          description: The user's connect key, redeemed once; a new key replaces it after a successful connect
+        ttl_as_text:
+          type: string
+          nullable: true
+          description: >
+            Token lifetime as a positive whole number followed by one unit: s, m (or min), h, d, mo (or M), or y.
+            Defaults to six months and cannot exceed two years.
+          example: 6mo
+        device_id:
+          type: string
+          nullable: false
+          description: Any non-blank string that identifies the device
+        hostname:
+          type: string
+          nullable: false
+          description: Host name of the device, 1 to 32 characters from letters, digits, `.` and `-`
+        os:
+          type: string
+          nullable: false
+          description: Operating system of the device, 1 to 32 characters from letters, digits, `.`, `_`, `/` and `-`
+      required:
+        - connect_key
+        - device_id
+        - hostname
+        - os
+
+    CliConnectResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          nullable: false
+          description: CLI bearer token, sent in the Authorization header of every other CLI route
+        expires_at:
+          type: string
+          format: date-time
+          nullable: false
+          description: UTC expiry of the token
+        user_id:
+          type: string
+          nullable: false
+          description: ID of the token's owner in hexadecimal format (UUID without hyphens)
+        user_display_name:
+          type: string
+          nullable: false
+          description: Full name of the owner, otherwise their first platform handle, otherwise their ID
+        credit_balance:
+          type: number
+          format: float
+          nullable: false
+          description: Owner's credit balance after any charge made while connecting
+      required:
+        - token
+        - expires_at
+        - user_id
+        - user_display_name
+        - credit_balance
+
+    CliChatResponse:
+      type: object
+      properties:
+        chat_id:
+          type: string
+          nullable: false
+          description: Chat ID in hexadecimal format (UUID without hyphens)
+        platform:
+          type: string
+          nullable: false
+          description: Platform the chat belongs to
+        title:
+          type: string
+          nullable: true
+          description: Chat title
+        is_private:
+          type: boolean
+          nullable: false
+          description: Whether the chat is a private chat
+      required:
+        - chat_id
+        - platform
+        - is_private
+
+    CliNotifyUserPayload:
+      type: object
+      properties:
+        message:
+          type: string
+          nullable: false
+          description: Plain text to send, 1 to 4096 characters after trimming
+        platform:
+          type: string
+          nullable: true
+          enum: [telegram, whatsapp]
+          description: Platform of the private chat to use. When omitted, the owner's best private chat is used.
+      required:
+        - message
+
+    CliNotifyChatPayload:
+      type: object
+      properties:
+        message:
+          type: string
+          nullable: false
+          description: Plain text to send, 1 to 4096 characters after trimming
+      required:
+        - message
+
+    CliNotifyResponse:
+      type: object
+      properties:
+        chat_id:
+          type: string
+          nullable: false
+          description: Chat the message was delivered to, in hexadecimal format (UUID without hyphens)
+        platform:
+          type: string
+          nullable: false
+          description: Platform the chat belongs to
+        title:
+          type: string
+          nullable: true
+          description: Chat title
+        is_private:
+          type: boolean
+          nullable: false
+          description: Whether the chat is a private chat
+        credit_balance:
+          type: number
+          format: float
+          nullable: false
+          description: Owner's credit balance after the delivery charge
+      required:
+        - chat_id
+        - platform
+        - is_private
+        - credit_balance
+
+    CliJWTPayload:
+      type: object
+      description: >
+        Payload of a CLI token. It is separate from the web token payload, and the two are never interchangeable:
+        web routes reject tokens that carry a scope, and CLI routes accept only tokens with scope `cli`.
+      properties:
+        iss:
+          type: string
+          nullable: false
+          description: Issuer - The app name that issued the token
+        sub:
+          type: string
+          nullable: false
+          description: Subject - The owner's user ID in hexadecimal format
+        scope:
+          type: string
+          nullable: false
+          enum: [cli]
+          description: Token scope
+        cli_generation:
+          type: integer
+          nullable: false
+          description: Revocation generation at issue time; the token stops working once the owner's generation differs
+        device_id:
+          type: string
+          nullable: false
+          description: Device ID given when connecting
+        hostname:
+          type: string
+          nullable: false
+          description: Host name given when connecting
+        os:
+          type: string
+          nullable: false
+          description: Operating system given when connecting
+        exp:
+          type: integer
+          nullable: false
+          description: Token expiration timestamp (Unix epoch)
+        iat:
+          type: integer
+          nullable: false
+          description: Token issued at timestamp (Unix epoch)
+        version:
+          type: string
+          nullable: false
+          description: Version of the app that issued the token
+      required:
+        - iss
+        - sub
+        - scope
+        - cli_generation
+        - device_id
+        - hostname
+        - os
+        - exp
+        - iat
+        - version
+
   responses:
     UnauthorizedError:
       description: Authentication required or token expired
@@ -2385,6 +2843,29 @@ components:
 
     ServerError:
       description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ServiceErrorResponse"
+
+    BadRequestError:
+      description: Request is well-formed but a value cannot be used, such as a token lifetime
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ServiceErrorResponse"
+
+    CliUnauthorizedError:
+      description: >
+        The CLI token is invalid or revoked. Error code 4004 means a bad signature, expiry, scope, or claims.
+        Error code 4005 means the token was revoked and the client must connect again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ServiceErrorResponse"
+
+    BadGatewayError:
+      description: The messaging platform failed to deliver the message (error code 5018)
       content:
         application/json:
           schema:
