@@ -104,7 +104,7 @@ def prepare_favicon(source_path: Path, output_path: Path) -> Path | None:
     try:
         with Image.open(source_path) as source:
             img = source.convert("RGBA")
-            img = img.resize((64, 64), Image.LANCZOS)
+            img = img.resize((64, 64), Image.Resampling.LANCZOS)
             _, _, _, a = img.split()
             gray = img.convert("LA").split()[0]
             img = Image.merge("RGBA", (gray, gray, gray, a))

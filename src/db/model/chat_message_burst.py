@@ -1,7 +1,7 @@
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKeyConstraint, PrimaryKeyConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKeyConstraint, PrimaryKeyConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class ChatMessageBurstDB(BaseModel):

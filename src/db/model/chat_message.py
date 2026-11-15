@@ -1,7 +1,6 @@
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    Column,
     DateTime,
     ForeignKeyConstraint,
     Identity,
@@ -13,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.sql import text as sqlalchemy_text
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 from db.model.encrypted_string import EncryptedString
 
 

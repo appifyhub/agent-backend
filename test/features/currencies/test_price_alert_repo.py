@@ -1,6 +1,7 @@
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 import stubs
@@ -20,7 +21,7 @@ class PriceAlertRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.di = self.enterContext(di_for_tests())
         self.repo = self.di.price_alert_repo
-        self.owner_id = self.di.user_repo.save(stubs.domain.user()).id
+        self.owner_id = cast(UUID, self.di.user_repo.save(stubs.domain.user()).id)
 
     def test_save_creates_price_alert(self):
         chat = self.di.chat_config_repo.save(stubs.domain.chat_config())

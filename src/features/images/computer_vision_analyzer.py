@@ -1,7 +1,7 @@
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from di.di import DI
+from features.accounting.usage.decorators.chat_model_usage_tracking_decorator import ChatModelUsageTrackingDecorator
 from features.chat.supported_files import KNOWN_IMAGE_FORMATS
 from features.external_tools.configured_tool import ConfiguredTool
 from features.external_tools.external_tool import ToolType
@@ -20,7 +20,7 @@ class ComputerVisionAnalyzer:
     error: str | None = None
     __job_id: str
     __messages: list[BaseMessage]
-    __vision_model: BaseChatModel
+    __vision_model: ChatModelUsageTrackingDecorator
 
     def __init__(
         self,

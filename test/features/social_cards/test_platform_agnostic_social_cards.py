@@ -118,7 +118,16 @@ def video_sources(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "-pix_fmt", "yuv420p",
         str(portrait),
     )
-    return {"landscape": landscape, "portrait": portrait}
+    portrait_long = root / "portrait-long-silent.mp4"
+    _run_test_ffmpeg(
+        "-f", "lavfi",
+        "-i", "color=c=green:size=90x160:rate=30:d=3",
+        "-an",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        str(portrait_long),
+    )
+    return {"landscape": landscape, "portrait": portrait, "portrait_long": portrait_long}
 
 
 def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path) -> None:
@@ -528,13 +537,13 @@ def test_video_card_compositor_trims_to_configured_duration(
     output_path = tmp_path / "card.mp4"
     original_limit = config.social_card_video_max_duration_s
     request.addfinalizer(lambda: setattr(config, "social_card_video_max_duration_s", original_limit))
-    config.social_card_video_max_duration_s = 0.4
+    config.social_card_video_max_duration_s = 1
 
     video_card_compositor.compose(
         static_card_path,
         [
             stubs.domain.social_card_video_input(
-                media_path = video_sources["landscape"],
+                media_path = video_sources["portrait_long"],
                 placement = stubs.domain.social_media_placement(
                     media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
                     x = 20,
@@ -551,7 +560,7 @@ def test_video_card_compositor_trims_to_configured_duration(
         output_path,
     )
 
-    assert inspect_video(str(output_path)).duration_seconds == pytest.approx(0.4, abs = 0.1)
+    assert inspect_video(str(output_path)).duration_seconds == pytest.approx(1, abs = 0.1)
 
 
 def test_video_card_compositor_rejects_invalid_duration_configuration(
@@ -873,7 +882,7 @@ def test_video_card_compositor_truncates_active_item_and_does_not_start_later_it
     output_path = tmp_path / "card.mp4"
     original_limit = config.social_card_video_max_duration_s
     request.addfinalizer(lambda: setattr(config, "social_card_video_max_duration_s", original_limit))
-    config.social_card_video_max_duration_s = 1.5
+    config.social_card_video_max_duration_s = 2
 
     video_card_compositor.compose(
         static_card_path,
@@ -893,7 +902,7 @@ def test_video_card_compositor_truncates_active_item_and_does_not_start_later_it
                 ),
             ),
             stubs.domain.social_card_video_input(
-                media_path = video_sources["portrait"],
+                media_path = video_sources["portrait_long"],
                 placement = stubs.domain.social_media_placement(
                     media = stubs.domain.social_media_item(kind = SocialMediaKind.VIDEO),
                     x = 20,
@@ -924,8 +933,8 @@ def test_video_card_compositor_truncates_active_item_and_does_not_start_later_it
         output_path,
     )
 
-    assert inspect_video(str(output_path)).duration_seconds == pytest.approx(1.5, abs = 0.1)
-    final_segment = _extract_frame(output_path, tmp_path / "final-segment.png", 1.4)
+    assert inspect_video(str(output_path)).duration_seconds == pytest.approx(2, abs = 0.1)
+    final_segment = _extract_frame(output_path, tmp_path / "final-segment.png", 1.9)
     _assert_color(final_segment.getpixel((70, 60)), (255, 0, 0))
     _assert_color(final_segment.getpixel((70, 160)), (0, 128, 0))
     _assert_color(final_segment.getpixel((70, 260)), (255, 0, 255))

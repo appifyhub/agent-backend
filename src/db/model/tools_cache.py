@@ -1,6 +1,6 @@
-from sqlalchemy import Column, DateTime, String, Text
+from sqlalchemy import DateTime, String, Text
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 
 
 class ToolsCacheDB(BaseModel):

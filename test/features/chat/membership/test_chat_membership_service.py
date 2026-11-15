@@ -32,7 +32,7 @@ class ChatMembershipServiceTest(unittest.TestCase):
         self.repo = self.di.chat_membership_repo
         self.user = stubs.domain.user()
         self.chat = stubs.domain.chat_config(is_private = False)
-        self.member_key = (self.chat.external_id, str(self.user.telegram_user_id))
+        self.member_key = (str(self.chat.external_id), str(self.user.telegram_user_id))
         self.bot.members[self.member_key] = stubs.external.telegram_chat_member()
         self.service = self.di.chat_membership_service
 

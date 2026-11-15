@@ -2,11 +2,11 @@ import uuid
 from datetime import date
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, Column, Date, Float, Integer, String, text
+from sqlalchemy import BigInteger, Boolean, Date, Float, Integer, String, text
 from sqlalchemy import Enum as EnumSQL
 from sqlalchemy.dialects.postgresql import UUID
 
-from db.model.base import BaseModel
+from db.model.base import BaseModel, Column
 from db.model.encrypted_string import EncryptedString
 
 

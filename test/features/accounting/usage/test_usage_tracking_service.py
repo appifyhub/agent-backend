@@ -1,3 +1,4 @@
+from typing import cast
 from unittest import TestCase
 from uuid import UUID
 
@@ -22,7 +23,7 @@ class UsageTrackingServiceTest(TestCase):
         self.di = self.enterContext(di_for_tests())
         self.di.inject_invoker(stubs.domain.user())
         self.di.inject_invoker_chat(stubs.domain.chat_config())
-        self.user_id = self.di.invoker.id
+        self.user_id = cast(UUID, self.di.invoker.id)
         self.payer_id = UUID("22222222-2222-4222-8222-b22222222222")
         self.service = self.di.usage_tracking_service
         self.addCleanup(setattr, config, "usage_maintenance_fee_credits", config.usage_maintenance_fee_credits)
