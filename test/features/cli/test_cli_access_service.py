@@ -81,14 +81,14 @@ class CliAccessServiceConnectTest(TestCase):
     def test_connect_issues_a_token_for_the_owner(self):
         before = datetime.now(timezone.utc)
 
-        connection = self.__connect(ttl_as_text = "90m", device_id = DEVICE_ID.upper(), hostname = "milos-mbp.local")
+        connection = self.__connect(ttl_as_text = "90m", device_id = DEVICE_ID.upper(), hostname = "build-box-01")
 
         claims = verify_jwt_token(connection.token)
         self.assertEqual(claims["sub"], self.owner.id.hex)
         self.assertEqual(claims["scope"], "cli")
         self.assertEqual(claims["cli_generation"], self.owner.cli_token_generation)
         self.assertEqual(claims["device_id"], DEVICE_ID)
-        self.assertEqual(claims["hostname"], "milos-mbp.local")
+        self.assertEqual(claims["hostname"], "build-box-01")
         self.assertEqual(claims["os"], "darwin")
         self.assertEqual(claims["iss"], config.agent_bot_name)
         self.assertEqual(claims["version"], config.version)

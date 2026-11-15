@@ -133,9 +133,9 @@ def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path
 
     post = stubs.domain.social_post(
         platform = stubs.domain.social_platform_brand(logo_light_key = "x_logo_light", logo_dark_key = "x_logo_dark"),
-        author = stubs.domain.social_author(additional_profile_info = "Milos", handle = "@milos"),
+        author = stubs.domain.social_author(additional_profile_info = "Jane", handle = "@jane_doe"),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         media = [media],
         link_previews = [link_preview],
         embedded_post = embedded_post,
@@ -149,7 +149,7 @@ def test_social_post_domain_holds_platform_neutral_rendering_data(tmp_path: Path
         embedded_post = stubs.domain.social_post_render_assets(avatar_path = tmp_path / "embedded-avatar.png"),
     )
 
-    assert post.author.handle == "@milos"
+    assert post.author.handle == "@jane_doe"
     assert post.media[0].kind == SocialMediaKind.IMAGE
     assert post.link_previews[0].domain == "example.com"
     assert post.embedded_post is embedded_post
@@ -173,9 +173,9 @@ def test_dynamic_social_card_contracts_are_platform_neutral() -> None:
 @pytest.mark.usefixtures("local_logos")
 def test_card_renderer_writes_png_to_path(tmp_path: Path) -> None:
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],
@@ -201,9 +201,9 @@ def test_card_renderer_writes_png_to_path(tmp_path: Path) -> None:
 @pytest.mark.usefixtures("local_logos")
 def test_card_template_consumes_neutral_social_post() -> None:
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],
@@ -218,15 +218,15 @@ def test_card_template_consumes_neutral_social_post() -> None:
     )
 
     assert "hello world" in result.svg
-    assert "x.com/milos/status/1" in result.svg
+    assert "x.com/jane_doe/status/1" in result.svg
 
 
 @pytest.mark.usefixtures("local_logos")
 def test_titled_post_renders_bold_title_above_body() -> None:
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],
@@ -251,9 +251,9 @@ def test_titled_post_renders_bold_title_above_body() -> None:
 @pytest.mark.usefixtures("local_logos")
 def test_title_wraps_across_lines() -> None:
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],
@@ -274,9 +274,9 @@ def test_title_wraps_across_lines() -> None:
 @pytest.mark.usefixtures("local_logos")
 def test_title_only_post_reserves_no_body_region() -> None:
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],
@@ -299,9 +299,9 @@ def test_title_only_post_reserves_no_body_region() -> None:
 @pytest.mark.usefixtures("local_logos")
 def test_untitled_post_renders_unchanged() -> None:
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],
@@ -354,9 +354,9 @@ def test_card_renderer_resolves_local_image_paths(tmp_path: Path) -> None:
     result = card_renderer.render(
         post = stubs.domain.social_post(
             platform = stubs.domain.social_platform_brand(logo_light_key = "x_logo_light", logo_dark_key = "x_logo_dark"),
-            author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+            author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
             text = "hello world",
-            source_url = "https://x.com/milos/status/1",
+            source_url = "https://x.com/jane_doe/status/1",
             title = None,
             media = [],
             link_previews = [],
@@ -390,9 +390,9 @@ def test_dynamic_media_is_full_width_before_tiled_photos(tmp_path: Path) -> None
     )
     photo_two = stubs.domain.social_media_item(url = "https://example.com/photo-two.jpg")
     post = stubs.domain.social_post(
-        author = stubs.domain.social_author(handle = "@milos", avatar_url = None),
+        author = stubs.domain.social_author(handle = "@jane_doe", avatar_url = None),
         text = "hello world",
-        source_url = "https://x.com/milos/status/1",
+        source_url = "https://x.com/jane_doe/status/1",
         title = None,
         media = [],
         link_previews = [],

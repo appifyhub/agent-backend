@@ -32,7 +32,7 @@ class CliNotifyService:
     @dataclass(frozen = True)
     class Delivery:
         chat: ChatConfig
-        credit_balance: float
+        user: User
 
     __di: DI
 
@@ -87,7 +87,7 @@ class CliNotifyService:
             raise ExternalServiceError("The platform could not deliver the message", NOTIFICATION_DELIVERY_FAILED) from e
         owner = cast(User, self.__di.user_repo.get(self.__di.invoker.id))  # because credits change
         log.i(f"CLI notification delivered by user '{owner.id.hex}' to chat '{chat.chat_id.hex}'")
-        return CliNotifyService.Delivery(chat = chat, credit_balance = owner.credit_balance)
+        return CliNotifyService.Delivery(chat = chat, user = owner)
 
     def __compose_text(self, hostname: str, chat: ChatConfig, text: str) -> str:
         # format the message as '[user@host] <message>'

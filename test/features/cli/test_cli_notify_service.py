@@ -331,14 +331,14 @@ platforms:
         [record] = self.__delivery_records()
         self.assertEqual(record.chat_id, chat.chat_id)
         self.assertAlmostEqual(record.total_cost_credits, 0.7)
-        self.assertAlmostEqual(delivery.credit_balance, self.owner.credit_balance - 0.7)
+        self.assertAlmostEqual(delivery.user.credit_balance, self.owner.credit_balance - 0.7)
 
     def test_free_delivery_leaves_the_balance_unchanged(self):
         self.__save_telegram_private()
 
         delivery = self.__notify_user()
 
-        self.assertEqual(delivery.credit_balance, self.owner.credit_balance)
+        self.assertEqual(delivery.user.credit_balance, self.owner.credit_balance)
         self.assertEqual(self.__delivery_records(), [])
 
     def test_unfunded_owner_cannot_send(self):

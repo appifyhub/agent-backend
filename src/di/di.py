@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from xai_sdk import Client as XAISDKClient
 
     from api.authorization_service import AuthorizationService
+    from api.cli_controller import CliController
     from api.gumroad_controller import GumroadController
     from api.profile_connect_controller import ProfileConnectController
     from api.purchases_controller import PurchasesController
@@ -172,6 +173,7 @@ class DI:
     _transfers_controller: "TransfersController | None"
     _usage_controller: "UsageController | None"
     _profile_connect_controller: "ProfileConnectController | None"
+    _cli_controller: "CliController | None"
     _gumroad_controller: "GumroadController | None"
     _purchases_controller: "PurchasesController | None"
     # Internal tools
@@ -243,6 +245,7 @@ class DI:
         self._transfers_controller = None
         self._usage_controller = None
         self._profile_connect_controller = None
+        self._cli_controller = None
         self._gumroad_controller = None
         self._purchases_controller = None
         # Internal tools
@@ -718,6 +721,14 @@ class DI:
             from api.profile_connect_controller import ProfileConnectController
             self._profile_connect_controller = ProfileConnectController(self)
         return self._profile_connect_controller
+
+    @property
+    @dependency(cache = "_cli_controller")
+    def cli_controller(self) -> "CliController":
+        if self._cli_controller is None:
+            from api.cli_controller import CliController
+            self._cli_controller = CliController(self)
+        return self._cli_controller
 
     @property
     @dependency(cache = "_gumroad_controller")
