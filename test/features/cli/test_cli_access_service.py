@@ -81,13 +81,13 @@ class CliAccessServiceConnectTest(TestCase):
     def test_connect_issues_a_token_for_the_owner(self):
         before = datetime.now(timezone.utc)
 
-        connection = self.__connect(ttl_as_text = "90m", device_id = DEVICE_ID.upper(), hostname = "build-box-01")
+        connection = self.__connect(ttl_as_text = "90m", device_id = "postman-id-1", hostname = "build-box-01")
 
         claims = verify_jwt_token(connection.token)
         self.assertEqual(claims["sub"], self.owner.id.hex)
         self.assertEqual(claims["scope"], "cli")
         self.assertEqual(claims["cli_generation"], self.owner.cli_token_generation)
-        self.assertEqual(claims["device_id"], DEVICE_ID)
+        self.assertEqual(claims["device_id"], "postman-id-1")
         self.assertEqual(claims["hostname"], "build-box-01")
         self.assertEqual(claims["os"], "darwin")
         self.assertEqual(claims["iss"], config.agent_bot_name)
@@ -129,8 +129,8 @@ class CliAccessServiceConnectTest(TestCase):
         cases: list[tuple[dict[str, str | None], type[ServiceError], int]] = [
             ({"ttl_as_text": "1h30m"}, BadRequestError, INVALID_CLI_TTL),
             ({"ttl_as_text": "3y"}, BadRequestError, CLI_TTL_TOO_LONG),
-            ({"device_id": "not-a-uuid"}, ValidationError, INVALID_CLI_DEVICE),
             ({"device_id": ""}, ValidationError, INVALID_CLI_DEVICE),
+            ({"device_id": "   "}, ValidationError, INVALID_CLI_DEVICE),
             ({"hostname": ""}, ValidationError, INVALID_CLI_DEVICE),
             ({"hostname": "   "}, ValidationError, INVALID_CLI_DEVICE),
             ({"hostname": "a b"}, ValidationError, INVALID_CLI_DEVICE),

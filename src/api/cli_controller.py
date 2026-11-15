@@ -34,40 +34,28 @@ class CliController:
             credit_balance = connection.user.credit_balance,
         )
 
-    def revoke_all(self, claims: CliTokenClaims, user_id_hex: str) -> None:
+    def require_valid_cli_token(self, claims: CliTokenClaims) -> None:
         user = self.__di.authorization_service.validate_user(claims.user_id)
         if claims.generation != user.cli_token_generation:
             raise AuthenticationError("CLI access was revoked", CLI_ACCESS_REVOKED)
-        log.d(f"Revoking all CLI access for user '{user.id.hex}'")
-        self.__di.authorization_service.authorize_for_user(user, user_id_hex)
-        self.__di.cli_access_service.revoke_all()
 
-    def revoke_all_from_web(self, user_id_hex: str) -> None:
-        log.d(f"Revoking all CLI access for user '{user_id_hex}' from the web")
+    def revoke_all(self, user_id_hex: str) -> None:
+        log.d(f"Revoking all CLI access for user '{user_id_hex}'")
         self.__di.authorization_service.authorize_for_user(self.__di.invoker, user_id_hex)
         self.__di.cli_access_service.revoke_all()
 
-    def list_chats(self, claims: CliTokenClaims) -> list[CliChatResponse]:
-        user = self.__di.authorization_service.validate_user(claims.user_id)
-        if claims.generation != user.cli_token_generation:
-            raise AuthenticationError("CLI access was revoked", CLI_ACCESS_REVOKED)
-        log.d(f"Listing CLI chats for user '{user.id.hex}'")
-        chats = self.__di.authorization_service.get_authorized_chats(user)
+    def list_chats(self) -> list[CliChatResponse]:
+        log.d(f"Listing CLI chats for user '{self.__di.invoker.id.hex}'")
+        chats = self.__di.authorization_service.get_authorized_chats(self.__di.invoker)
         return [domain_to_api(chat) for chat in chats]
 
-    def notify_user(self, claims: CliTokenClaims, user_id_hex: str, payload: CliNotifyUserPayload) -> CliNotifyResponse:
-        user = self.__di.authorization_service.validate_user(claims.user_id)
-        if claims.generation != user.cli_token_generation:
-            raise AuthenticationError("CLI access was revoked", CLI_ACCESS_REVOKED)
-        log.d(f"Notifying user '{user.id.hex}' from a CLI")
-        self.__di.authorization_service.authorize_for_user(user, user_id_hex)
-        delivery = self.__di.cli_notify_service.notify_invoker(claims.hostname, payload.message, payload.platform)
+    def notify_user(self, hostname: str, user_id_hex: str, payload: CliNotifyUserPayload) -> CliNotifyResponse:
+        log.d(f"Notifying user '{user_id_hex}' from a CLI")
+        self.__di.authorization_service.authorize_for_user(self.__di.invoker, user_id_hex)
+        delivery = self.__di.cli_notify_service.notify_invoker(hostname, payload.message, payload.platform)
         return delivery_to_api(delivery.chat, delivery.user)
 
-    def notify_chat(self, claims: CliTokenClaims, chat_id: str | UUID, payload: CliNotifyChatPayload) -> CliNotifyResponse:
-        user = self.__di.authorization_service.validate_user(claims.user_id)
-        if claims.generation != user.cli_token_generation:
-            raise AuthenticationError("CLI access was revoked", CLI_ACCESS_REVOKED)
-        log.d(f"Notifying chat '{chat_id}' for user '{user.id.hex}' from a CLI")
-        delivery = self.__di.cli_notify_service.notify_chat(claims.hostname, chat_id, payload.message)
+    def notify_chat(self, hostname: str, chat_id: str | UUID, payload: CliNotifyChatPayload) -> CliNotifyResponse:
+        log.d(f"Notifying chat '{chat_id}' for user '{self.__di.invoker.id.hex}' from a CLI")
+        delivery = self.__di.cli_notify_service.notify_chat(hostname, chat_id, payload.message)
         return delivery_to_api(delivery.chat, delivery.user)

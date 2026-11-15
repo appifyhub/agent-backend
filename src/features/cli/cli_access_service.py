@@ -2,7 +2,6 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import cast
-from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
 
@@ -49,7 +48,7 @@ class CliAccessService:
         # resolve the basic connection parameters first
         now = datetime.now(timezone.utc).replace(microsecond = 0)
         expires_at = self.__resolve_expiry(ttl_as_text, now)
-        canonical_device_id = self.__validate_device(device_id, hostname, os)
+        self.__validate_device(device_id, hostname, os)
 
         def rotate_key(locked: User) -> User:
             if locked.connect_key != self.__di.invoker.connect_key:
@@ -62,7 +61,7 @@ class CliAccessService:
             token = create_cli_jwt_token(
                 user_id = owner.id.hex,
                 generation = owner.cli_token_generation,
-                device_id = canonical_device_id,
+                device_id = device_id,
                 hostname = hostname,
                 os = os,
                 expires_at = expires_at,
@@ -129,16 +128,13 @@ class CliAccessService:
                 return relativedelta(years = amount)
 
     # noinspection PyMethodMayBeStatic
-    def __validate_device(self, device_id: str, hostname: str, os: str) -> str:
-        try:
-            canonical_device_id = str(UUID(device_id))
-        except ValueError as e:
-            raise ValidationError("Device ID must be a UUID", INVALID_CLI_DEVICE) from e
+    def __validate_device(self, device_id: str, hostname: str, os: str) -> None:
+        if not device_id.strip():
+            raise ValidationError("Device ID must not be blank", INVALID_CLI_DEVICE)
         if not HOSTNAME_PATTERN.fullmatch(hostname):
             raise ValidationError("Hostname must be 1 to 32 letters, digits, '.' or '-'", INVALID_CLI_DEVICE)
         if not OS_PATTERN.fullmatch(os):
             raise ValidationError("Operating system must be 1 to 32 letters, digits, '.', '_', '/' or '-'", INVALID_CLI_DEVICE)
-        return canonical_device_id
 
     def __send_new_device_alert(self, hostname: str, os: str, expires_at: datetime) -> None:
         owner = self.__di.invoker

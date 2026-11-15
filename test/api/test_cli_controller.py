@@ -49,7 +49,7 @@ class CliControllerTest(TestCase):
     def __save_other_user(self) -> User:
         return self.di.user_repo.save(stubs.domain.user(
             id = None, connect_key = "OTHER-KEY-001", telegram_user_id = 987654321, telegram_chat_id = "987654321",
-            telegram_username = "other_user", whatsapp_user_id = "whatsapp-other", whatsapp_phone_number = SecretStr("+15550000000"),
+            telegram_username = "other_user", whatsapp_user_id = "whatsapp-other", whatsapp_phone_number = SecretStr("+15550000000"),  # ruff: ignore[line-too-long]
         ))
 
     def __save_private_chat(self):
@@ -86,36 +86,37 @@ class CliControllerTest(TestCase):
 
     def test_every_generation_but_the_current_one_is_revoked(self):
         self.owner = self.di.user_repo.save(replace(self.owner, cli_token_generation = 3))
-        self.assertEqual(self.controller.list_chats(self.__claims(generation = 3)), [])
+        self.controller.require_valid_cli_token(self.__claims(generation = 3))
 
         for generation in (0, 2, 4):
             with self.subTest(generation = generation):
                 with self.assertRaises(AuthenticationError) as context:
-                    self.controller.list_chats(self.__claims(generation = generation))
+                    self.controller.require_valid_cli_token(self.__claims(generation = generation))
                 self.assertEqual(context.exception.error_code, CLI_ACCESS_REVOKED)
 
     def test_merged_away_owner_is_not_found(self):
         with self.assertRaises(NotFoundError) as context:
-            self.controller.list_chats(self.__claims(user_id = uuid4().hex))
+            self.controller.require_valid_cli_token(self.__claims(user_id = uuid4().hex))
 
         self.assertEqual(context.exception.error_code, USER_NOT_FOUND)
 
-    def test_revoke_all_invalidates_earlier_tokens(self):
+    def test_revoke_all_invalidates_earlier_tokens_and_keeps_the_connect_key(self):
         earlier = self.__claims()
 
-        self.controller.revoke_all(earlier, self.owner.id.hex)
+        self.controller.revoke_all(self.owner.id.hex)
 
         with self.assertRaises(AuthenticationError) as context:
-            self.controller.list_chats(earlier)
+            self.controller.require_valid_cli_token(earlier)
         self.assertEqual(context.exception.error_code, CLI_ACCESS_REVOKED)
-        self.assertEqual(self.controller.list_chats(self.__claims(generation = earlier.generation + 1)), [])
+        self.controller.require_valid_cli_token(self.__claims(generation = earlier.generation + 1))
+        self.assertEqual(self.__stored_owner().connect_key, self.owner.connect_key)
 
     def test_another_users_id_is_rejected_and_changes_nothing(self):
         other = self.__save_other_user()
+        hostname = self.__claims().hostname
         calls = {
-            "revoke all": lambda: self.controller.revoke_all(self.__claims(), other.id.hex),
-            "notify user": lambda: self.controller.notify_user(self.__claims(), other.id.hex, stubs.api.cli_notify_user_payload()),
-            "web revoke": lambda: self.controller.revoke_all_from_web(other.id.hex),
+            "revoke all": lambda: self.controller.revoke_all(other.id.hex),
+            "notify user": lambda: self.controller.notify_user(hostname, other.id.hex, stubs.api.cli_notify_user_payload()),
         }
         for name, call in calls.items():
             with self.subTest(name = name):
@@ -126,24 +127,18 @@ class CliControllerTest(TestCase):
         self.assertEqual(self.__stored_owner().cli_token_generation, 0)
         self.assertEqual(self.di.authorization_service.validate_user(other.id).cli_token_generation, 0)
 
-    def test_web_revoke_invalidates_cli_tokens_and_keeps_the_connect_key(self):
-        self.controller.revoke_all_from_web(self.owner.id.hex)
-
-        self.assertEqual(self.__stored_owner().cli_token_generation, 1)
-        self.assertEqual(self.__stored_owner().connect_key, self.owner.connect_key)
-
     def test_list_chats_maps_the_authorized_chats(self):
         chat = self.__save_private_chat()
 
         self.assertEqual(
-            self.controller.list_chats(self.__claims()),
+            self.controller.list_chats(),
             [CliChatResponse(chat_id = chat.chat_id.hex, platform = "telegram", title = chat.title, is_private = True)],
         )
 
     def test_notify_user_reports_the_chat_and_the_balance(self):
         chat = self.__save_private_chat()
 
-        response = self.controller.notify_user(self.__claims(), self.owner.id.hex, stubs.api.cli_notify_user_payload())
+        response = self.controller.notify_user(self.__claims().hostname, self.owner.id.hex, stubs.api.cli_notify_user_payload())
 
         self.assertEqual(response.chat_id, chat.chat_id.hex)
         self.assertEqual(response.platform, "telegram")
@@ -156,15 +151,17 @@ class CliControllerTest(TestCase):
         ))
         self.telegram.members[("group-1", str(self.owner.telegram_user_id))] = stubs.external.telegram_chat_administrator()
 
-        response = self.controller.notify_chat(self.__claims(), group.chat_id.hex, stubs.api.cli_notify_chat_payload())
+        response = self.controller.notify_chat(self.__claims().hostname, group.chat_id.hex, stubs.api.cli_notify_chat_payload())
 
         self.assertEqual(response.chat_id, group.chat_id.hex)
         sent = [message["text"] for message in self.telegram.get_sent_messages("group-1")]
-        self.assertEqual(sent, ["[mark_johnson@build-box-01] Build finished"])
+        self.assertEqual(sent, ["🖥️ [mark_johnson@build-box-01] Build finished"])
 
     def test_unsupported_platform_is_a_validation_error(self):
         with self.assertRaises(ValidationError) as context:
-            self.controller.notify_user(self.__claims(), self.owner.id.hex, stubs.api.cli_notify_user_payload(platform = "github"))
+            self.controller.notify_user(
+                self.__claims().hostname, self.owner.id.hex, stubs.api.cli_notify_user_payload(platform = "github"),
+            )
 
         self.assertEqual(context.exception.error_code, INVALID_PLATFORM)
 
@@ -172,8 +169,12 @@ class CliControllerTest(TestCase):
         self.owner = self.di.user_repo.save(replace(self.owner, is_on_waitlist = True, is_invited_to_start = False))
         self.di.inject_invoker(self.owner)
         calls = {
-            "notify user": lambda: self.controller.notify_user(self.__claims(), self.owner.id.hex, stubs.api.cli_notify_user_payload()),
-            "notify chat": lambda: self.controller.notify_chat(self.__claims(), uuid4().hex, stubs.api.cli_notify_chat_payload()),
+            "notify user": lambda: self.controller.notify_user(
+                self.__claims().hostname, self.owner.id.hex, stubs.api.cli_notify_user_payload(),
+            ),
+            "notify chat": lambda: self.controller.notify_chat(
+                self.__claims().hostname, uuid4().hex, stubs.api.cli_notify_chat_payload(),
+            ),
         }
         for name, call in calls.items():
             with self.subTest(name = name):

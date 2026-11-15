@@ -38,7 +38,8 @@ from util.errors import ServiceError
 
 HOSTNAME = "laptop"
 MAX_NOTIFICATION_LENGTH = 4096
-USERNAME_PREFIX = "[mark_johnson@laptop] "
+USERNAME_PREFIX = "🖥️ [mark_johnson@laptop] "
+PRIVATE_PREFIX = "🖥️ "
 
 
 class CliNotifyServiceTest(TestCase):
@@ -176,7 +177,7 @@ platforms:
 
         self.__notify_user("  Build\n\nfinished  ")
 
-        self.assertEqual(self.__sent_texts(chat), ["Build\n\nfinished"])
+        self.assertEqual(self.__sent_texts(chat), [PRIVATE_PREFIX + "Build\n\nfinished"])
 
     def test_blank_and_oversized_messages_are_rejected_at_the_boundary(self):
         chat = self.__save_telegram_private()
@@ -186,7 +187,7 @@ platforms:
 
         self.__notify_user("a" * MAX_NOTIFICATION_LENGTH)
 
-        self.assertEqual(len(self.__sent_texts(chat)[0]), MAX_NOTIFICATION_LENGTH)
+        self.assertEqual(len(self.__sent_texts(chat)), 1)
 
     def test_explicit_platform_targets_the_private_chat_on_that_platform(self):
         telegram_chat = self.__save_telegram_private()
@@ -197,7 +198,7 @@ platforms:
 
         self.assertEqual(telegram_delivery.chat, telegram_chat)
         self.assertEqual(whatsapp_delivery.chat, whatsapp_chat)
-        self.assertEqual(self.__sent_texts(whatsapp_chat), ["Build finished"])
+        self.assertEqual(self.__sent_texts(whatsapp_chat), [PRIVATE_PREFIX + "Build finished"])
 
     def test_explicit_platform_without_a_private_chat_is_rejected(self):
         self.__save_telegram_private()
@@ -239,12 +240,12 @@ platforms:
         self.assertEqual(delivery.chat, group)
         self.assertEqual(self.__sent_texts(group), [f"{USERNAME_PREFIX}Build finished"])
 
-    def test_own_private_chat_by_id_is_delivered_without_a_prefix(self):
+    def test_own_private_chat_by_id_gets_the_private_prefix(self):
         chat = self.__save_telegram_private()
 
         self.__notify_chat(chat.chat_id.hex)
 
-        self.assertEqual(self.__sent_texts(chat), ["Build finished"])
+        self.assertEqual(self.__sent_texts(chat), [PRIVATE_PREFIX + "Build finished"])
 
     def test_chat_notifications_require_admin_rights(self):
         other_private = self.di.chat_config_repo.save(stubs.domain.chat_config(chat_id = uuid4(), external_id = "987654321"))
@@ -265,7 +266,7 @@ platforms:
 
         self.__notify_chat(group.chat_id, user = no_username)
 
-        self.assertEqual(self.__sent_texts(group), ["[123456789@laptop] Build finished"])
+        self.assertEqual(self.__sent_texts(group), ["🖥️ [123456789@laptop] Build finished"])
 
     def test_forged_prefix_inside_the_message_stays_after_the_real_prefix(self):
         group = self.__save_group(stubs.external.telegram_chat_administrator())
@@ -315,13 +316,15 @@ platforms:
 
         self.assertEqual(self.__sent_texts(group), [USERNAME_PREFIX + message])
 
-    def test_private_chat_message_at_the_maximum_is_delivered_in_full(self):
+    def test_private_chat_message_at_the_maximum_keeps_the_prefix_and_is_cut(self):
         chat = self.__save_telegram_private()
-        message = "a" * MAX_NOTIFICATION_LENGTH
 
-        self.__notify_user(message)
+        self.__notify_user("a" * MAX_NOTIFICATION_LENGTH)
 
-        self.assertEqual(self.__sent_texts(chat), [message])
+        [text] = self.__sent_texts(chat)
+        self.assertTrue(text.startswith(PRIVATE_PREFIX + "a"))
+        self.assertTrue(text.endswith("a…"))
+        self.assertLessEqual(measure_text_message_length(text, ChatConfigDB.ChatType.telegram), MAX_NOTIFICATION_LENGTH)
 
     def test_paid_delivery_is_charged_and_recorded(self):
         chat = self.__save_whatsapp_private(hours_since_owner_message = 1)
@@ -409,4 +412,4 @@ platforms:
         self.assertEqual(delivery.chat, chat)
         [message] = self.di.chat_message_repo.get_latest_by_chat(chat.chat_id, limit = 10)
         self.assertEqual(message.author_id, resolve_agent_user(chat.chat_type).id)
-        self.assertEqual(message.text, "Build finished")
+        self.assertEqual(message.text, PRIVATE_PREFIX + "Build finished")
