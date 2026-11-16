@@ -7,8 +7,8 @@ from features.external_tools.external_tool_library import (
     IMAGE_FLUX_3,
     IMAGE_GOOGLE_NANO_BANANA_2_1,
     IMAGE_GOOGLE_NANO_BANANA_PRO,
-    IMAGE_GPT_IMAGE_2_5_FLARE,
-    IMAGE_GPT_IMAGE_2_5_SUNBURST,
+    IMAGE_GPT_IMAGE_2_6_FLARE,
+    IMAGE_GPT_IMAGE_2_6_SUNBURST,
     IMAGE_GROK_IMAGINE,
     IMAGE_GROK_IMAGINE_2,
     IMAGE_SEEDREAM_4,
@@ -44,11 +44,11 @@ ALLOWED_REPLICATE_PARAMS: dict[str, set[str]] = {
         "prompt", "images", "aspect_ratio", "resolution", "grounding",
         "safety_tolerance", "output_format", "output_quality",
     },
-    IMAGE_GPT_IMAGE_2_5_FLARE.id: {
+    IMAGE_GPT_IMAGE_2_6_FLARE.id: {
         "prompt", "input_images", "aspect_ratio", "number_of_images", "quality",
         "background", "output_compression", "output_format", "moderation",
     },
-    IMAGE_GPT_IMAGE_2_5_SUNBURST.id: {
+    IMAGE_GPT_IMAGE_2_6_SUNBURST.id: {
         "prompt", "input_images", "aspect_ratio", "number_of_images", "quality",
         "background", "output_compression", "output_format", "moderation",
     },
@@ -153,10 +153,10 @@ def map_to_model_parameters(
             resolution = clamped_size.lower(),
             safety_tolerance = 4,
         )
-    elif tool == IMAGE_GPT_IMAGE_2_5_FLARE:
+    elif tool == IMAGE_GPT_IMAGE_2_6_FLARE:
         ar = "auto" if unified_params.aspect_ratio == "match_input_image" else unified_params.aspect_ratio
         return replace(unified_params, aspect_ratio = ar, quality = "auto")
-    elif tool == IMAGE_GPT_IMAGE_2_5_SUNBURST:
+    elif tool == IMAGE_GPT_IMAGE_2_6_SUNBURST:
         ar = "auto" if unified_params.aspect_ratio == "match_input_image" else unified_params.aspect_ratio
         return replace(unified_params, aspect_ratio = ar, quality = "max")
     elif tool == IMAGE_GOOGLE_NANO_BANANA_PRO:

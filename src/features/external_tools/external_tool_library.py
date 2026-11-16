@@ -421,22 +421,22 @@ IMAGE_FLUX_3 = ExternalTool(
     max_input_images = 10,
 )
 
-IMAGE_GPT_IMAGE_2_5_FLARE = ExternalTool(
-    id = "openai/gpt-image-2.5-flare",
-    name = "OpenAI: Image 2.5 Flare",
+IMAGE_GPT_IMAGE_2_6_FLARE = ExternalTool(
+    id = "openai/gpt-image-2.6-flare",
+    name = "OpenAI: Image 2.6 Flare",
     provider = REPLICATE,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
-        output_image_1k = 30,
-        output_image_2k = 30,
-        output_image_4k = 30,
+        output_image_1k = 25,
+        output_image_2k = 25,
+        output_image_4k = 25,
     ),
     max_input_images = 10,
 )
 
-IMAGE_GPT_IMAGE_2_5_SUNBURST = ExternalTool(
-    id = "openai/gpt-image-2.5-sunburst",
-    name = "OpenAI: Image 2.5 Sunburst",
+IMAGE_GPT_IMAGE_2_6_SUNBURST = ExternalTool(
+    id = "openai/gpt-image-2.6-sunburst",
+    name = "OpenAI: Image 2.6 Sunburst",
     provider = REPLICATE,
     types = [ToolType.images_gen],
     cost_estimate = CostEstimate(
@@ -714,8 +714,8 @@ ALL_EXTERNAL_TOOLS = [
     IMAGE_FLUX_2_PRO,
     IMAGE_FLUX_2_MAX,
     IMAGE_FLUX_3,
-    IMAGE_GPT_IMAGE_2_5_FLARE,
-    IMAGE_GPT_IMAGE_2_5_SUNBURST,
+    IMAGE_GPT_IMAGE_2_6_FLARE,
+    IMAGE_GPT_IMAGE_2_6_SUNBURST,
     IMAGE_SEEDREAM_4,
     IMAGE_SEEDREAM_4_5,
     IMAGE_SEEDREAM_5_PRO,
