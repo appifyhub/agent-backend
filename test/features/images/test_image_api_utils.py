@@ -4,7 +4,7 @@ from features.external_tools.external_tool_library import (
     IMAGE_FLUX_2_PRO,
     IMAGE_FLUX_3,
     IMAGE_GOOGLE_NANO_BANANA_2_1,
-    IMAGE_GPT_IMAGE_2_5_FLARE,
+    IMAGE_GPT_IMAGE_2_6_FLARE,
     IMAGE_GROK_IMAGINE_2,
     IMAGE_SEEDREAM_4_5,
     IMAGE_SEEDREAM_5_PRO,
@@ -103,7 +103,7 @@ class ImageApiUtilsTest(unittest.TestCase):
                 },
             ),
             (
-                IMAGE_GPT_IMAGE_2_5_FLARE,
+                IMAGE_GPT_IMAGE_2_6_FLARE,
                 {
                     "prompt": "test prompt",
                     "input_images": input_urls,
