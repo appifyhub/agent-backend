@@ -1,8 +1,9 @@
 from time import monotonic, sleep, time
 from typing import Any, Callable
 
-from replicate.client import Client
-from replicate.prediction import Prediction
+from replicate import Replicate
+from replicate.resources.predictions import PredictionsResource
+from replicate.types import Prediction
 
 from features.accounting.spending.spending_service import SpendingService
 from features.accounting.usage.image_usage_stats import ImageUsageStats
@@ -22,6 +23,7 @@ class PredictionUsageTrackingDecorator:
 
     __start_timestamp: float
     __wrapped_prediction: Prediction
+    __predictions: PredictionsResource
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
@@ -37,6 +39,7 @@ class PredictionUsageTrackingDecorator:
     def __init__(
         self,
         wrapped_prediction: Prediction,
+        predictions: PredictionsResource,
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
@@ -48,6 +51,7 @@ class PredictionUsageTrackingDecorator:
     ):
         self.__start_timestamp = time()
         self.__wrapped_prediction = wrapped_prediction
+        self.__predictions = predictions
         self.__tracking_service = tracking_service
         self.__spending_service = spending_service
         self.__configured_tool = configured_tool
@@ -68,7 +72,7 @@ class PredictionUsageTrackingDecorator:
         self.__rollback_db_session()
         try:
             is_video = self.__output_video_size is not None and self.__output_video_duration_seconds is not None
-            result = self.__wait_for_video() if is_video else self.__wrapped_prediction.wait()
+            result = self.__wait_for_video() if is_video else self.__wait_for_image()
             self.__result = result
             runtime_seconds = time() - self.__start_timestamp
             self.__track_usage(runtime_seconds)
@@ -81,18 +85,22 @@ class PredictionUsageTrackingDecorator:
             self.__wait_completed = True
             raise
 
+    def __wait_for_image(self):
+        # predictions are immutable snapshots, so keep the finished one for accounting and output
+        self.__wrapped_prediction = self.__predictions.wait(prediction_id = self.__wrapped_prediction.id)
+
     def __wait_for_video(self):
         deadline = monotonic() + VIDEO_PREDICTION_TIMEOUT_SECONDS
         while self.__wrapped_prediction.status not in TERMINAL_PREDICTION_STATUSES:
             remaining_seconds = deadline - monotonic()
             if remaining_seconds <= 0:
                 try:
-                    self.__wrapped_prediction.cancel()
+                    self.__wrapped_prediction = self.__predictions.cancel(prediction_id = self.__wrapped_prediction.id)
                 except Exception as e:
                     log.w(f"Could not cancel timed-out Replicate prediction '{self.__wrapped_prediction.id}'", e)
                 raise ExternalServiceError("Replicate video generation timed out", VIDEO_GENERATION_FAILED)
             sleep(min(PREDICTION_POLL_INTERVAL_SECONDS, remaining_seconds))
-            self.__wrapped_prediction.reload()
+            self.__wrapped_prediction = self.__predictions.get(prediction_id = self.__wrapped_prediction.id)
 
         if self.__wrapped_prediction.status != "succeeded":
             detail = self.__wrapped_prediction.error or self.__wrapped_prediction.logs or "unknown"
@@ -179,7 +187,7 @@ class PredictionUsageTrackingDecorator:
 
 class ReplicateUsageTrackingDecorator:
 
-    __wrapped_client: Client
+    __wrapped_client: Replicate
     __tracking_service: UsageTrackingService
     __spending_service: SpendingService
     __configured_tool: ConfiguredTool
@@ -191,7 +199,7 @@ class ReplicateUsageTrackingDecorator:
 
     def __init__(
         self,
-        wrapped_client: Client,
+        wrapped_client: Replicate,
         tracking_service: UsageTrackingService,
         spending_service: SpendingService,
         configured_tool: ConfiguredTool,
@@ -236,6 +244,7 @@ class ReplicateUsageTrackingDecorator:
             prediction = original_method(**kwargs)
             return PredictionUsageTrackingDecorator(
                 prediction,
+                self.__wrapped_client.predictions,
                 self.__tracking_service,
                 self.__spending_service,
                 self.__configured_tool,

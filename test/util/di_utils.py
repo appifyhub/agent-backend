@@ -27,7 +27,7 @@ from google.genai import Client as GoogleSDKClient
 from langchain_core.language_models import BaseChatModel
 from openai import OpenAI
 from pyuploadcare import Uploadcare
-from replicate.client import Client as ReplicateSDKClient
+from replicate import Replicate as ReplicateSDKClient
 from sqlalchemy import Integer, MetaData, PrimaryKeyConstraint, UniqueConstraint, create_engine
 from sqlalchemy.orm import Session
 from xai_sdk import Client as XAISDKClient

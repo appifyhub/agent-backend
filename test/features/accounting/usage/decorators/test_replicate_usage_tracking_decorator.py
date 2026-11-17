@@ -59,7 +59,7 @@ class ReplicateUsageTrackingDecoratorTest(TestCase):
         response = stubs.external.replicate_prediction()
         self.client.predictions.updates[response.id].append(response)
 
-        self.assertEqual(self.decorator.predictions.get(response.id), response)
+        self.assertEqual(self.decorator.predictions.get(prediction_id = response.id), response)
         self.assertEqual(self.di.usage_record_repo.get_by_user(self.user.id), [])
 
     def test_client_attributes_pass_through(self):
@@ -94,7 +94,8 @@ class ReplicateUsageTrackingDecoratorTest(TestCase):
         self.assertEqual(self.di.user_repo.get(self.user.id), user)
 
     def test_wait_tracks_usage_and_deducts_credits_once(self):
-        initial = stubs.external.replicate_prediction(status = "processing")
+        # Replicate's create response can omit the version; output and metrics appear only once finished
+        initial = stubs.external.replicate_prediction(status = "processing", version = None)
         self.client.predictions.responses.append(initial)
         self.client.predictions.updates[initial.id].append(stubs.external.replicate_prediction(
             metrics = {"predict_time": 1.5}, output = ["https://example.com/image.png"],
@@ -105,7 +106,7 @@ class ReplicateUsageTrackingDecoratorTest(TestCase):
         self.assertIsNone(prediction.wait())
 
         self.assertEqual(prediction.output, ["https://example.com/image.png"])
-        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "get"])
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "wait", "get"])
         record, = self.di.usage_record_repo.get_by_user(self.user.id)
         self.assertEqual(record.tool.id, self.tool.definition.id)
         self.assertEqual(record.tool_purpose, ToolType.images_gen)
@@ -153,7 +154,7 @@ class ReplicateUsageTrackingDecoratorTest(TestCase):
 
         self.assertIs(first.exception, error)
         self.assertIs(second.exception, error)
-        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "get"])
+        self.assertEqual([method for method, _ in self.client.predictions.requests], ["create", "wait", "get"])
         record, = self.di.usage_record_repo.get_by_user(self.user.id)
         self.assertTrue(record.is_failed)
         self.assertEqual(self.di.user_repo.get(self.user.id), self.user)

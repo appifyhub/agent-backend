@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
     from openai import OpenAI
     from pyuploadcare import Uploadcare
-    from replicate.client import Client as ReplicateSDKClient
+    from replicate import Replicate as ReplicateSDKClient
     from xai_sdk import Client as XAISDKClient
 
     from api.authorization_service import AuthorizationService
@@ -842,10 +842,10 @@ class DI:
     @dependency()
     def base_replicate_client(self, api_token: str, timeout_s: float | None = None) -> "ReplicateSDKClient":
         from httpx import Timeout
-        from replicate.client import Client as ReplicateSDKClient
+        from replicate import Replicate as ReplicateSDKClient
 
         return ReplicateSDKClient(
-            api_token = api_token,
+            bearer_token = api_token,
             timeout = Timeout(timeout_s) if timeout_s is not None else None,
         )
 
