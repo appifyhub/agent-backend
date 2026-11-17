@@ -1,11 +1,12 @@
 from collections import defaultdict, deque
-from typing import Any, cast
+from typing import Any
 
-from replicate.client import Client
-from replicate.prediction import Prediction
+from replicate.types import Prediction
 
 from util.error_codes import DI_DEPENDENCY_NOT_MET
 from util.errors import InternalError
+
+TERMINAL_PREDICTION_STATUSES = {"succeeded", "failed", "canceled"}
 
 
 class FakeReplicatePredictions:
@@ -30,27 +31,36 @@ class FakeReplicatePredictions:
         prediction = self.responses.popleft()
         if isinstance(prediction, Exception):
             raise prediction
-        prediction = prediction.copy(deep = True)
-        # keep the SDK's wait/reload/cancel behavior real while replacing its transport
-        prediction._client = cast(Client, self.client)
         self.records[prediction.id] = prediction
-        return prediction
+        return prediction.model_copy(deep = True)
 
-    def get(self, id: str) -> Prediction:
-        self.requests.append(("get", {"id": id}))
-        if not self.updates[id]:
-            raise InternalError(f"No Replicate update configured: {id}", DI_DEPENDENCY_NOT_MET)
-        prediction = self.updates[id].popleft()
+    def get(self, prediction_id: str) -> Prediction:
+        self.requests.append(("get", {"prediction_id": prediction_id}))
+        if not self.updates[prediction_id]:
+            # a finished prediction no longer changes, so unconfigured polls observe its last state
+            recorded = self.records.get(prediction_id)
+            if recorded is not None and recorded.status in TERMINAL_PREDICTION_STATUSES:
+                return recorded.model_copy(deep = True)
+            raise InternalError(f"No Replicate update configured: {prediction_id}", DI_DEPENDENCY_NOT_MET)
+        prediction = self.updates[prediction_id].popleft()
         if isinstance(prediction, Exception):
             raise prediction
-        self.records[id] = prediction
-        return prediction.copy(deep = True)
+        self.records[prediction_id] = prediction
+        return prediction.model_copy(deep = True)
 
-    def cancel(self, id: str) -> Prediction:
-        self.requests.append(("cancel", {"id": id}))
-        prediction = self.records[id].copy(update = {"status": "canceled"})
-        self.records[id] = prediction
+    def wait(self, prediction_id: str) -> Prediction:
+        self.requests.append(("wait", {"prediction_id": prediction_id}))
+        # mirrors the SDK: poll by id until the prediction reaches a terminal status
+        prediction = self.get(prediction_id = prediction_id)
+        while prediction.status not in TERMINAL_PREDICTION_STATUSES:
+            prediction = self.get(prediction_id = prediction.id)
         return prediction
+
+    def cancel(self, prediction_id: str) -> Prediction:
+        self.requests.append(("cancel", {"prediction_id": prediction_id}))
+        prediction = self.records[prediction_id].model_copy(update = {"status": "canceled"})
+        self.records[prediction_id] = prediction
+        return prediction.model_copy(deep = True)
 
 
 class FakeReplicateClient:

@@ -9,9 +9,10 @@ from botocore.client import BaseClient
 from fakes.fake_attachment_storage import RecordingAttachmentStorage
 from google.genai import Client as GoogleSDKClient
 from pydantic import SecretStr
-from replicate.client import Client as ReplicateSDKClient
+from replicate import Replicate as ReplicateSDKClient
 from stubs import domain
 from util.di_utils import FakeInterceptor, context_local_interceptor, di_for_tests
+from xai_sdk import Client as XAISDKClient
 
 from db import sql
 from di.di import DI
@@ -161,18 +162,18 @@ class DITest(TestCase):
         di = self.enterContext(di_for_tests())
         google = GoogleSDKClient(api_key = "test-google-key")
         self.addCleanup(google.close)
-        replicate = ReplicateSDKClient(api_token = "test-replicate-key")
+        x_ai = XAISDKClient(api_key = "test-x-ai-key")
         interceptor = FakeInterceptor()
         interceptor.register(GoogleSDKClient, google)
-        interceptor.register(ReplicateSDKClient, replicate)
+        interceptor.register(XAISDKClient, x_ai)
         di = DI(db = di.db, interceptor = interceptor)
 
-        self.assertEqual(GoogleSDKClient.__name__, ReplicateSDKClient.__name__)
+        self.assertEqual(GoogleSDKClient.__name__, XAISDKClient.__name__)
         self.assertIs(di.base_google_ai_client("unused-google-key"), google)
-        self.assertIs(di.base_replicate_client("unused-replicate-key"), replicate)
+        self.assertIs(di.base_x_ai_client(domain.configured_tool()), x_ai)
 
     def test_registration_for_one_client_does_not_handle_another_client_type(self):
-        replicate = ReplicateSDKClient(api_token = "test-replicate-key")
+        replicate = ReplicateSDKClient(bearer_token = "test-replicate-key")
         interceptor = FakeInterceptor()
         interceptor.register(ReplicateSDKClient, replicate)
         self.enterContext(di_for_tests())
