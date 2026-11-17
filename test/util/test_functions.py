@@ -1,13 +1,10 @@
 import unittest
-from io import BytesIO
 
 import stubs
-from PIL import Image
 
 from util.error_codes import UNEXPECTED_ERROR
 from util.errors import ExternalServiceError, InternalError
 from util.functions import (
-    detect_image_format,
     extract_url_from_replicate_result,
     generate_deterministic_short_uuid,
     generate_short_uuid,
@@ -46,40 +43,6 @@ class FunctionsTest(unittest.TestCase):
     def test_silent_lambda_with_exception(self):
         result = silent(lambda: 10 / 0)()
         self.assertIsNone(result)
-
-    def test_detect_image_format(self):
-        pattern = [
-            "bbbbwwww",
-            "bbbbwwww",
-            "bbbbwwww",
-            "bbbbwwww",
-            "wwwwbbbb",
-            "wwwwbbbb",
-            "wwwwbbbb",
-            "wwwwbbbb",
-        ]
-        image = Image.new("RGB", (8, 8))
-        for y, row in enumerate(pattern):
-            for x, pixel in enumerate(row):
-                color = (0, 0, 0) if pixel == "b" else (255, 255, 255)
-                image.putpixel((x, y), color)
-
-        formats = {
-            "PNG": "png",
-            "JPEG": "jpeg",
-            "GIF": "gif",
-            "BMP": "bmp",
-            "WEBP": "webp",
-            "TIFF": "tiff",
-        }
-        for encoded_format, expected in formats.items():
-            with self.subTest(encoded_format = encoded_format):
-                output = BytesIO()
-                image.save(output, format = encoded_format)
-                self.assertEqual(detect_image_format(output.getvalue()), expected)
-
-    def test_detect_image_format_returns_none_for_unknown_content(self):
-        self.assertIsNone(detect_image_format(b"unknown content"))
 
     def test_mask_secret_none(self):
         # noinspection HardcodedPassword

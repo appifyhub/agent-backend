@@ -116,6 +116,38 @@ class SocialCardOrchestratorTest(TestCase):
         self.assertIn(media.url, [url for url, _ in self.http.requests])
         self.assertEqual(list(self.workspaces.iterdir()), [])
 
+    def test_undecodable_photo_renders_like_post_without_photo(self):
+        heights = []
+        for tweet_id, media in (("111111111", []), ("222222222", [stubs.external.tweet_media_item()])):
+            self.tweet.media = media
+            self.http.responses[f"https://api.x.com/2/tweets/{tweet_id}"].append(
+                stubs.external.http_json_response(stubs.external.x_tweet_response(self.tweet)),
+            )
+            if media:
+                self.http.responses[media[0].url].append(stubs.external.http_response(content = b"<html>blocked</html>"))
+
+            result = self.orchestrator.execute(f"https://x.com/user/status/{tweet_id}")
+
+            attachment = self.di.chat_attachment_service.resolve_image_attachments([], [result.public_url])[0]
+            with self.di.attachment_storage.open(attachment) as stream, Image.open(stream) as image:
+                heights.append(image.height)
+        self.assertEqual(heights[0], heights[1])
+        self.assertEqual(list(self.workspaces.iterdir()), [])
+
+    def test_photo_url_without_extension_is_drawn(self):
+        photo_color = (100, 150, 200)
+        media = stubs.external.tweet_media_item(url = "https://pbs.twimg.com/news_img/123/photo?format=png&name=orig")
+        self.tweet.media = [media]
+        self.http.responses[self.api_url].append(stubs.external.http_json_response(stubs.external.x_tweet_response(self.tweet)))
+        self.http.responses[media.url].append(stubs.external.http_response(content = stubs.external.image_bytes(color = photo_color)))
+
+        result = self.orchestrator.execute(self.post_url)
+
+        attachment = self.di.chat_attachment_service.resolve_image_attachments([], [result.public_url])[0]
+        with self.di.attachment_storage.open(attachment) as stream, Image.open(stream) as image:
+            colors = dict((color, count) for count, color in image.convert("RGB").getcolors(image.width * image.height))
+        self.assertGreater(colors.get(photo_color, 0), image.width * 100)
+
     def test_render_failure_raises_external_service_error(self):
         self.http.responses[self.api_url].append(stubs.external.http_json_response(stubs.external.x_tweet_response(self.tweet)))
         # external SVG engine failure is exercised through the real renderer

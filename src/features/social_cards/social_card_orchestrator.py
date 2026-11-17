@@ -102,7 +102,7 @@ class SocialCardOrchestrator:
         return None
 
     def __resolve_assets(self, post: SocialPost, workspace: SocialCardAssetWorkspace) -> SocialPostRenderAssets:
-        avatar_path = workspace.download(post.author.avatar_url) if post.author.avatar_url else None
+        avatar_path = workspace.download_image(post.author.avatar_url) if post.author.avatar_url else None
         media_assets = self.__resolve_media_assets(post, workspace)
         link_preview_assets = self.__resolve_link_preview_assets(post, workspace, has_post_media = bool(media_assets))
         embedded_assets = self.__resolve_assets(post.embedded_post, workspace) if post.embedded_post else None
@@ -120,7 +120,7 @@ class SocialCardOrchestrator:
             media_url = (media.preview_url or media.url) if media.dynamic_media else media.url or media.preview_url
             if not media_url:
                 continue
-            path = workspace.download(media_url)
+            path = workspace.download_image(media_url)
             if path:
                 media_assets.append(SocialMediaAsset(media = media, path = path))
         return media_assets
@@ -164,11 +164,11 @@ class SocialCardOrchestrator:
             og_image_path = None
             if not has_post_media:
                 if link_preview.image_url:
-                    og_image_path = workspace.download(link_preview.image_url)
+                    og_image_path = workspace.download_image(link_preview.image_url)
                 if not og_image_path:
                     fallback_url = fetch_og_image_url(link_preview.expanded_url)
                     if fallback_url:
-                        og_image_path = workspace.download(fallback_url)
+                        og_image_path = workspace.download_image(fallback_url)
             favicon_path = self.__resolve_favicon_path(link_preview.domain, link_preview.expanded_url, workspace)
             link_preview_assets.append(
                 SocialLinkPreviewAsset(
