@@ -4,7 +4,9 @@ from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from features.chat.supported_files import detect_image_format
 from features.web_browsing.photo_downloader import PhotoDownloader
+from util import log
 
 
 class SocialCardAssetWorkspace(AbstractContextManager["SocialCardAssetWorkspace"]):
@@ -34,3 +36,16 @@ class SocialCardAssetWorkspace(AbstractContextManager["SocialCardAssetWorkspace"
         suffix = Path(urlparse(url).path).suffix
         destination = self.new_path(suffix if len(suffix) <= 10 else "")
         return destination if self.__downloader.download_to(url, destination) else None
+
+    def download_image(self, url: str) -> Path | None:
+        path = self.download(url)
+        if not path:
+            return None
+        with path.open("rb") as file:
+            image_format = detect_image_format(file.read(32))
+        if not image_format:
+            path.unlink(missing_ok = True)
+            log.w(f"Discarding unrecognized image from {url}")
+            return None
+        # resvg silently skips local images without a file extension
+        return path.rename(path.with_suffix(f".{image_format}"))
