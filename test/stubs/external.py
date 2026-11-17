@@ -20,9 +20,9 @@ from openai.types import CreateEmbeddingResponse, Embedding
 from openai.types.audio import Transcription
 from perplexity.types.shared.api_public_search_result import APIPublicSearchResult
 from PIL import Image
-from replicate.client import Client as ReplicateClient
-from replicate.helpers import FileOutput
-from replicate.prediction import Prediction
+from replicate import FileOutput
+from replicate import Replicate as ReplicateClient
+from replicate.types import Prediction
 from requests import HTTPError, Response
 from urllib3.response import HTTPResponse
 from xai_sdk.chat import Response as XAIChatResponse
@@ -281,18 +281,27 @@ def whatsapp_mark_as_read_response(**overrides: Any) -> WhatsAppMarkAsReadRespon
 def replicate_prediction(**overrides: Any) -> Prediction:
     defaults = {
         "id": "prediction-123",
+        "created_at": "2026-01-01T00:00:00Z",
+        "data_removed": False,
+        "input": {},
         "model": "test/model",
-        "version": "test-version",
+        "version": "hidden",
         "status": "succeeded",
+        "urls": {
+            "get": "https://api.replicate.com/v1/predictions/prediction-123",
+            "cancel": "https://api.replicate.com/v1/predictions/prediction-123/cancel",
+            "web": "https://replicate.com/p/prediction-123",
+        },
         "output": None,
         "error": None,
         "logs": None,
     }
-    return Prediction(**(defaults | overrides))
+    # built like SDK responses (unvalidated), so provider quirks such as a null version stay representable
+    return Prediction.construct(**(defaults | overrides))
 
 
 def replicate_file_output(url: str = "https://example.com/image.png") -> FileOutput:
-    return FileOutput(url = url, client = ReplicateClient(api_token = "test-token"))
+    return FileOutput(url = url, client = ReplicateClient(bearer_token = "test-token"))
 
 
 def docx_document_bytes(text: str = "A test paragraph.") -> bytes:

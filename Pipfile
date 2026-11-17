@@ -11,7 +11,7 @@ psycopg2-binary = "~=2.9"
 alembic = "~=1.20"
 pydantic = "~=2.14"
 uvicorn = "~=0.54"
-replicate = "~=1.0"
+replicate = "==2.0.0b4"
 pydub = "~=0.25"
 pymupdf = "~=2.1"
 python-jose = { extras = ["cryptography"], version = "~=3.5" }
