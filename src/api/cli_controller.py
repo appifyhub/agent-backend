@@ -8,9 +8,11 @@ from api.model.cli_connect_response import CliConnectResponse
 from api.model.cli_notify_chat_payload import CliNotifyChatPayload
 from api.model.cli_notify_response import CliNotifyResponse
 from api.model.cli_notify_user_payload import CliNotifyUserPayload
+from api.model.cli_status_response import CliStatusResponse
 from di.di import DI
 from features.integrations.integrations import resolve_any_external_handle
 from util import log
+from util.config import config
 from util.error_codes import CLI_ACCESS_REVOKED
 from util.errors import AuthenticationError
 
@@ -21,6 +23,13 @@ class CliController:
 
     def __init__(self, di: DI):
         self.__di = di
+
+    def status(self) -> CliStatusResponse:
+        return CliStatusResponse(
+            status = "ok",
+            service_version = config.version,
+            cli_version = self.__di.cli_version_service.get_version(),
+        )
 
     def connect(self, payload: CliConnectPayload) -> CliConnectResponse:
         log.d("Connecting a CLI")

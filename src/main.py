@@ -40,6 +40,7 @@ from api.model.cli_connect_response import CliConnectResponse
 from api.model.cli_notify_chat_payload import CliNotifyChatPayload
 from api.model.cli_notify_response import CliNotifyResponse
 from api.model.cli_notify_user_payload import CliNotifyUserPayload
+from api.model.cli_status_response import CliStatusResponse
 from api.model.connect_key_response import ConnectKeyResponse
 from api.model.credit_transfer_payload import CreditTransferPayload
 from api.model.external_tools_response import ExternalToolsResponse
@@ -575,6 +576,11 @@ def connect_profiles(
     if not chat_type:
         raise ValidationError(f"Invalid chat type in the access token: {chat_type_str}", INVALID_CHAT_TYPE_TOKEN)
     return di.profile_connect_controller.connect_profiles(user_id_hex, connect_key, chat_type)
+
+
+@app.get("/cli/status")
+def cli_status(db = Depends(get_session)) -> CliStatusResponse:
+    return DI(db).cli_controller.status()
 
 
 @app.post("/cli/connect")
