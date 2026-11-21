@@ -38,8 +38,8 @@ from util.errors import ServiceError
 
 HOSTNAME = "laptop"
 MAX_NOTIFICATION_LENGTH = 4096
-USERNAME_PREFIX = "🖥️ [mark_johnson@laptop] "
-PRIVATE_PREFIX = "🖥️ "
+USERNAME_PREFIX = "🖥️  [mark_johnson@laptop] "
+PRIVATE_PREFIX = "🖥️  "
 
 
 class CliNotifyServiceTest(TestCase):
