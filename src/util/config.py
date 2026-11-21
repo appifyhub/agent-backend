@@ -64,6 +64,7 @@ class Config(metaclass = Singleton):
     jwt_expires_in_minutes: int
     backoffice_url_base: str
     public_api_base_url: str
+    cli_version_url: str
     main_language_name: str = "English"
     main_language_iso_code: str = "en"
     url_shortener_base_url: str
@@ -179,6 +180,7 @@ class Config(metaclass = Singleton):
         def_jwt_expires_in_minutes: int = 30,
         def_backoffice_url_base: str = "http://localhost:5173",
         def_public_api_base_url: str = "http://localhost:80",
+        def_cli_version_url: str = "",
         def_main_language_name: str = "English",
         def_main_language_iso_code: str = "en",
         def_url_shortener_base_url: str = "https://urls.appifyhub.com",
@@ -263,6 +265,7 @@ class Config(metaclass = Singleton):
         self.jwt_expires_in_minutes = int(self.__env("JWT_EXPIRES_IN_MINUTES", lambda: str(def_jwt_expires_in_minutes)))
         self.backoffice_url_base = self.__env("BACKOFFICE_URL_BASE", lambda: def_backoffice_url_base)
         self.public_api_base_url = self.__env("PUBLIC_API_BASE_URL", lambda: def_public_api_base_url).rstrip("/")
+        self.cli_version_url = self.__env("CLI_VERSION_URL", lambda: def_cli_version_url)
         self.main_language_name = self.__env("MAIN_LANGUAGE_NAME", lambda: def_main_language_name)
         self.main_language_iso_code = self.__env("MAIN_LANGUAGE_ISO_CODE", lambda: def_main_language_iso_code)
         self.url_shortener_base_url = self.__env("URL_SHORTENER_BASE_URL", lambda: def_url_shortener_base_url)

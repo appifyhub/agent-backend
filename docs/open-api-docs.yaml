@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: The Agent's user-facing API
   description: The user-facing parts of The Agent's API service (excluding system-level endpoints, chat completion, maintenance endpoints, etc.)
-  version: 5.42.4
+  version: 5.43.0
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -942,6 +942,52 @@ paths:
           $ref: "#/components/responses/ServerError"
       security:
         - bearerAuth: []
+
+  /cli/status:
+    get:
+      summary: Get backend status and CLI update metadata
+      description: >
+        The CLI `status` command makes one anonymous request to this endpoint for backend status, backend version and
+        optional CLI update metadata. A null CLI version suppresses the update warning without affecting backend status
+        or version. If the request fails (for example, an older backend returns 404 or the edge returns 429), the CLI
+        reports that backend information is unavailable. The command's exit code reflects local readiness; use
+        `/health` directly for independent backend health probes.
+      tags:
+        - CLI
+      security: []
+      responses:
+        "200":
+          description: Backend status, backend version and the advertised CLI version if available
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service_version
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    description: Backend status, as reported by `/health`.
+                  service_version:
+                    type: string
+                    description: The backend's running version, as reported by `/health`.
+                  cli_version:
+                    type: string
+                    nullable: true
+                    description: Normalized semantic version, or null when discovery is disabled or unavailable.
+              examples:
+                available:
+                  value:
+                    status: ok
+                    service_version: "5.0.0"
+                    cli_version: "1.2.3"
+                unavailable:
+                  value:
+                    status: ok
+                    service_version: "5.0.0"
+                    cli_version: null
 
   /cli/connect:
     post:
