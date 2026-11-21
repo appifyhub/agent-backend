@@ -155,7 +155,7 @@ class CliControllerTest(TestCase):
 
         self.assertEqual(response.chat_id, group.chat_id.hex)
         sent = [message["text"] for message in self.telegram.get_sent_messages("group-1")]
-        self.assertEqual(sent, ["🖥️ [mark_johnson@build-box-01] Build finished"])
+        self.assertEqual(sent, ["🖥️  [mark_johnson@build-box-01] Build finished"])
 
     def test_unsupported_platform_is_a_validation_error(self):
         with self.assertRaises(ValidationError) as context:

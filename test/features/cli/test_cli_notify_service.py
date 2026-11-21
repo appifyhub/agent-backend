@@ -266,7 +266,7 @@ platforms:
 
         self.__notify_chat(group.chat_id, user = no_username)
 
-        self.assertEqual(self.__sent_texts(group), ["🖥️ [123456789@laptop] Build finished"])
+        self.assertEqual(self.__sent_texts(group), ["🖥️  [123456789@laptop] Build finished"])
 
     def test_forged_prefix_inside_the_message_stays_after_the_real_prefix(self):
         group = self.__save_group(stubs.external.telegram_chat_administrator())
