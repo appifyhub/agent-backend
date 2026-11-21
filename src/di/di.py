@@ -84,6 +84,7 @@ if TYPE_CHECKING:
     from features.cleanup.cleanup_service import CleanupService
     from features.cli.cli_access_service import CliAccessService
     from features.cli.cli_notify_service import CliNotifyService
+    from features.cli.cli_version_service import CliVersionService
     from features.connect.profile_connect_service import ProfileConnectService
     from features.currencies.asset_alert_service import AssetAlertService
     from features.currencies.asset_price_service import AssetPriceService
@@ -162,6 +163,7 @@ class DI:
     _profile_connect_service: "ProfileConnectService | None"
     _cli_access_service: "CliAccessService | None"
     _cli_notify_service: "CliNotifyService | None"
+    _cli_version_service: "CliVersionService | None"
     _authorization_service: "AuthorizationService | None"
     _usage_tracking_service: "UsageTrackingService | None"
     _purchase_service: "PurchaseService | None"
@@ -234,6 +236,7 @@ class DI:
         self._profile_connect_service = None
         self._cli_access_service = None
         self._cli_notify_service = None
+        self._cli_version_service = None
         self._authorization_service = None
         self._usage_tracking_service = None
         self._purchase_service = None
@@ -655,6 +658,14 @@ class DI:
             from features.cli.cli_notify_service import CliNotifyService
             self._cli_notify_service = CliNotifyService(self)
         return self._cli_notify_service
+
+    @property
+    @dependency(cache = "_cli_version_service")
+    def cli_version_service(self) -> "CliVersionService":
+        if self._cli_version_service is None:
+            from features.cli.cli_version_service import CliVersionService
+            self._cli_version_service = CliVersionService(self)
+        return self._cli_version_service
 
     @property
     @dependency(cache = "_purchase_service")

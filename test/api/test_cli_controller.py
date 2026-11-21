@@ -1,18 +1,26 @@
+from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
 from typing import cast
-from unittest import TestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 from uuid import uuid4
 
 import stubs
+from fakes.fake_http_client import FakeHTTPClient
 from fakes.fake_telegram_bot_api import FakeTelegramBotAPI
+from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
+from requests.exceptions import Timeout
+from sqlalchemy.orm import Session
 from util.di_utils import di_for_tests
 
 from api.cli_controller import CliController
 from api.model.cli_chat_response import CliChatResponse
+from db.sql import get_session
 from di.di import DI
 from features.users.user import User
+from main import app
+from util.config import config
 from util.error_codes import (
     CLI_ACCESS_REVOKED,
     INVALID_PLATFORM,
@@ -181,3 +189,77 @@ class CliControllerTest(TestCase):
                 with self.assertRaises(AuthorizationError) as context:
                     call()
                 self.assertEqual(context.exception.error_code, WAITLIST_ACCOUNT_NOT_ACTIVE)
+
+
+class CliStatusRouteTest(IsolatedAsyncioTestCase):
+
+    di: DI
+    http: FakeHTTPClient
+    client: AsyncClient
+    cache_unavailable: bool
+    sessions_opened: int
+
+    async def asyncSetUp(self):
+        self.addCleanup(setattr, config, "cli_version_url", config.cli_version_url)
+        self.addCleanup(setattr, config, "version", config.version)
+        config.cli_version_url = "https://example.com/main/VERSION"
+        config.version = "5.0.0"
+        self.di = self.enterContext(di_for_tests())
+        self.http = cast(FakeHTTPClient, self.di.http_client())
+        self.cache_unavailable = False
+        self.sessions_opened = 0
+        self.addCleanup(setattr, app, "dependency_overrides", app.dependency_overrides)
+        app.dependency_overrides = {**app.dependency_overrides, get_session: self._request_session}
+        self.client = await self.enterAsyncContext(AsyncClient(
+            transport = ASGITransport(app = app),
+            base_url = "http://test",
+        ))
+
+    def _request_session(self) -> Iterator[Session]:
+        self.sessions_opened += 1
+        with self.di.new_session() as session:
+            if self.cache_unavailable:
+                # invalidate an active connection so the real repository cannot query until rollback
+                session.connection().invalidate()
+            yield session
+
+    async def test_anonymous_status_reports_backend_and_advertised_cli_versions(self):
+        self.http.responses[config.cli_version_url].append(stubs.external.http_response(content = b" v1.2.3\n"))
+
+        response = await self.client.get("/cli/status", params = {"url": "https://example.com/other/VERSION"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "service_version": "5.0.0", "cli_version": "1.2.3"})
+        self.assertEqual([url for url, _ in self.http.requests], [config.cli_version_url])
+
+    async def test_status_keeps_backend_fields_when_source_times_out(self):
+        self.http.responses[config.cli_version_url].append(Timeout())
+
+        health = await self.client.get("/health")
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json(), {"status": "ok", "version": "5.0.0"})
+        self.assertEqual(self.http.requests, [])
+        self.assertEqual(self.sessions_opened, 0)
+
+        response = await self.client.get("/cli/status")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "service_version": "5.0.0", "cli_version": None})
+        self.assertEqual([url for url, _ in self.http.requests], [config.cli_version_url])
+
+    async def test_health_does_not_depend_on_the_metadata_cache(self):
+        self.cache_unavailable = True
+
+        response = await self.client.get("/cli/status")
+        health = await self.client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "service_version": "5.0.0", "cli_version": None})
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json(), {"status": "ok", "version": "5.0.0"})
+        self.assertEqual(self.http.requests, [])
+        self.assertEqual(self.sessions_opened, 1)
+
+    async def test_cli_chats_still_requires_credentials(self):
+        response = await self.client.get("/cli/chats")
+
+        self.assertEqual(response.status_code, 401)

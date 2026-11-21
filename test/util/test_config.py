@@ -56,6 +56,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.jwt_expires_in_minutes, 30)
         self.assertEqual(config.backoffice_url_base, "http://localhost:5173")
         self.assertEqual(config.public_api_base_url, "http://localhost:80")
+        self.assertEqual(config.cli_version_url, "")
         self.assertEqual(config.main_language_name, "English")
         self.assertEqual(config.main_language_iso_code, "en")
         self.assertEqual(config.url_shortener_base_url, "https://urls.appifyhub.com")
@@ -137,6 +138,7 @@ class ConfigTest(unittest.TestCase):
         os.environ["JWT_EXPIRES_IN_MINUTES"] = "10"
         os.environ["BACKOFFICE_URL_BASE"] = "https://example.com"
         os.environ["PUBLIC_API_BASE_URL"] = "https://api.example.com"
+        os.environ["CLI_VERSION_URL"] = " https://example.com/custom/ref/VERSION?channel=beta "
         os.environ["MAIN_LANGUAGE_NAME"] = "German"
         os.environ["MAIN_LANGUAGE_ISO_CODE"] = "de"
         os.environ["URL_SHORTENER_BASE_URL"] = "https://custom.to.appifyhub.com"
@@ -221,6 +223,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.jwt_expires_in_minutes, 10)
         self.assertEqual(config.backoffice_url_base, "https://example.com")
         self.assertEqual(config.public_api_base_url, "https://api.example.com")
+        self.assertEqual(config.cli_version_url, "https://example.com/custom/ref/VERSION?channel=beta")
         self.assertEqual(config.main_language_name, "German")
         self.assertEqual(config.main_language_iso_code, "de")
         self.assertEqual(config.url_shortener_base_url, "https://custom.to.appifyhub.com")
