@@ -1067,9 +1067,10 @@ paths:
     post:
       summary: Send a notification to the owner
       description: >
-        Send a plain-text message to the owner's private chat, starting with a `🖥️ ` prefix. Without a platform the best private chat is used.
-        The owner must have accepted the policies and be active (not on the waitlist). Normal delivery billing applies,
-        and the returned balance includes this delivery's charge.
+        Send a plain-text message to the owner's private chat, prefixed with `🖥️  [<identity>@<hostname>] `.
+        The prefix uses the owner's platform handle (or platform ID) and the hostname from the CLI token.
+        Without a platform the best private chat is used. The owner must have accepted the policies and be active (not on the waitlist).
+        Normal delivery billing applies, and the returned balance includes this delivery's charge.
       operationId: notifyCliUser
       tags: [CLI]
       parameters:
@@ -1123,9 +1124,10 @@ paths:
     post:
       summary: Send a notification to a chat
       description: >
-        Send a plain-text message to a chat the owner administers. Every message starts with `🖥️ `, and in group chats it continues with a
-        `[<identity>@<hostname>] ` prefix naming the owner and the client's host, and messages that exceed the platform's limit
-        are cut at the end with an ellipsis, keeping the prefix whole. The owner must have accepted the policies and be active.
+        Send a plain-text message to a chat the owner administers. In both private and group chats, the message is prefixed with
+        `🖥️  [<identity>@<hostname>] `, using the owner's platform handle (or platform ID) and the hostname from the CLI token.
+        Messages that exceed the platform's limit are cut at the end with an ellipsis, keeping the prefix whole.
+        The owner must have accepted the policies and be active.
         Normal delivery billing applies, and the returned balance includes this delivery's charge.
       operationId: notifyCliChat
       tags: [CLI]
