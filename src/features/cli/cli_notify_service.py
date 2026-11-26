@@ -90,9 +90,8 @@ class CliNotifyService:
         return CliNotifyService.Delivery(chat = chat, user = owner)
 
     def __compose_text(self, hostname: str, chat: ChatConfig, text: str) -> str:
-        # format the message as '🖥️  [user@host] <message>' in groups and '🖥️  <message>' in private chats
         identity = resolve_external_handle(self.__di.invoker, chat.chat_type) or resolve_external_id(self.__di.invoker, chat.chat_type)  # ruff: ignore[line-too-long]
-        prefix = "🖥️  " + ("" if chat.is_private else f"[{identity}@{hostname}] ")
+        prefix = f"🖥️  [{identity}@{hostname}] "
         limit = resolve_text_message_limit(chat.chat_type)
         full_text = prefix + text
         if limit is None or measure_text_message_length(full_text, chat.chat_type) <= limit:
